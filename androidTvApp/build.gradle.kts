@@ -22,11 +22,11 @@ fun secret(key: String): String? =
     providers.environmentVariable(key).orNull?.takeIf { it.isNotBlank() }
         ?: localProps.getProperty(key)?.takeIf { it.isNotBlank() }
 
-val keystoreFile = secret("SIGNAL_KEYSTORE_FILE")?.let(rootProject::file)
-val keystorePassword = secret("SIGNAL_KEYSTORE_PASSWORD")
-val keyAlias = secret("SIGNAL_KEY_ALIAS")
-val keyPassword = secret("SIGNAL_KEY_PASSWORD")
-val canSignRelease = keystoreFile != null && keystorePassword != null && keyAlias != null && keyPassword != null
+val releaseStoreFile = secret("SIGNAL_KEYSTORE_FILE")?.let(rootProject::file)
+val releaseStorePassword = secret("SIGNAL_KEYSTORE_PASSWORD")
+val releaseKeyAlias = secret("SIGNAL_KEY_ALIAS")
+val releaseKeyPassword = secret("SIGNAL_KEY_PASSWORD")
+val canSignRelease = releaseStoreFile != null && releaseStorePassword != null && releaseKeyAlias != null && releaseKeyPassword != null
 
 android {
     namespace = "com.signal.tv"
@@ -45,10 +45,10 @@ android {
     signingConfigs {
         create("release") {
             if (canSignRelease) {
-                storeFile = keystoreFile
-                storePassword = keystorePassword
-                this.keyAlias = keyAlias
-                this.keyPassword = keyPassword
+                storeFile = releaseStoreFile
+                storePassword = releaseStorePassword
+                keyAlias = releaseKeyAlias
+                keyPassword = releaseKeyPassword
             }
         }
     }
