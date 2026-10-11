@@ -1,0 +1,21 @@
+-- Key/value settings with their scope (PLAN §9.1): 'household' (owner ''), 'profile' (owner =
+-- profile ID) or 'device' (owner = device ID).
+CREATE TABLE setting (
+    scope TEXT NOT NULL,
+    owner_id TEXT NOT NULL,
+    key TEXT NOT NULL,
+    value TEXT NOT NULL,
+    PRIMARY KEY (scope, owner_id, key)
+);
+
+get:
+SELECT value FROM setting WHERE scope = ? AND owner_id = ? AND key = ?;
+
+put:
+INSERT OR REPLACE INTO setting(scope, owner_id, key, value) VALUES (?, ?, ?, ?);
+
+remove:
+DELETE FROM setting WHERE scope = ? AND owner_id = ? AND key = ?;
+
+all:
+SELECT * FROM setting;

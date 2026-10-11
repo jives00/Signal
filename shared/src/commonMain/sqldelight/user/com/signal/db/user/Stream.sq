@@ -1,0 +1,62 @@
+-- Cached source data, rebuilt on every source refresh and never edited (PLAN §4.5).
+-- display_name is the raw name after character clean-up (PLAN §4.3.2); search uses both.
+CREATE TABLE stream (
+    id TEXT NOT NULL PRIMARY KEY,
+    source_id TEXT NOT NULL,
+    provider_id TEXT NOT NULL,
+    raw_name TEXT NOT NULL,
+    display_name TEXT NOT NULL,
+    group_name TEXT NOT NULL,
+    logo_url TEXT,
+    tvg_id TEXT,
+    provider_number INTEGER,
+    position INTEGER NOT NULL,
+    url TEXT,
+    headers TEXT
+);
+
+CREATE INDEX stream_group ON stream(source_id, group_name, position);
+
+insert:
+INSERT OR REPLACE INTO stream(id, source_id, provider_id, raw_name, display_name, group_name, logo_url, tvg_id, provider_number, position, url, headers)
+VALUES ?;
+
+deleteForSource:
+DELETE FROM stream WHERE source_id = ?;
+
+countForSource:
+SELECT count(*) FROM stream WHERE source_id = ?;
+
+byId:
+SELECT * FROM stream WHERE id = ?;
+
+-- Provider groups in provider order (the order the group first appears in the list).
+groups:
+SELECT s.source_id, s.group_name, count(*) AS channel_count, min(s.position) AS first_position
+FROM stream s
+JOIN source src ON src.id = s.source_id AND src.enabled = 1
+GROUP BY s.source_id, s.group_name
+ORDER BY src.created_at, first_position;
+
+-- One provider group's channels merged with the user's record of each, for one profile.
+channelsInGroup:
+SELECT s.*, cl.user_channel_id,
+       cp.custom_name, cp.custom_logo, cp.custom_number, coalesce(cp.hidden, 0) AS hidden,
+       (f.user_channel_id IS NOT NULL) AS is_favorite
+FROM stream s
+LEFT JOIN channel_link cl ON cl.stream_id = s.id
+LEFT JOIN channel_profile cp ON cp.user_channel_id = cl.user_channel_id AND cp.profile_id = :profileId
+LEFT JOIN favorite f ON f.user_channel_id = cl.user_channel_id AND f.profile_id = :profileId
+WHERE s.source_id = :sourceId AND s.group_name = :groupName
+ORDER BY s.position;
+
+-- Every visible channel of a source, for number-key jumps and "first visible channel".
+channelByIdWithUser:
+SELECT s.*, cl.user_channel_id,
+       cp.custom_name, cp.custom_logo, cp.custom_number, coalesce(cp.hidden, 0) AS hidden,
+       (f.user_channel_id IS NOT NULL) AS is_favorite
+FROM stream s
+LEFT JOIN channel_link cl ON cl.stream_id = s.id
+LEFT JOIN channel_profile cp ON cp.user_channel_id = cl.user_channel_id AND cp.profile_id = :profileId
+LEFT JOIN favorite f ON f.user_channel_id = cl.user_channel_id AND f.profile_id = :profileId
+WHERE s.id = :streamId;

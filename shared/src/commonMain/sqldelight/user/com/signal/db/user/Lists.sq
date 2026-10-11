@@ -1,0 +1,137 @@
+-- Profile scope (PLAN §9.1). Ordered lists use fractional index keys (PLAN §5.4): a move
+-- rewrites only the moved item's sort_key.
+
+CREATE TABLE favorite (
+    profile_id TEXT NOT NULL,
+    user_channel_id TEXT NOT NULL,
+    sort_key TEXT NOT NULL,
+    PRIMARY KEY (profile_id, user_channel_id)
+);
+
+CREATE TABLE playlist (
+    id TEXT NOT NULL PRIMARY KEY,
+    profile_id TEXT NOT NULL,
+    name TEXT NOT NULL,
+    sort_key TEXT NOT NULL
+);
+
+CREATE TABLE playlist_item (
+    playlist_id TEXT NOT NULL,
+    user_channel_id TEXT NOT NULL,
+    sort_key TEXT NOT NULL,
+    PRIMARY KEY (playlist_id, user_channel_id)
+);
+
+-- Per-group settings: hide, rename, sort, manual position (PLAN §4.2 → Group menu).
+CREATE TABLE group_override (
+    profile_id TEXT NOT NULL,
+    source_id TEXT NOT NULL,
+    group_name TEXT NOT NULL,
+    hidden INTEGER NOT NULL DEFAULT 0,
+    custom_name TEXT,
+    channel_sort TEXT,
+    sort_key TEXT,
+    PRIMARY KEY (profile_id, source_id, group_name)
+);
+
+-- Favorites --------------------------------------------------------------------------------
+
+favoriteChannels:
+SELECT s.*, f.user_channel_id AS fav_user_channel_id,
+       cp.custom_name, cp.custom_logo, cp.custom_number, coalesce(cp.hidden, 0) AS hidden, f.sort_key
+FROM favorite f
+JOIN channel_link cl ON cl.user_channel_id = f.user_channel_id
+JOIN stream s ON s.id = cl.stream_id
+JOIN source src ON src.id = s.source_id AND src.enabled = 1
+LEFT JOIN channel_profile cp ON cp.user_channel_id = f.user_channel_id AND cp.profile_id = f.profile_id
+WHERE f.profile_id = ?
+GROUP BY f.user_channel_id
+ORDER BY f.sort_key;
+
+addFavorite:
+INSERT OR IGNORE INTO favorite(profile_id, user_channel_id, sort_key) VALUES (?, ?, ?);
+
+removeFavorite:
+DELETE FROM favorite WHERE profile_id = ? AND user_channel_id = ?;
+
+lastFavoriteKey:
+SELECT max(sort_key) FROM favorite WHERE profile_id = ?;
+
+favoriteKeys:
+SELECT user_channel_id, sort_key FROM favorite WHERE profile_id = ? ORDER BY sort_key;
+
+setFavoriteKey:
+UPDATE favorite SET sort_key = ? WHERE profile_id = ? AND user_channel_id = ?;
+
+-- Playlists --------------------------------------------------------------------------------
+
+playlists:
+SELECT * FROM playlist WHERE profile_id = ? ORDER BY sort_key;
+
+insertPlaylist:
+INSERT INTO playlist(id, profile_id, name, sort_key) VALUES (?, ?, ?, ?);
+
+renamePlaylist:
+UPDATE playlist SET name = ? WHERE id = ?;
+
+setPlaylistKey:
+UPDATE playlist SET sort_key = ? WHERE id = ?;
+
+deletePlaylist:
+DELETE FROM playlist WHERE id = ?;
+
+deletePlaylistItems:
+DELETE FROM playlist_item WHERE playlist_id = ?;
+
+lastPlaylistKey:
+SELECT max(sort_key) FROM playlist WHERE profile_id = ?;
+
+playlistChannels:
+SELECT s.*, pi.user_channel_id AS item_user_channel_id,
+       cp.custom_name, cp.custom_logo, cp.custom_number, coalesce(cp.hidden, 0) AS hidden,
+       (f.user_channel_id IS NOT NULL) AS is_favorite, pi.sort_key
+FROM playlist_item pi
+JOIN playlist p ON p.id = pi.playlist_id
+JOIN channel_link cl ON cl.user_channel_id = pi.user_channel_id
+JOIN stream s ON s.id = cl.stream_id
+JOIN source src ON src.id = s.source_id AND src.enabled = 1
+LEFT JOIN channel_profile cp ON cp.user_channel_id = pi.user_channel_id AND cp.profile_id = p.profile_id
+LEFT JOIN favorite f ON f.user_channel_id = pi.user_channel_id AND f.profile_id = p.profile_id
+WHERE pi.playlist_id = ?
+GROUP BY pi.user_channel_id
+ORDER BY pi.sort_key;
+
+addPlaylistItem:
+INSERT OR IGNORE INTO playlist_item(playlist_id, user_channel_id, sort_key) VALUES (?, ?, ?);
+
+removePlaylistItem:
+DELETE FROM playlist_item WHERE playlist_id = ? AND user_channel_id = ?;
+
+lastPlaylistItemKey:
+SELECT max(sort_key) FROM playlist_item WHERE playlist_id = ?;
+
+playlistItemKeys:
+SELECT user_channel_id, sort_key FROM playlist_item WHERE playlist_id = ? ORDER BY sort_key;
+
+setPlaylistItemKey:
+UPDATE playlist_item SET sort_key = ? WHERE playlist_id = ? AND user_channel_id = ?;
+
+-- Group overrides --------------------------------------------------------------------------
+
+groupOverrides:
+SELECT * FROM group_override WHERE profile_id = ?;
+
+ensureGroupOverride:
+INSERT OR IGNORE INTO group_override(profile_id, source_id, group_name) VALUES (?, ?, ?);
+
+setGroupHidden:
+UPDATE group_override SET hidden = ? WHERE profile_id = ? AND source_id = ? AND group_name = ?;
+
+setGroupName:
+UPDATE group_override SET custom_name = ? WHERE profile_id = ? AND source_id = ? AND group_name = ?;
+
+setGroupChannelSort:
+UPDATE group_override SET channel_sort = ? WHERE profile_id = ? AND source_id = ? AND group_name = ?;
+
+setGroupSortKey:
+UPDATE group_override SET sort_key = ? WHERE profile_id = ? AND source_id = ? AND group_name = ?;

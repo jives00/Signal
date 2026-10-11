@@ -1,0 +1,87 @@
+-- The user channel, split by scope (PLAN §5.4):
+--   user_channel + channel_link: household, shared by every device.
+--   channel_profile: one row per user channel per profile.
+
+CREATE TABLE user_channel (
+    id TEXT NOT NULL PRIMARY KEY,
+    created_at INTEGER NOT NULL
+);
+
+-- A stream links to at most one user channel; a user channel can link to several streams.
+CREATE TABLE channel_link (
+    user_channel_id TEXT NOT NULL,
+    stream_id TEXT NOT NULL UNIQUE,
+    kind TEXT NOT NULL DEFAULT 'manual',
+    preferred INTEGER NOT NULL DEFAULT 1,
+    PRIMARY KEY (user_channel_id, stream_id)
+);
+
+CREATE TABLE channel_profile (
+    user_channel_id TEXT NOT NULL,
+    profile_id TEXT NOT NULL,
+    custom_name TEXT,
+    custom_logo TEXT,
+    custom_number INTEGER,
+    hidden INTEGER NOT NULL DEFAULT 0,
+    audio_language TEXT,
+    subtitle TEXT,
+    aspect TEXT,
+    PRIMARY KEY (user_channel_id, profile_id)
+);
+
+insertUserChannel:
+INSERT INTO user_channel(id, created_at) VALUES (?, ?);
+
+insertLink:
+INSERT OR IGNORE INTO channel_link(user_channel_id, stream_id, kind, preferred) VALUES (?, ?, ?, ?);
+
+userChannelForStream:
+SELECT user_channel_id FROM channel_link WHERE stream_id = ?;
+
+-- The stream a user channel plays: the preferred link whose source is enabled.
+preferredStream:
+SELECT s.* FROM channel_link cl
+JOIN stream s ON s.id = cl.stream_id
+JOIN source src ON src.id = s.source_id AND src.enabled = 1
+WHERE cl.user_channel_id = ?
+ORDER BY cl.preferred DESC
+LIMIT 1;
+
+ensureProfileRow:
+INSERT OR IGNORE INTO channel_profile(user_channel_id, profile_id) VALUES (?, ?);
+
+profileRow:
+SELECT * FROM channel_profile WHERE user_channel_id = ? AND profile_id = ?;
+
+setCustomName:
+UPDATE channel_profile SET custom_name = ? WHERE user_channel_id = ? AND profile_id = ?;
+
+setCustomNumber:
+UPDATE channel_profile SET custom_number = ? WHERE user_channel_id = ? AND profile_id = ?;
+
+setCustomLogo:
+UPDATE channel_profile SET custom_logo = ? WHERE user_channel_id = ? AND profile_id = ?;
+
+setHidden:
+UPDATE channel_profile SET hidden = ? WHERE user_channel_id = ? AND profile_id = ?;
+
+setAudioLanguage:
+UPDATE channel_profile SET audio_language = ? WHERE user_channel_id = ? AND profile_id = ?;
+
+setSubtitle:
+UPDATE channel_profile SET subtitle = ? WHERE user_channel_id = ? AND profile_id = ?;
+
+setAspect:
+UPDATE channel_profile SET aspect = ? WHERE user_channel_id = ? AND profile_id = ?;
+
+resetToProviderDefaults:
+UPDATE channel_profile SET custom_name = NULL, custom_logo = NULL, custom_number = NULL WHERE user_channel_id = ? AND profile_id = ?;
+
+hiddenChannels:
+SELECT s.*, cl.user_channel_id, cp.custom_name
+FROM channel_profile cp
+JOIN channel_link cl ON cl.user_channel_id = cp.user_channel_id
+JOIN stream s ON s.id = cl.stream_id
+WHERE cp.profile_id = ? AND cp.hidden = 1
+GROUP BY cp.user_channel_id
+ORDER BY coalesce(cp.custom_name, s.display_name);
