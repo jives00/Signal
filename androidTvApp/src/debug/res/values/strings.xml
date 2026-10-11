@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- So the debug build is easy to tell apart on the Shield's home screen. -->
+    <string name="app_name">Signal (debug)</string>
+</resources>

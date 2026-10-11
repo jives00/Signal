@@ -1,0 +1,30 @@
+# Local only, synced by Synology Drive instead of git (PLAN §1)
+.claude/
+fixtures-private/
+# Design handoff: reference only, and it holds an old copy of the local-only plan
+design/
+
+# Secrets: never committed (PLAN §1)
+local.properties
+devApp/dev-key.properties
+*.jks
+*.keystore
+.env
+.env.*
+
+# Gradle / Kotlin
+.gradle/
+.kotlin/
+build/
+captures/
+
+# Node (web/, milestone 3)
+node_modules/
+dist/
+
+# IDEs and OS
+.idea/
+*.iml
+.vscode/
+.DS_Store
+Thumbs.db
