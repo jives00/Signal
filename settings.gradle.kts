@@ -31,7 +31,8 @@ dependencyResolutionManagement {
     }
 }
 
-// server/ (Ktor) and web/ (Vite) arrive in milestone 3 with the NAS companion.
+// server/ is the NAS companion (Ktor); web/ (Vite) is built by pnpm, outside Gradle.
 include(":shared")
 include(":androidTvApp")
 include(":devApp")
+include(":server")

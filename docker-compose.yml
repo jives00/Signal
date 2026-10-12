@@ -1,0 +1,26 @@
+# The NAS companion and web admin (PLAN §5.2). Lives at /volume2/docker/signal on the NAS, next to
+# a .env holding DB_HOST, DB_PORT, DB_USER, DB_PASSWORD, DB_NAME and SIGNAL_SECRET_KEY (PLAN §5.9).
+# Everything else is a web admin setting, not an env var.
+services:
+  signal:
+    image: ghcr.io/jives00/signal:latest
+    container_name: signal
+    ports:
+      - "3013:3013"
+    env_file:
+      - .env
+    environment:
+      - PORT=3013
+      - DATA_DIR=/data
+      # Logs read in local time; the nightly schedule uses its own named time zone either way.
+      - TZ=America/Chicago
+    volumes:
+      # guide.db builds, cached images and logs.
+      - /volume2/docker/signal/data:/data
+    networks:
+      - shared-db
+    restart: unless-stopped
+
+networks:
+  shared-db:
+    external: true

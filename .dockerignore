@@ -1,0 +1,4 @@
+# Only the prebuilt server and web admin go into the image (Dockerfile).
+*
+!server/build/install/
+!web/dist/

@@ -1,0 +1,98 @@
+/*
+ * The app's design tokens as CSS variables (PLAN §3, §4.3.18): dark slate, blue accent, Archivo,
+ * square corners, 2px dividers. Desktop sizes, not the TV's 10-foot ones. Mirrors
+ * shared/src/commonMain/kotlin/com/signal/ui/theme/Tokens.kt; keep the two in step.
+ */
+@font-face { font-family: Archivo; font-weight: 400; src: url("/fonts/archivo_400.ttf") format("truetype"); }
+@font-face { font-family: Archivo; font-weight: 600; src: url("/fonts/archivo_600.ttf") format("truetype"); }
+@font-face { font-family: Archivo; font-weight: 800; src: url("/fonts/archivo_800.ttf") format("truetype"); }
+
+:root {
+  --bg: #30343b;
+  --surface: #3a3f47;
+  --text: #eceef1;
+  --divider: rgba(236, 238, 241, 0.22);
+  --accent: #2f6fe8;
+  --accent-600: #2860cc;
+  --accent-text: #9cc0ff;
+  --tag-bg: #24365a;
+  --tag-text: #bcd4ff;
+  --on-accent: #ffffff;
+  --neutral-300: #474c55;
+  --muted: #aeb4bd;
+  --secondary-text: #d3d7dd;
+  --ok: #4caf7a;
+  --warn: #e0a83a;
+  --error: #e05a5a;
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+
+html, body, #root { height: 100%; margin: 0; }
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: Archivo, system-ui, sans-serif;
+  font-size: 15px;
+}
+
+a { color: inherit; text-decoration: none; }
+
+.layout { display: flex; min-height: 100%; }
+
+.sidebar {
+  width: 240px;
+  flex-shrink: 0;
+  border-right: 2px solid var(--divider);
+  padding: 20px 0;
+}
+
+.wordmark { font-weight: 800; font-size: 22px; padding: 0 24px 20px; letter-spacing: -0.02em; }
+.wordmark span { color: var(--accent); }
+
+.nav a {
+  display: block;
+  padding: 10px 24px;
+  font-weight: 600;
+  color: var(--muted);
+}
+.nav a:hover { color: var(--text); background: var(--surface); }
+.nav a.active { color: var(--on-accent); background: var(--accent); }
+.nav .soon { color: var(--neutral-300); padding: 10px 24px; font-weight: 600; cursor: default; }
+
+.main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+
+.topbar {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 14px 32px;
+  border-bottom: 2px solid var(--divider);
+}
+.topbar .spacer { flex: 1; }
+
+.dot { width: 10px; height: 10px; display: inline-block; background: var(--neutral-300); }
+.dot.ok { background: var(--ok); }
+.dot.warn { background: var(--warn); }
+.dot.error { background: var(--error); }
+
+.page { padding: 28px 32px; }
+.page h1 { font-weight: 800; font-size: 28px; margin: 0 0 20px; letter-spacing: -0.02em; }
+
+.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 16px; }
+.card { background: var(--surface); padding: 18px 20px; }
+.card h2 { font-size: 13px; font-weight: 600; color: var(--muted); margin: 0 0 8px; text-transform: uppercase; letter-spacing: 0.04em; }
+.card .value { font-size: 22px; font-weight: 800; }
+.card .detail { color: var(--muted); margin-top: 6px; }
+
+/* Phone usable (PLAN §4.3.18): the sidebar becomes a strip above the page, and nothing scrolls sideways. */
+@media (max-width: 760px) {
+  .layout { flex-direction: column; }
+  .sidebar { width: auto; border-right: none; border-bottom: 2px solid var(--divider); padding: 12px 0 0; }
+  .wordmark { padding: 0 16px 8px; }
+  .nav { display: flex; overflow-x: auto; }
+  .nav a, .nav .soon { white-space: nowrap; padding: 10px 14px; }
+  .topbar, .page { padding-left: 16px; padding-right: 16px; }
+}

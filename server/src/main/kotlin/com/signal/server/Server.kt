@@ -1,0 +1,110 @@
+package com.signal.server
+
+import io.ktor.http.ContentType
+import io.ktor.http.HttpStatusCode
+import io.ktor.serialization.kotlinx.json.json
+import io.ktor.server.application.Application
+import io.ktor.server.application.createRouteScopedPlugin
+import io.ktor.server.application.install
+import io.ktor.server.plugins.calllogging.CallLogging
+import io.ktor.server.plugins.contentnegotiation.ContentNegotiation
+import io.ktor.server.plugins.origin
+import io.ktor.server.plugins.statuspages.StatusPages
+import io.ktor.server.request.path
+import io.ktor.server.response.respond
+import io.ktor.server.response.respondFile
+import io.ktor.server.response.respondText
+import io.ktor.server.routing.Route
+import io.ktor.server.routing.RouteSelector
+import io.ktor.server.routing.RouteSelectorEvaluation
+import io.ktor.server.routing.RoutingResolveContext
+import io.ktor.server.routing.get
+import io.ktor.server.routing.route
+import io.ktor.server.routing.routing
+import kotlinx.serialization.Serializable
+import org.slf4j.event.Level
+import java.io.File
+
+@Serializable
+data class Health(val status: String, val version: String, val database: String)
+
+@Serializable
+data class Status(val version: String, val database: String, val secretKey: Boolean)
+
+/** Everything the routes need, so tests can build the app without a database. */
+class Companion(val config: Config, val database: Database?) {
+    val version: String =
+        Companion::class.java.getResourceAsStream("/signal-version.txt")?.bufferedReader()?.readText()?.trim()?.takeIf { it.isNotEmpty() && !it.startsWith("$") } ?: "dev"
+
+    fun databaseState(): String = database?.let { if (it.ping()) "ok" else "unreachable" } ?: "not configured"
+}
+
+fun Application.signalModule(companion: Companion) {
+    install(ContentNegotiation) { json() }
+    install(CallLogging) {
+        level = Level.INFO
+        // Health checks every minute from devdash and Docker would drown everything else.
+        filter { it.request.path() != "/health" }
+    }
+    install(StatusPages) {
+        exception<Throwable> { call, cause ->
+            call.application.environment.log.error("Request failed: ${call.request.path()}", cause)
+            call.respondText("Something went wrong", status = HttpStatusCode.InternalServerError)
+        }
+    }
+
+    routing {
+        // For devdash and Docker: open to all, and says whether the database answers.
+        get("/health") {
+            val db = companion.databaseState()
+            val ok = db == "ok"
+            call.respond(if (ok) HttpStatusCode.OK else HttpStatusCode.ServiceUnavailable, Health(if (ok) "ok" else "degraded", companion.version, db))
+        }
+
+        // The web admin and its API: network trust only (PLAN §5.7). Device endpoints, which use a
+        // per-device API key instead, arrive with pairing.
+        trusted {
+            route("/api") {
+                get("/status") { call.respond(Status(companion.version, companion.databaseState(), companion.config.secretKey != null)) }
+            }
+            webAdmin(File(companion.config.webDir))
+        }
+    }
+}
+
+/** Routes inside are network-trust only. A transparent node, like Ktor's authenticate { }: it adds no path. */
+fun Route.trusted(build: Route.() -> Unit): Route {
+    val node = createChild(object : RouteSelector() {
+        override suspend fun evaluate(context: RoutingResolveContext, segmentIndex: Int) = RouteSelectorEvaluation.Transparent
+        override fun toString() = "(trusted)"
+    })
+    node.install(TrustedOnly)
+    node.build()
+    return node
+}
+
+/** Refuses anything not on the LAN or Tailscale, or that came through Cloudflare. */
+val TrustedOnly = createRouteScopedPlugin("TrustedOnly") {
+    onCall { call ->
+        if (!NetworkTrust.isTrusted(call.request.origin.remoteAddress, call.request.headers.names())) {
+            call.respondText("Signal's admin is only available on the home network or Tailscale.", ContentType.Text.Plain, HttpStatusCode.Forbidden)
+        }
+    }
+}
+
+/** The built single-page app: real files as themselves, every other path gets index.html. */
+private fun Route.webAdmin(dir: File) {
+    get("{path...}") {
+        val requested = call.parameters.getAll("path").orEmpty().joinToString("/")
+        val root = dir.canonicalFile
+        val file = File(root, requested).canonicalFile
+        val index = File(root, "index.html")
+        when {
+            // Never serve anything outside the web directory.
+            file.path.startsWith(root.path) && file.isFile -> call.respondFile(file)
+            requested.startsWith("api/") -> call.respondText("Not found", status = HttpStatusCode.NotFound)
+            index.isFile -> call.respondFile(index)
+            else -> call.respondText("The web admin isn't built. Run pnpm build in web/.", status = HttpStatusCode.NotFound)
+        }
+    }
+}
