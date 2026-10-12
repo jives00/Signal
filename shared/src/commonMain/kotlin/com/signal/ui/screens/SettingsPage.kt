@@ -56,7 +56,9 @@ import kotlin.time.Instant
 private enum class Section(val title: String) {
     SOURCES("Sources"),
     CHANNELS("Channels & groups"),
+    LIVE_TV("Live TV & guide"),
     APPEARANCE("Appearance"),
+    GUIDE_DATA("Guide data"),
     ABOUT("About & updates"),
 }
 
@@ -96,7 +98,9 @@ fun SettingsPage() {
                     adding || editing != null -> SourceForm(editing, onDone = { adding = false; editing = null }, onCancel = { adding = false; editing = null })
                     section == Section.SOURCES -> SourcesSection(app, onAdd = { adding = true }, onEdit = { editing = it }, returnTo = contentFocus)
                     section == Section.CHANNELS -> ChannelsSection(app, contentFocus)
+                    section == Section.LIVE_TV -> LiveTvGuideSection(app, contentFocus)
                     section == Section.APPEARANCE -> AppearanceSection(app, contentFocus)
+                    section == Section.GUIDE_DATA -> GuideDataSection(app)
                     section == Section.ABOUT -> AboutSection(app)
                 }
             }
@@ -126,6 +130,8 @@ fun SettingsPage() {
 private fun SourcesSection(app: AppController, onAdd: () -> Unit, onEdit: (Source) -> Unit, returnTo: FocusRequester) {
     val sources by app.sourceList.collectAsState()
     val c = SignalTheme.colors
+    val guideState by app.guide.state.collectAsState()
+    val epgCounts by produceState(emptyMap<String, Pair<Long, Long>>(), guideState) { value = app.guide.counts() }
     LazyColumn(Modifier.width(1100.dp)) {
         item { SectionTitle("Sources") }
         items(sources, key = { it.id }) { s ->
@@ -139,7 +145,7 @@ private fun SourcesSection(app: AppController, onAdd: () -> Unit, onEdit: (Sourc
             ListRow("${s.name} · ${kindLabel(s.kind)}", detail = detail, onSelect = { app.panel.open(sourceActions(app, s, onEdit), returnTo) })
         }
         item { ListRow("Add source", detail = "M3U or Xtream Codes", onSelect = onAdd) }
-        item { SText("EPG sources arrive with the guide in milestone 2.", 22, Modifier.padding(40.dp), color = c.muted) }
+        epgSourceItems(app, guideState.sources, guideState.defaultId, epgCounts, returnTo)
     }
 }
 
@@ -149,7 +155,7 @@ private fun kindLabel(kind: SourceKind) = when (kind) {
     SourceKind.DEMO -> "Demo"
 }
 
-private fun refreshedLabel(app: AppController, at: Long): String {
+internal fun refreshedLabel(app: AppController, at: Long): String {
     if (at == 0L) return "never refreshed"
     val t = Instant.fromEpochMilliseconds(at).toLocalDateTime(TimeZone.currentSystemDefault())
     return "refreshed ${t.date} ${formatTime(t.hour, t.minute, app.settings.bool(Settings.Key.CLOCK_24H, app.platform.systemUses24HourClock()))}"

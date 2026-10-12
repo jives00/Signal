@@ -42,6 +42,7 @@ class ItemMenus(private val app: AppController) {
                     launch { app.channels.setNumber(channel, n.toIntOrNull()) }
                 }
             })
+            guideSourceAction(channel)?.let(::add)
             add(PanelAction("Hide channel") {
                 launch { app.channels.setHidden(channel, true) }
                 null
@@ -57,6 +58,40 @@ class ItemMenus(private val app: AppController) {
             }
         }
         return PanelPage.Actions(channelTitle(channel), actions)
+    }
+
+    /**
+     * The channel's EPG source (PLAN §6 → Per-channel override): which source its guide comes from now,
+     * marked when that's a fallback, and a picker to override it or go back to the default.
+     */
+    private fun guideSourceAction(channel: Channel): PanelAction? {
+        val state = app.guide.state.value
+        val sources = state.sources.filter { it.enabled }
+        if (sources.isEmpty()) return null
+        val ref = app.guide.resolve(channel.stream.id, channel.userChannelId, channel.stream.tvgId, channel.stream.rawName)
+        val inUse = ref?.let { r -> sources.firstOrNull { it.id == r.epgSourceId } }
+        val overridden = channel.userChannelId?.let { state.mappings[it] } != null
+        val detail = when {
+            inUse == null -> "No guide data"
+            ref.isFallback -> "${inUse.name} (fallback)"
+            else -> inUse.name
+        } + if (overridden) " · override" else ""
+        return PanelAction("Guide source", detail = detail) {
+            val default = sources.firstOrNull { it.id == state.defaultId }
+            PanelPage.Actions("Guide source", buildList {
+                add(PanelAction("Default${default?.let { " (${it.name})" }.orEmpty()}", selected = !overridden) {
+                    launch { app.channels.userChannelIdFor(channel)?.let { app.epg.removeMapping(it) } }
+                    null
+                })
+                sources.forEach { s ->
+                    val chosen = channel.userChannelId?.let { state.mappings[it]?.epgSourceId } == s.id
+                    add(PanelAction(s.name, selected = chosen) {
+                        launch { app.epg.setMapping(app.channels.ensureUserChannel(channel), s.id, null) }
+                        null
+                    })
+                }
+            })
+        }
     }
 
     private fun channelTitle(c: Channel) = "${c.number}  ${c.displayName}"

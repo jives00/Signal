@@ -137,6 +137,11 @@ class GuideRepository(
             .filter { it.stop > now }
     }
 
+    /** Per EPG source: guide channels and programs in the live guide (PLAN §4.3.15 → EPG sources). */
+    suspend fun counts(): Map<String, Pair<Long, Long>> = withContext(io) {
+        store.db?.guideQueries?.countsBySource()?.executeAsList()?.associate { it.epg_source_id to (it.channels to it.programs) }.orEmpty()
+    }
+
     suspend fun program(id: Long): Program? = withContext(io) {
         val db = store.db ?: return@withContext null
         val row = db.guideQueries.programById(id).executeAsOneOrNull() ?: return@withContext null
