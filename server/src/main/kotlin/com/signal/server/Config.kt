@@ -15,7 +15,9 @@ data class Config(
 ) {
     data class DbConfig(val host: String, val port: Int, val name: String, val user: String, val password: String) {
         // The database name is never quoted in SQL anywhere, so SIGNAL being a reserved word doesn't matter.
-        val jdbcUrl: String get() = "jdbc:mariadb://$host:$port/$name"
+        // MySQL 8's caching_sha2_password without TLS needs the server's RSA key; the connection only
+        // crosses the NAS's internal shared-db network, so fetching it from the server is fine.
+        val jdbcUrl: String get() = "jdbc:mariadb://$host:$port/$name?allowPublicKeyRetrieval=true"
     }
 
     companion object {

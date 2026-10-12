@@ -32,11 +32,17 @@ data class Health(val status: String, val version: String, val database: String)
 data class Status(val version: String, val database: String, val secretKey: Boolean)
 
 /** Everything the routes need, so tests can build the app without a database. */
-class Companion(val config: Config, val database: Database?) {
+class Companion(val config: Config, database: Database? = null) {
+    /** Set once the database connects; it may not be there yet at start-up (see Main). */
+    @Volatile var database: Database? = database
     val version: String =
         Companion::class.java.getResourceAsStream("/signal-version.txt")?.bufferedReader()?.readText()?.trim()?.takeIf { it.isNotEmpty() && !it.startsWith("$") } ?: "dev"
 
-    fun databaseState(): String = database?.let { if (it.ping()) "ok" else "unreachable" } ?: "not configured"
+    fun databaseState(): String = when {
+        config.db == null -> "not configured"
+        database?.ping() == true -> "ok"
+        else -> "unreachable"
+    }
 }
 
 fun Application.signalModule(companion: Companion) {
