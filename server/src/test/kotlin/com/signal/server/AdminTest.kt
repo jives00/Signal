@@ -54,9 +54,8 @@ class AdminTest {
         companion.startCatalog()
         send("POST", "/api/sources", """{"name":"Demo","kind":"DEMO","url":"demo:"}""")
         repeat(200) {
-            val sources = obj(send("GET", "/api/sources"))
-            val s = sources["sources"]!!.jsonArray.first().jsonObject
-            if (s["streams"]!!.jsonPrimitive.int > 0) return sources
+            // What the pages read: the catalog's snapshot, swapped in just after the refresh commits.
+            if (channels("limit=1")["total"]!!.jsonPrimitive.int > 0) return obj(send("GET", "/api/sources"))
             delay(50)
         }
         error("The catalog never loaded the Demo source")
@@ -139,12 +138,11 @@ class AdminTest {
         application { signalModule(companion) }
         val sources = client.demo()
         val epgId = sources["epgSources"]!!.jsonArray.single().jsonObject.s("id")!!
-        // No guide built in this test, so every channel is in the queue.
+        // Until the guide build (started by the new EPG source) lands, every channel is in the queue.
         val queue = obj(client.send("POST", "/api/mapping/next", """{"profile":"main"}"""))
-        assertEquals(2000, queue["remaining"]!!.jsonPrimitive.int)
         val stream = queue["channel"]!!.jsonObject.s("streamId")!!
         val skipped = obj(client.send("POST", "/api/mapping/next", """{"profile":"main","skip":["$stream"]}"""))
-        assertEquals(1999, skipped["remaining"]!!.jsonPrimitive.int)
+        assertTrue(skipped["channel"]!!.jsonObject.s("streamId") != stream, "a skipped channel isn't offered again")
 
         client.send("POST", "/api/mapping", """{"streamId":"$stream","epgSourceId":"$epgId","guideChannelId":"demo.1"}""")
         val manual = json.parseToJsonElement(client.send("GET", "/api/mapping/manual")).jsonArray.single().jsonObject
