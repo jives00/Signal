@@ -233,6 +233,10 @@ private fun AboutSection(app: AppController) {
                 else app.scope.launch { updater.check() }
             })
         }
+        if (info.isDebug) {
+            SectionTitle("Developer")
+            ListRow("Guide grid spike", detail = "2,000 channels × 7 days, frame timing", onSelect = { app.navigator.go(Route.GuideSpike) })
+        }
         SectionTitle("Credits")
         SText("Uses the Archivo typeface (SIL Open Font License).", 22, Modifier.padding(horizontal = 40.dp), color = c.muted)
     }

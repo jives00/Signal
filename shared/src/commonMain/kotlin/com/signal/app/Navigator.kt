@@ -13,6 +13,8 @@ sealed interface Route {
     data object LiveTv : Route
     data class FullScreen(val group: ChannelGroup) : Route
     data object Settings : Route
+    /** Debug builds only: the throwaway guide-grid spike (PLAN §8 → milestone 1). */
+    data object GuideSpike : Route
 
     /** The pages on the nav bar; the rest are reached from them. */
     val isTopLevel: Boolean get() = this == Home || this == LiveTv || this == Settings
