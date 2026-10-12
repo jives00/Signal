@@ -40,6 +40,7 @@ android {
         versionCode = major * 10000 + minor * 100 + patch
         versionName = versionNameProp
         buildConfigField("String", "BUILD_TAG", "\"$buildTag\"")
+        buildConfigField("Boolean", "DEV_TOOLS", "false")
     }
 
     signingConfigs {
@@ -57,11 +58,23 @@ android {
         getByName("debug") {
             // A dev build never replaces the installed daily-use app or its data (PLAN §7.3).
             applicationIdSuffix = ".debug"
+            buildConfigField("Boolean", "DEV_TOOLS", "true")
             versionNameSuffix = "-debug"
         }
         getByName("release") {
             isMinifyEnabled = false
             if (canSignRelease) signingConfig = signingConfigs.getByName("release")
+        }
+        // Release-speed build for measuring performance on the Shield (PLAN §10): optimized and not
+        // debuggable, like release, but debug-signed, installed beside the others, and with the
+        // developer tools (Demo source, guide spike) visible.
+        create("profile") {
+            initWith(getByName("release"))
+            applicationIdSuffix = ".profile"
+            versionNameSuffix = "-profile"
+            signingConfig = signingConfigs.getByName("debug")
+            buildConfigField("Boolean", "DEV_TOOLS", "true")
+            matchingFallbacks += listOf("release")
         }
     }
 

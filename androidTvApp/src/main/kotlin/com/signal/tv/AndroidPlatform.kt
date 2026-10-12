@@ -32,7 +32,7 @@ class AndroidPlatform(private val context: Context) : Platform {
     override val appInfo = AppInfo(
         versionName = BuildConfig.VERSION_NAME,
         buildTag = BuildConfig.BUILD_TAG,
-        isDebug = BuildConfig.DEBUG,
+        isDebug = BuildConfig.DEV_TOOLS,
         deviceModel = "${Build.MANUFACTURER} ${Build.MODEL} · Android ${Build.VERSION.RELEASE}",
     )
     override val secretBox: SecretBox = KeystoreSecretBox()
@@ -42,7 +42,7 @@ class AndroidPlatform(private val context: Context) : Platform {
 
     // Release builds from an apk-* tag only; debug and local builds never offer updates.
     override val updater: Updater? by lazy {
-        if (BuildConfig.DEBUG || BuildConfig.BUILD_TAG == "dev") null else AndroidUpdater(context, http, BuildConfig.BUILD_TAG)
+        if (BuildConfig.DEV_TOOLS || BuildConfig.BUILD_TAG == "dev") null else AndroidUpdater(context, http, BuildConfig.BUILD_TAG)
     }
 
     override fun createUserDatabaseDriver(): SqlDriver = AndroidSqliteDriver(UserDatabase.Schema, context, "user.db")

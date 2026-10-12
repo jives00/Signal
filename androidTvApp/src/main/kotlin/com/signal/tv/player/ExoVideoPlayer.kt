@@ -58,8 +58,9 @@ class ExoVideoPlayer(context: Context) : VideoPlayer {
     private var autoRetried = false
 
     private val exo: ExoPlayer = ExoPlayer.Builder(context)
-        // Prefer extension decoders when present (the LGPL FFmpeg build, PLAN §5.3).
-        .setRenderersFactory(DefaultRenderersFactory(context).setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_PREFER))
+        // FFmpeg (the LGPL build, PLAN §5.3) only after the platform: AC3/E-AC3/DTS pass through to a
+        // receiver when the HDMI chain supports it, and FFmpeg decodes them only when it doesn't (PLAN §5.6).
+        .setRenderersFactory(DefaultRenderersFactory(context).setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON))
         // "Balanced" live buffer: a short start for fast zapping (PLAN §5.6 → Zapping fast).
         .setLoadControl(
             DefaultLoadControl.Builder()
