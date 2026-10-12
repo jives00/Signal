@@ -10,21 +10,24 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.signal.player.AspectMode
@@ -34,19 +37,27 @@ import com.signal.ui.theme.SignalTheme
 import kotlinx.coroutines.delay
 
 /**
- * The shared player's surface plus its states (PLAN §4.3.3 → Errors and buffering): a spinner
- * after about a second of stalled video, and the error with a retry hint in place of the video.
+ * Where the video appears on a screen, plus its states (PLAN §4.3.3 → Errors and buffering): a
+ * spinner after about a second of stalled video, and the error with a retry hint in place of the
+ * video. The video itself is drawn by the app-wide [VideoLayerHost] underneath; this only claims
+ * the spot. While video plays nothing is painted here, so the video layer shows through.
  */
 @Composable
 fun VideoBox(modifier: Modifier = Modifier, aspect: AspectMode = AspectMode.FIT, compact: Boolean = false, emptyText: String? = null) {
     val app = LocalApp.current
+    val layer = LocalVideoLayer.current
     val state by app.platform.player.state.collectAsState()
     val c = SignalTheme.colors
-    // No background while video plays: the player draws through a hole in the window, and anything
-    // painted here would cover it until something else forced a redraw.
+    val owner = remember { Any() }
+    val currentAspect = rememberUpdatedState(aspect)
+    DisposableEffect(layer) { onDispose { layer.release(owner) } }
+
     val playing = state.status == PlaybackState.Status.PLAYING || state.status == PlaybackState.Status.BUFFERING
-    Box(if (playing) modifier else modifier.background(c.videoGround), contentAlignment = Alignment.Center) {
-        if (state.status != PlaybackState.Status.IDLE) app.platform.player.Surface(Modifier.fillMaxSize(), aspect)
+    Box(
+        (if (playing) modifier else modifier.background(c.videoGround))
+            .onGloballyPositioned { layer.claim(owner, it.boundsInRoot(), currentAspect.value) },
+        contentAlignment = Alignment.Center,
+    ) {
         when (state.status) {
             PlaybackState.Status.BUFFERING -> DelayedSpinner(if (compact) 48 else 72)
             PlaybackState.Status.ERROR -> Column(Modifier.background(c.videoGround).padding(32.dp), horizontalAlignment = Alignment.CenterHorizontally) {
@@ -58,6 +69,8 @@ fun VideoBox(modifier: Modifier = Modifier, aspect: AspectMode = AspectMode.FIT,
             PlaybackState.Status.PLAYING -> {}
         }
     }
+    // Aspect changes don't move the box, so re-claim with the new aspect directly.
+    LaunchedEffect(aspect) { layer.bounds?.let { layer.claim(owner, it, aspect) } }
 }
 
 /** Nothing for short stalls; a spinner after about 1 second (PLAN §4.3.3). */

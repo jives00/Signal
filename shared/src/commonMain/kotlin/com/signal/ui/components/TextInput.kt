@@ -16,6 +16,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.SolidColor
@@ -43,6 +44,8 @@ fun SField(
     password: Boolean = false,
     keyboard: KeyboardType = KeyboardType.Text,
     focusRequester: FocusRequester? = null,
+    /** Where Down goes from this field, when the nearest element below isn't the right one. */
+    down: FocusRequester? = null,
 ) {
     val c = SignalTheme.colors
     var focused by remember { mutableStateOf(false) }
@@ -64,6 +67,7 @@ fun SField(
                 modifier = Modifier
                     .fillMaxWidth()
                     .let { if (focusRequester != null) it.focusRequester(focusRequester) else it }
+                    .let { if (down != null) it.focusProperties { this.down = down } else it }
                     .onFocusChanged { focused = it.isFocused }
                     .remoteItem(onSelect = { controller?.show() }, isTextInput = true),
             )

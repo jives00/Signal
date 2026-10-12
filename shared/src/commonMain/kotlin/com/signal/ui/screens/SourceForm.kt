@@ -47,6 +47,7 @@ fun SourceForm(existing: Source?, onDone: () -> Unit, onCancel: () -> Unit) {
     var status by remember { mutableStateOf<String?>(null) }
     var busy by remember { mutableStateOf(false) }
     val first = remember { FocusRequester() }
+    val save = remember { FocusRequester() }
 
     fun build() = Source(
         id = existing?.id ?: newId(),
@@ -77,10 +78,11 @@ fun SourceForm(existing: Source?, onDone: () -> Unit, onCancel: () -> Unit) {
         } else {
             SField("M3U URL", url, { url = it }, keyboard = KeyboardType.Uri)
         }
-        SField("User-agent (optional)", userAgent, { userAgent = it })
+        // Down from the last field goes to Save, the likely next step, not the nearest button (Cancel).
+        SField("User-agent (optional)", userAgent, { userAgent = it }, down = save)
         status?.let { SText(it, 24, Modifier.padding(top = 16.dp), color = c.secondaryText, maxLines = 3) }
         Row(Modifier.fillMaxWidth().padding(top = 24.dp), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-            SButton(if (busy) "Working…" else "Save", primary = true, onSelect = {
+            SButton(if (busy) "Working…" else "Save", primary = true, focusRequester = save, onSelect = {
                 if (busy || url.isBlank()) { status = "Enter the URL first."; return@SButton }
                 busy = true
                 status = "Loading channels…"

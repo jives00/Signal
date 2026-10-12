@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusDirection
@@ -15,6 +16,9 @@ import com.signal.app.Route
 import com.signal.input.LocalRemoteDispatcher
 import com.signal.input.RemoteAction
 import com.signal.input.RemoteInput
+import com.signal.ui.components.LocalVideoLayer
+import com.signal.ui.components.VideoLayer
+import com.signal.ui.components.VideoLayerHost
 import com.signal.ui.panel.SidePanelHost
 import com.signal.ui.screens.FullScreenPlayback
 import com.signal.ui.screens.GuideSpike
@@ -31,7 +35,8 @@ val LocalApp = staticCompositionLocalOf<AppController> { error("No AppController
 fun SignalApp(app: AppController) {
     SignalTheme {
         RemoteInput(app.dispatcher) {
-            CompositionLocalProvider(LocalApp provides app, LocalRemoteDispatcher provides app.dispatcher) {
+            val videoLayer = remember { VideoLayer() }
+            CompositionLocalProvider(LocalApp provides app, LocalRemoteDispatcher provides app.dispatcher, LocalVideoLayer provides videoLayer) {
                 val focusManager = LocalFocusManager.current
                 SideEffect {
                     // What nobody else handled: directions move focus, Back pops a screen (PLAN §12.3).
@@ -47,6 +52,8 @@ fun SignalApp(app: AppController) {
                     }
                 }
                 Box(Modifier.fillMaxSize().background(SignalTheme.colors.bg)) {
+                    // The one video view, under every screen (see VideoLayer).
+                    VideoLayerHost(videoLayer, app.platform.player)
                     if (app.ready) {
                         when (val route = app.navigator.current) {
                             Route.Setup -> SetupScreen()
