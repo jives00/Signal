@@ -116,6 +116,15 @@ class SearchRepository(
         return built
     }
 
+    /** How many visible channels have guide data, and a sample of those without (name, tvg-id). For the log. */
+    suspend fun guideCoverage(sample: Int = 15): Triple<Int, Int, List<Pair<String, String?>>> = lock.withLock {
+        withContext(io) {
+            val all = index()
+            val unmatched = all.filter { guide.resolve(it.streamId, it.userChannelId, it.tvgId, it.rawName) == null }
+            Triple(all.size - unmatched.size, all.size, unmatched.shuffled().take(sample).map { it.rawName to it.tvgId })
+        }
+    }
+
     /** True when [word] starts [name] or one of its words. */
     private fun hasWordPrefix(name: String, word: String): Boolean {
         var i = name.indexOf(word)

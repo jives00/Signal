@@ -86,6 +86,8 @@ private object GuideGeometry {
 private const val MINUTE = 60_000L
 private const val HALF_HOUR = 30 * MINUTE
 private const val DAY = 24 * 60 * MINUTE
+/** Program cells narrower than this (design units) show no text. */
+private const val MIN_TEXT_WIDTH = 72f
 
 /**
  * Live TV, the guide (PLAN §4.3.2, handoff screen 2). One screen-level focus position (a row and a
@@ -522,14 +524,17 @@ private fun ProgramCell(p: Program, windowStart: Long, windowEnd: Long, now: Lon
                 .background(if (focused) c.accent else if (p.isOn(now)) c.surface else Color.Transparent)
                 .padding(horizontal = 16.dp, vertical = 14.dp),
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                // A bell marks a program with a reminder (PLAN §4.3.4).
-                if (reminder) Icon(SignalIcons.bell, 20, if (focused) c.onAccent else c.accentText, Modifier.padding(end = 8.dp))
-                SText(p.title, 24, weight = FontWeight.SemiBold, color = if (focused) c.onAccent else c.text)
-            }
-            // The time range only on cells of 30 minutes or more (handoff screen 2).
-            if (to - from >= HALF_HOUR) {
-                SText(programTime(app, p, now), 20, color = if (focused) c.onAccent else c.muted)
+            // A sliver at the window's edge has no room for text, only for "…".
+            if (width >= MIN_TEXT_WIDTH) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    // A bell marks a program with a reminder (PLAN §4.3.4).
+                    if (reminder) Icon(SignalIcons.bell, 20, if (focused) c.onAccent else c.accentText, Modifier.padding(end = 8.dp))
+                    SText(p.title, 24, weight = FontWeight.SemiBold, color = if (focused) c.onAccent else c.text)
+                }
+                // The time range only on cells of 30 minutes or more (handoff screen 2).
+                if (to - from >= HALF_HOUR) {
+                    SText(programTime(app, p, now), 20, color = if (focused) c.onAccent else c.muted)
+                }
             }
         }
         // 2-unit right rule between cells.

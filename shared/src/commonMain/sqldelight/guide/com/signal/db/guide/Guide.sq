@@ -36,6 +36,13 @@ CREATE TABLE guide_channel (
     PRIMARY KEY (epg_source_id, id)
 );
 
+-- Every display-name a guide channel lists, normalized: name mapping tries them all (PLAN §6, step 3).
+CREATE TABLE guide_channel_name (
+    epg_source_id TEXT NOT NULL,
+    guide_channel_id TEXT NOT NULL,
+    normalized_name TEXT NOT NULL
+);
+
 -- Program search (PLAN §4.3.14): the docid is the program's id. The text is folded by the app
 -- (SearchText.fold: case, accents, junk characters) the same way queries are, so matching never
 -- depends on which tokenizers the device's SQLite has.
@@ -55,6 +62,15 @@ INSERT INTO program_fts(docid, title, sub_title) VALUES (?, ?, ?);
 
 insertChannel:
 INSERT OR REPLACE INTO guide_channel(epg_source_id, id, display_name, normalized_name, icon) VALUES (?, ?, ?, ?, ?);
+
+insertChannelName:
+INSERT INTO guide_channel_name(epg_source_id, guide_channel_id, normalized_name) VALUES (?, ?, ?);
+
+channelNamesForSource:
+SELECT guide_channel_id, normalized_name FROM guide_channel_name WHERE epg_source_id = ?;
+
+channelNamesForSourceAll:
+SELECT * FROM guide_channel_name WHERE epg_source_id = ?;
 
 putMeta:
 INSERT OR REPLACE INTO meta(key, value) VALUES (?, ?);
@@ -94,3 +110,8 @@ SELECT * FROM program WHERE epg_source_id = ? AND stop > ?;
 
 guideChannelsForSource:
 SELECT * FROM guide_channel WHERE epg_source_id = ?;
+
+-- Coverage diagnostics: is a tvg-id in any guide, whatever its case?
+guideChannelByIdAnyCase:
+SELECT g.epg_source_id, g.id, (SELECT count(*) FROM program p WHERE p.epg_source_id = g.epg_source_id AND p.guide_channel_id = g.id) AS programs
+FROM guide_channel g WHERE lower(g.id) = lower(?) LIMIT 1;

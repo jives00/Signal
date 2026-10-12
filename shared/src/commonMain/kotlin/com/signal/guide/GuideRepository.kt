@@ -37,7 +37,11 @@ class GuideRepository(
     }.stateIn(scope, SharingStarted.Eagerly, State(0, emptyList(), null, emptyMap()))
 
     /** Per EPG source, built once per guide version: guide channel IDs that have programs, and their normalized names. */
-    private class SourceIndex(val ids: Set<String>, val byName: Map<String, String>)
+    private class SourceIndex(
+        /** Lowercased tvg-id → the guide's own ID: XMLTV IDs often differ from the M3U's only in case. */
+        val byId: Map<String, String>,
+        val byName: Map<String, String>,
+    )
 
     private var indexVersion = -1
     private val indexes = HashMap<String, SourceIndex>()
@@ -88,7 +92,7 @@ class GuideRepository(
                 // 1. A manual mapping names both the EPG source and the guide channel: the strongest override.
                 i == 0 && mapping?.guideChannelId != null && mapping.epgSourceId == src.id -> mapping.guideChannelId
                 // 2. tvg-id in this EPG source.
-                tvgId != null && tvgId in index.ids -> tvgId
+                tvgId != null && tvgId.lowercase() in index.byId -> index.byId.getValue(tvgId.lowercase())
                 // 3. The normalized name in this EPG source.
                 else -> index.byName[name]
             } ?: continue
@@ -99,19 +103,39 @@ class GuideRepository(
 
     private fun buildIndex(db: GuideDatabase, epgSourceId: String): SourceIndex {
         val withPrograms = db.guideQueries.channelsWithPrograms(epgSourceId).executeAsList().toHashSet()
+        val byId = HashMap<String, String>()
+        for (id in withPrograms) byId.putIfAbsent(id.lowercase(), id)
         val byName = HashMap<String, String>()
         for (c in db.guideQueries.channelsForSource(epgSourceId).executeAsList()) {
             if (c.id in withPrograms && c.normalized_name.isNotEmpty()) byName.putIfAbsent(c.normalized_name, c.id)
         }
-        return SourceIndex(withPrograms, byName)
+        // Then every other name each channel goes by; the first display-name wins a tie.
+        for (n in db.guideQueries.channelNamesForSource(epgSourceId).executeAsList()) {
+            if (n.guide_channel_id in withPrograms) byName.putIfAbsent(n.normalized_name, n.guide_channel_id)
+        }
+        return SourceIndex(byId, byName)
     }
 
     /** [channel]'s programs overlapping [from, to), in shifted (displayed) time. */
     suspend fun programs(channel: Channel, from: Long, to: Long): List<Program> = withContext(io) {
         val ref = resolveNow(channel) ?: return@withContext emptyList()
         val db = store.db ?: return@withContext emptyList()
-        db.guideQueries.programsBetween(ref.epgSourceId, ref.guideChannelId, from - ref.timeShiftMs, to - ref.timeShiftMs)
+        val all = db.guideQueries.programsBetween(ref.epgSourceId, ref.guideChannelId, from - ref.timeShiftMs, to - ref.timeShiftMs)
             .executeAsList().map { it.toModel(ref.timeShiftMs) }
+        withoutOverlaps(all)
+    }
+
+    // Some guides list two programs in one slot (merged feeds, or a correction beside the original). The grid
+    // can show one per slot: keep the earlier, and drop anything that starts before it ends.
+    private fun withoutOverlaps(sorted: List<Program>): List<Program> {
+        val out = ArrayList<Program>(sorted.size)
+        var end = Long.MIN_VALUE
+        for (p in sorted) {
+            if (p.start < end) continue
+            out += p
+            end = p.stop
+        }
+        return out
     }
 
     /** The program on now and the one after it. */
@@ -135,6 +159,12 @@ class GuideRepository(
         db.guideQueries.searchPrograms(match, now - 12 * 60 * 60_000L, limit.toLong() * 2).executeAsList()
             .map { it.toModel(shifts[it.epg_source_id] ?: 0) }
             .filter { it.stop > now }
+    }
+
+    /** For diagnostics: whether any guide lists [tvgId], and with how many programs. */
+    suspend fun describeTvgId(tvgId: String): String = withContext(io) {
+        val row = store.db?.guideQueries?.guideChannelByIdAnyCase(tvgId)?.executeAsOneOrNull() ?: return@withContext "not in any guide"
+        if (row.programs == 0L) "listed as ${row.id}, no programs" else "listed as ${row.id}, ${row.programs} programs"
     }
 
     /** Per EPG source: guide channels and programs in the live guide (PLAN §4.3.15 → EPG sources). */

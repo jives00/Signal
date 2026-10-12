@@ -94,6 +94,9 @@ class GuideBuilder(
             from.guideQueries.guideChannelsForSource(epg.id).executeAsList().forEach {
                 to.guideQueries.insertChannel(it.epg_source_id, it.id, it.display_name, it.normalized_name, it.icon)
             }
+            from.guideQueries.channelNamesForSourceAll(epg.id).executeAsList().forEach {
+                to.guideQueries.insertChannelName(it.epg_source_id, it.guide_channel_id, it.normalized_name)
+            }
             from.guideQueries.programsForSource(epg.id, now - epg.timeShiftMs).executeAsList().forEach { p ->
                 val id = ids()
                 to.guideQueries.insertProgram(
@@ -136,6 +139,9 @@ class GuideBuilder(
                 for (c in pendingChannels) {
                     val name = c.displayNames.firstOrNull() ?: c.id
                     db.guideQueries.insertChannel(epg.id, c.id, name, GuideNames.normalize(name), c.icon)
+                    // Every name it goes by: guides often list "ESPN2", "ESPN 2 HD" and a call sign.
+                    (c.displayNames.ifEmpty { listOf(c.id) }).map(GuideNames::normalize).filter { it.isNotEmpty() }.distinct()
+                        .forEach { db.guideQueries.insertChannelName(epg.id, c.id, it) }
                 }
                 for (p in pendingPrograms) {
                     val flags = (if (p.isNew) 1L else 0) or (if (p.isLive) 2L else 0) or (if (p.previouslyShown) 4L else 0)

@@ -147,6 +147,7 @@ class AppController(val platform: Platform, val log: Log) {
             withContext(platform.io) {
                 outcomes.forEach { (id, o) -> if (o.error == null) epg.markBuilt(id, now) else epg.markFailed(id, o.error) }
             }
+            if (swapped) scope.launch { logGuideCoverage() }
             swapped
         } catch (e: Throwable) {
             log.error("Guide build failed", e)
@@ -185,6 +186,16 @@ class AppController(val platform: Platform, val log: Log) {
         if (sources.count() == 0L) {
             playback.stop()
             navigator.resetTo(Route.Setup)
+        }
+    }
+
+    /** Diagnostics for mapping coverage (PLAN §6): how many channels get a guide, and why some don't. */
+    private suspend fun logGuideCoverage() {
+        val (mapped, total, unmatched) = search.guideCoverage()
+        log.info("Guide mapping: $mapped of $total channels have guide data")
+        for ((name, tvgId) in unmatched) {
+            val why = tvgId?.takeIf { it.isNotBlank() }?.let { "tvg-id $it, ${guide.describeTvgId(it)}" } ?: "no tvg-id"
+            log.info("No guide: $name ($why)")
         }
     }
 

@@ -46,9 +46,17 @@ class GuideStore(
         val newest = files.filter { NAME.matches(it.substringAfterLast('/').substringAfterLast('\\')) }.maxOrNull()
         files.filter { it != newest && !it.endsWith("-journal") }.forEach(GuideFiles::delete)
         if (newest != null) {
-            runCatching { openFile(newest) }
-                .onSuccess { live = it; _version.value++ }
-                .onFailure { e -> log.warn("Guide file unreadable, deleted: ${e.message}"); GuideFiles.delete(newest) }
+            val opened = runCatching { openFile(newest) }.getOrNull()
+            val current = opened != null && runCatching { opened.db.guideQueries.meta(META_SCHEMA).executeAsOneOrNull() == SCHEMA.toString() }.getOrDefault(false)
+            if (current) {
+                live = opened
+                _version.value++
+            } else {
+                // guide.db is never migrated (PLAN §5.4): a file from another schema is deleted, and the stale guide rebuilds.
+                log.warn("Guide file from another schema, deleted")
+                runCatching { opened?.driver?.close() }
+                GuideFiles.delete(newest)
+            }
         }
     }
 
@@ -72,7 +80,10 @@ class GuideStore(
             val driver = platform.createGuideDatabaseDriver(partPath)
             try {
                 write(GuideDatabase(driver), live?.db).also { keep ->
-                    if (keep) GuideDatabase(driver).guideQueries.putMeta(META_BUILT_AT, now.toString())
+                    if (keep) GuideDatabase(driver).guideQueries.run {
+                        putMeta(META_BUILT_AT, now.toString())
+                        putMeta(META_SCHEMA, SCHEMA.toString())
+                    }
                 }
             } finally {
                 driver.close()
@@ -103,6 +114,9 @@ class GuideStore(
 
     companion object {
         const val META_BUILT_AT = "built_at"
+        const val META_SCHEMA = "schema"
+        /** Bumped whenever Guide.sq changes: older files are deleted rather than migrated. 2: guide_channel_name. */
+        const val SCHEMA = 2
         private val NAME = Regex("""guide-\d+\.db""")
     }
 }

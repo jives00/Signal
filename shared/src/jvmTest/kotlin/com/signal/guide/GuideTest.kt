@@ -192,6 +192,45 @@ class GuideTest {
         assertEquals(now, reopened.builtAt())
     }
 
+    @Test fun overlapsKeepTheEarlierProgram() = runBlocking<Unit> {
+        val list = m3u("#EXTM3U\n#EXTINF:-1 tvg-id=\"a.us\" group-title=\"G\",Alpha\nhttp://p/1.ts\n")
+        served["http://g/one.xml"] = xmltv(
+            Triple("a.us", "First", now to now + 2 * hour),
+            Triple("a.us", "Same slot", now to now + 2 * hour),
+            Triple("a.us", "Starts inside", now + hour to now + 3 * hour),
+            Triple("a.us", "After", now + 2 * hour to now + 3 * hour),
+        )
+        epg.addXmltv("One", "http://g/one.xml")
+        build()
+        settle()
+        assertEquals(listOf("First", "After"), guide.programs(list.single(), now, now + 4 * hour).map { it.title })
+    }
+
+    @Test fun tvgIdMatchesInAnyCaseAndNamesMatchAnyDisplayName() = runBlocking<Unit> {
+        val list = m3u("#EXTM3U\n#EXTINF:-1 tvg-id=\"ESPN2.us\" group-title=\"G\",Two\nhttp://p/1.ts\n#EXTINF:-1 group-title=\"G\",US: ESPN U HD\nhttp://p/2.ts\n")
+        val xml = xmltv(
+            Triple("espn2.us", "Deuce", now to now + hour),
+            Triple("espnu", "College", now to now + hour),
+            channels = listOf("espn2.us" to "ESPN2", "espnu" to "ESPNU"),
+        ).toString(Charsets.UTF_8).replace("<display-name>ESPNU</display-name>", "<display-name>ESPNU</display-name><display-name>ESPN U</display-name>")
+        served["http://g/one.xml"] = xml.toByteArray()
+        epg.addXmltv("One", "http://g/one.xml")
+        build()
+        settle()
+        assertEquals("Deuce", guide.nowAndNext(list.first { it.stream.tvgId != null }, now).first?.title)
+        assertEquals("College", guide.nowAndNext(list.first { it.stream.tvgId == null }, now).first?.title, "matched by its second display-name")
+    }
+
+    @Test fun aGuideFromAnotherSchemaIsDeletedOnOpen() = runBlocking<Unit> {
+        m3u("#EXTM3U\n#EXTINF:-1 tvg-id=\"a.us\" group-title=\"G\",Alpha\nhttp://p/1.ts\n")
+        served["http://g/one.xml"] = xmltv(Triple("a.us", "Show", now to now + hour))
+        epg.addXmltv("One", "http://g/one.xml")
+        build()
+        store.db!!.guideQueries.putMeta(GuideStore.META_SCHEMA, "1")
+        val reopened = GuideStore(platform, Dispatchers.IO, scope, log).apply { open() }
+        assertNull(reopened.db, "an older guide is deleted, so a fresh one builds")
+    }
+
     @Test fun epgSourcesMoveInTheFallbackOrder() = runBlocking<Unit> {
         val a = epg.addXmltv("A", "http://a")
         val b = epg.addXmltv("B", "http://b")
