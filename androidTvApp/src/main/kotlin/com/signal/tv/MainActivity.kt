@@ -1,6 +1,7 @@
 package com.signal.tv
 
 import android.os.Bundle
+import android.view.KeyEvent
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.OnBackPressedCallback
@@ -42,6 +43,18 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    // The key layer consumes every remote key while anything in the app has focus. A remote key that
+    // comes back unhandled means nothing does (seen after the system installer closed), and Compose
+    // would drop every key from then on, so put focus back on the key layer and replay the press.
+    // onKeyDown only runs for keys no view consumed.
+    override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
+        if (keyCode in REMOTE_KEYS && event.repeatCount == 0) {
+            signal.controller.dispatcher.recoverFocus()
+            if (window.superDispatchKeyEvent(event)) return true
+        }
+        return super.onKeyDown(keyCode, event)
+    }
+
     // Sleep, the screensaver, the Home button or another app: stop playback and free the stream;
     // coming back resumes where the user was (PLAN §4.2 → Sleep, the Home button and interruptions).
     override fun onStop() {
@@ -53,5 +66,13 @@ class MainActivity : ComponentActivity() {
         super.onStart()
         if (started) signal.controller.onForeground()
         started = true
+    }
+
+    private companion object {
+        val REMOTE_KEYS = setOf(
+            KeyEvent.KEYCODE_DPAD_UP, KeyEvent.KEYCODE_DPAD_DOWN, KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_DPAD_RIGHT,
+            KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE,
+            KeyEvent.KEYCODE_CHANNEL_UP, KeyEvent.KEYCODE_CHANNEL_DOWN,
+        )
     }
 }

@@ -37,6 +37,12 @@ class RemoteDispatcher {
 
     var onDefault: (RemoteAction) -> Boolean = { false }
 
+    /**
+     * Gives focus back to the key layer's root. The platform calls it when a key went unhandled:
+     * with nothing focused, Compose delivers no keys at all, and the remote would be dead.
+     */
+    var recoverFocus: () -> Unit = {}
+
     fun push(owner: Any, priority: Int = Priority.SCREEN, handler: Handler) {
         handlers.removeAll { it.owner === owner }
         handlers += Entry(owner, priority, seq++, handler)

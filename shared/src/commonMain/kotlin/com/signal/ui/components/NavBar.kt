@@ -219,15 +219,17 @@ fun UpdateBanner() {
     val updater = app.platform.updater ?: return
     val state by updater.state.collectAsState()
     val c = SignalTheme.colors
+    // The update panel hands focus back here when it closes.
+    val banner = remember { FocusRequester() }
     val text = when (val s = state) {
         is UpdateState.Available -> "Update available: ${s.tag.removePrefix("apk-")}. Press OK to see what's new."
         is UpdateState.Downloading -> "Downloading ${s.tag.removePrefix("apk-")}… ${(s.progress * 100).toInt()}%"
         is UpdateState.Failed -> "Update failed: ${s.message}. Press OK to try again."
         UpdateState.None -> return
     }
-    Focusable(Modifier.fillMaxWidth(), onSelect = {
+    Focusable(Modifier.fillMaxWidth(), focusRequester = banner, onSelect = {
         when (val s = state) {
-            is UpdateState.Available -> app.panel.open(updatePanel(app, s), returnTo = null)
+            is UpdateState.Available -> app.panel.open(updatePanel(app, s), returnTo = banner)
             is UpdateState.Failed -> updater.install()
             else -> {}
         }

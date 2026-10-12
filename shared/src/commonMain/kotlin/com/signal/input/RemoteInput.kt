@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -23,6 +24,7 @@ import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
+import androidx.compose.ui.platform.LocalWindowInfo
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -45,13 +47,20 @@ fun RemoteInput(dispatcher: RemoteDispatcher, content: @Composable () -> Unit) {
     // Compose only delivers keys along the path to a focused element. Screens with nothing
     // focusable (full-screen video) would drop every key, so the root takes focus whenever
     // nothing else holds it.
-    LaunchedEffect(anyFocus) {
-        if (!anyFocus) {
-            delay(50)
-            // Check again: an element that took focus meanwhile would lose it to the root.
-            if (!anyFocus) runCatching { rootFocus.requestFocus() }
+    // Keep trying until it holds: a request made while another app's window is on top (the system
+    // installer) can fail, and nothing else would ask again. Regaining the window asks again too.
+    val windowFocused = LocalWindowInfo.current.isWindowFocused
+    LaunchedEffect(anyFocus, windowFocused) {
+        if (anyFocus) return@LaunchedEffect
+        delay(50)
+        // Check again each time: an element that took focus meanwhile would lose it to the root.
+        while (!anyFocus) {
+            runCatching { rootFocus.requestFocus() }
+            delay(250)
         }
     }
+    // Only reached for remote keys nothing consumed, which means nothing here holds focus.
+    SideEffect { dispatcher.recoverFocus = { runCatching { rootFocus.requestFocus() } } }
 
     Box(
         Modifier
