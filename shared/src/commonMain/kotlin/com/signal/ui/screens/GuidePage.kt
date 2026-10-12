@@ -574,3 +574,32 @@ internal fun ProgramTags(p: Program, modifier: Modifier = Modifier) {
         }
     }
 }
+
+/** The guide's "now" for screens outside the grid, ticking each minute. */
+@Composable
+internal fun rememberNow(): Long {
+    var now by remember { mutableLongStateOf(Clock.System.now().toEpochMilliseconds()) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(60_000 - Clock.System.now().toEpochMilliseconds() % 60_000)
+            now = Clock.System.now().toEpochMilliseconds()
+        }
+    }
+    return now
+}
+
+/**
+ * [ch]'s program on now and the next one, for Home, the info bar, the zap banner and the channel
+ * list. Reloads when the channel or the guide changes, and when the program on now ends.
+ */
+@Composable
+internal fun rememberNowAndNext(ch: Channel?, now: Long = rememberNow()): Pair<Program?, Program?> {
+    val app = LocalApp.current
+    val state by app.guide.state.collectAsState()
+    var result by remember(ch?.stream?.id, state) { mutableStateOf<Pair<Program?, Program?>>(null to null) }
+    val stale = result.first?.let { now >= it.stop } ?: true
+    LaunchedEffect(ch?.stream?.id, state, stale) {
+        result = if (ch == null) null to null else app.guide.nowAndNext(ch, now)
+    }
+    return result
+}

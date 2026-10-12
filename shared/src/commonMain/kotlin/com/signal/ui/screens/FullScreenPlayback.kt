@@ -163,8 +163,11 @@ private fun ZapBanner(channel: Channel, tick: Int, onOpenInfo: () -> Unit) {
                 SText(channel.number.toString(), 48, weight = FontWeight.ExtraBold)
                 LogoTile(channel.displayName, channel.logoUrl, 96, 56, Modifier.padding(start = 32.dp))
                 Column(Modifier.padding(start = 32.dp)) {
+                    val app = LocalApp.current
+                    val now = rememberNow()
+                    val on = rememberNowAndNext(channel, now).first
                     SText(channel.displayName, 32, weight = FontWeight.ExtraBold)
-                    SText("No guide information", 24, color = c.muted)
+                    SText(on?.let { "${it.title} · ${programTime(app, it, now)}" } ?: "No guide information", 24, color = c.muted)
                 }
             }
         }
@@ -222,9 +225,19 @@ private fun InfoBar(
                     }
                     VDivider(Modifier.padding(horizontal = 40.dp))
                     Column(Modifier.weight(1f)) {
-                        SText("Now", 24, weight = FontWeight.SemiBold, color = c.accentText)
-                        SText(channel.displayName, 56, weight = FontWeight.ExtraBold)
-                        SText("No information", 26, Modifier.padding(top = 8.dp), color = c.muted)
+                        // Now and next from the guide (PLAN §4.3.3 → Info bar).
+                        val now = rememberNow()
+                        val (on, next) = rememberNowAndNext(channel, now)
+                        SText(on?.let { "Now · ${programTime(app, it, now)}" } ?: "Now", 24, weight = FontWeight.SemiBold, color = c.accentText)
+                        SText(on?.title ?: channel.displayName, 56, weight = FontWeight.ExtraBold)
+                        if (on == null) {
+                            SText("No information", 26, Modifier.padding(top = 8.dp), color = c.muted)
+                        } else {
+                            listOfNotNull(on.episodeText, on.subTitle).joinToString(" · ").takeIf { it.isNotEmpty() }?.let { SText(it, 24, color = c.secondaryText) }
+                            on.description?.let { SText(it, 24, Modifier.padding(top = 8.dp), color = c.muted, maxLines = 2) }
+                            ProgressBar(((now - on.start).toFloat() / on.durationMs).coerceIn(0f, 1f), Modifier.padding(top = 12.dp).width(800.dp))
+                        }
+                        next?.let { SText("Next · ${programTime(app, it, now)} · ${it.title}", 22, Modifier.padding(top = 12.dp), color = c.muted) }
                     }
                     VDivider(Modifier.padding(horizontal = 40.dp))
                     Column(Modifier.width(520.dp)) {

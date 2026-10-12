@@ -20,3 +20,18 @@ class GuideScreenshotTest {
         screenshot("guide-details")
     }
 }
+
+class GuideElsewhereScreenshotTest {
+    @Test fun homeAndInfoBar() = keyMapTest(favorites = 6) {
+        guideReady()
+        ui.runOnIdle { app.navigator.resetTo(Route.Home) }
+        heroFocused()
+        eventually("hero program") { !shows("No guide information") }
+        screenshot("home")
+        press(RemoteAction.Select)
+        eventually("full screen") { app.navigator.current is Route.FullScreen }
+        press(RemoteAction.Select)
+        eventually("info bar") { shows("Aspect ratio") && shows("Next · ") }
+        screenshot("info-bar")
+    }
+}

@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -110,9 +111,26 @@ private fun HeroDetails(channel: Channel?) {
             LogoTile(channel.displayName, channel.logoUrl, 96, 56)
             SText("${channel.number}  ${channel.displayName}", 26, Modifier.padding(start = 24.dp), weight = FontWeight.SemiBold, color = c.accentText)
         }
-        SText(channel.displayName, 64, Modifier.padding(top = 24.dp), weight = FontWeight.ExtraBold)
-        // Program details arrive with the guide in milestone 2 (PLAN §4.3.1 → Right, the details panel).
-        SText("No guide information", 26, Modifier.padding(top = 8.dp), color = c.muted)
+        // The program on now, its time and what's next, and a progress bar on the bottom edge (handoff screen 1).
+        val app = LocalApp.current
+        val now = rememberNow()
+        val (on, next) = rememberNowAndNext(channel, now)
+        SText(on?.title ?: channel.displayName, 64, Modifier.padding(top = 24.dp), weight = FontWeight.ExtraBold)
+        val line = listOfNotNull(on?.let { programTime(app, it, now) }, next?.let { "Next: ${it.title}" }).joinToString(" · ")
+        SText(line.ifEmpty { "No guide information" }, 26, Modifier.padding(top = 8.dp), color = c.muted)
+        if (on != null) {
+            Spacer(Modifier.weight(1f))
+            ProgressBar(((now - on.start).toFloat() / on.durationMs).coerceIn(0f, 1f))
+        }
+    }
+}
+
+/** A 6-unit progress bar: a neutral track with an accent fill (handoff global conventions). */
+@Composable
+internal fun ProgressBar(progress: Float, modifier: Modifier = Modifier, onAccent: Boolean = false) {
+    val c = SignalTheme.colors
+    Box(modifier.fillMaxWidth().height(6.dp).background(if (onAccent) c.onAccent.copy(alpha = 0.35f) else c.neutral300)) {
+        Box(Modifier.fillMaxWidth(progress).height(6.dp).background(if (onAccent) c.onAccent else c.accent))
     }
 }
 
@@ -156,6 +174,9 @@ private fun FavoritesRow(favorites: List<Channel>?) {
                             SText(ch.number.toString(), 20, Modifier.padding(start = 16.dp), weight = FontWeight.SemiBold, color = if (focused) c.onAccent else c.secondaryText)
                         }
                         SText(ch.displayName, 22, Modifier.padding(top = 12.dp), weight = FontWeight.SemiBold, color = if (focused) c.onAccent else c.text)
+                        // The program on now (handoff screen 1: "Favourites — on now").
+                        val on = rememberNowAndNext(ch).first
+                        SText(on?.title ?: "No guide information", 20, color = if (focused) c.onAccent else c.muted)
                     }
                 }
             }
