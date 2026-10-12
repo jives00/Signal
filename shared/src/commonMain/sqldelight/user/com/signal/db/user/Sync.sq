@@ -1,0 +1,136 @@
+-- Settings sync (PLAN §5.5, §9). Instead of an outbox of operations, the device keeps the last state
+-- it and the companion agreed on, per item. A push sends what differs from it, field by field, so
+-- every write in the app is captured without each one queueing its own operation.
+CREATE TABLE sync_base (
+    type TEXT NOT NULL,
+    scope TEXT NOT NULL,
+    owner_id TEXT NOT NULL,
+    id TEXT NOT NULL,
+    fields TEXT NOT NULL,
+    PRIMARY KEY (type, scope, owner_id, id)
+);
+
+-- Key/value: the last revision pulled, the last successful sync and so on.
+CREATE TABLE sync_state (
+    key TEXT NOT NULL PRIMARY KEY,
+    value TEXT NOT NULL
+);
+
+allBase:
+SELECT * FROM sync_base;
+
+putBase:
+INSERT OR REPLACE INTO sync_base(type, scope, owner_id, id, fields) VALUES (?, ?, ?, ?, ?);
+
+removeBase:
+DELETE FROM sync_base WHERE type = ? AND scope = ? AND owner_id = ? AND id = ?;
+
+removeBaseForScope:
+DELETE FROM sync_base WHERE scope = ?;
+
+clearBase:
+DELETE FROM sync_base;
+
+state:
+SELECT value FROM sync_state WHERE key = ?;
+
+putState:
+INSERT OR REPLACE INTO sync_state(key, value) VALUES (?, ?);
+
+clearState:
+DELETE FROM sync_state;
+
+-- Only for its change notifications: SQLDelight re-runs it whenever any table it reads is written,
+-- which is every synced table. Cached source data (stream) is left out on purpose.
+changeTick:
+SELECT (SELECT count(*) FROM source) + (SELECT count(*) FROM epg_source) + (SELECT count(*) FROM guide_mapping)
+     + (SELECT count(*) FROM user_channel) + (SELECT count(*) FROM channel_link) + (SELECT count(*) FROM channel_profile)
+     + (SELECT count(*) FROM favorite) + (SELECT count(*) FROM playlist) + (SELECT count(*) FROM playlist_item)
+     + (SELECT count(*) FROM group_override) + (SELECT count(*) FROM reminder) + (SELECT count(*) FROM setting);
+
+-- Moving to another profile replaces the old profile's rows (PLAN §5.4).
+deleteProfileFavorites:
+DELETE FROM favorite WHERE profile_id = ?;
+
+deleteProfilePlaylistItems:
+DELETE FROM playlist_item WHERE playlist_id IN (SELECT id FROM playlist WHERE profile_id = ?);
+
+deleteProfilePlaylists:
+DELETE FROM playlist WHERE profile_id = ?;
+
+deleteProfileGroupOverrides:
+DELETE FROM group_override WHERE profile_id = ?;
+
+deleteProfileChannelRows:
+DELETE FROM channel_profile WHERE profile_id = ?;
+
+deleteProfileReminders:
+DELETE FROM reminder WHERE profile_id = ?;
+
+-- Reads for building items.
+allUserChannels:
+SELECT * FROM user_channel;
+
+allLinks:
+SELECT * FROM channel_link;
+
+allChannelProfiles:
+SELECT * FROM channel_profile WHERE profile_id = ?;
+
+allFavorites:
+SELECT * FROM favorite WHERE profile_id = ?;
+
+allPlaylists:
+SELECT * FROM playlist WHERE profile_id = ?;
+
+allPlaylistItems:
+SELECT pi.* FROM playlist_item pi JOIN playlist p ON p.id = pi.playlist_id WHERE p.profile_id = ?;
+
+allGroupOverrides:
+SELECT * FROM group_override WHERE profile_id = ?;
+
+allReminders:
+SELECT * FROM reminder WHERE profile_id = ?;
+
+-- Writes for applying items.
+upsertUserChannel:
+INSERT OR REPLACE INTO user_channel(id, created_at) VALUES (?, ?);
+
+deleteUserChannel:
+DELETE FROM user_channel WHERE id = ?;
+
+-- REPLACE also drops a local link to the same stream under another user channel (stream_id is UNIQUE).
+upsertLink:
+INSERT OR REPLACE INTO channel_link(user_channel_id, stream_id, kind, preferred) VALUES (?, ?, ?, ?);
+
+deleteLink:
+DELETE FROM channel_link WHERE user_channel_id = ? AND stream_id = ?;
+
+upsertChannelProfile:
+INSERT OR REPLACE INTO channel_profile(user_channel_id, profile_id, custom_name, custom_logo, custom_number, hidden, audio_language, subtitle, aspect)
+VALUES ?;
+
+deleteChannelProfile:
+DELETE FROM channel_profile WHERE user_channel_id = ? AND profile_id = ?;
+
+upsertFavorite:
+INSERT OR REPLACE INTO favorite(profile_id, user_channel_id, sort_key) VALUES (?, ?, ?);
+
+upsertPlaylist:
+INSERT OR REPLACE INTO playlist(id, profile_id, name, sort_key) VALUES (?, ?, ?, ?);
+
+upsertPlaylistItem:
+INSERT OR REPLACE INTO playlist_item(playlist_id, user_channel_id, sort_key) VALUES (?, ?, ?);
+
+upsertGroupOverride:
+INSERT OR REPLACE INTO group_override(profile_id, source_id, group_name, hidden, custom_name, channel_sort, sort_key) VALUES ?;
+
+deleteGroupOverride:
+DELETE FROM group_override WHERE profile_id = ? AND source_id = ? AND group_name = ?;
+
+-- A reminder that already fired here stays fired: firing is per device. Insert, then update.
+insertReminderIfNew:
+INSERT OR IGNORE INTO reminder(id, profile_id, user_channel_id, title, start_ms, stop_ms, fired, created_at) VALUES (?, ?, ?, ?, ?, ?, 0, ?);
+
+updateReminder:
+UPDATE reminder SET profile_id = ?, user_channel_id = ?, title = ?, start_ms = ?, stop_ms = ? WHERE id = ?;

@@ -48,6 +48,16 @@ class Settings(private val db: UserDatabase, private val io: CoroutineDispatcher
         NAS_TAILSCALE_ADDRESS(Scope.DEVICE, "nas_tailscale_address"),
         NAS_API_KEY(Scope.DEVICE, "nas_api_key"),
         NAS_DEVICE_NAME(Scope.DEVICE, "nas_device_name"),
+        ;
+
+        companion object {
+            /**
+             * Never synced (PLAN §5.7, §9): the NAS connection and its key, the device's identity and
+             * profile (the companion owns those), and passing state.
+             */
+            val notSynced: Set<String> = setOf(PROFILE_ID, DEVICE_ID, BACKGROUNDED_AT, NAS_HOME_ADDRESS, NAS_TAILSCALE_ADDRESS, NAS_API_KEY, NAS_DEVICE_NAME)
+                .mapTo(HashSet()) { it.id }
+        }
     }
 
     private fun owner(key: Key): String = when (key.scope) {
@@ -81,6 +91,43 @@ class Settings(private val db: UserDatabase, private val io: CoroutineDispatcher
 
     init {
         CoroutineScope(SupervisorJob() + io).launch { for (write in writes) runCatching { write() } }
+    }
+
+    // ---- Sync (PLAN §9) ------------------------------------------------------------------------
+
+    /** One stored setting, with its owner as stored here ("this-device" for device scope). */
+    data class Row(val scope: String, val owner: String, val key: String, val value: String)
+
+    /** Every stored setting, pending writes included: what a push compares. */
+    fun rows(): List<Row> = synchronized(this) {
+        cache.map { (k, v) -> k.split('/', limit = 3).let { Row(it[0], it[1], it[2], v) } }
+    }
+
+    /** The owner a setting of [scope] is stored under on this device. */
+    fun localOwner(scope: String): String = when (scope) {
+        Scope.HOUSEHOLD.id -> ""
+        Scope.PROFILE.id -> profileId
+        else -> "this-device"
+    }
+
+    /**
+     * Writes a setting that came from the companion. Called on io inside the sync's transaction, so it
+     * writes at once instead of through the queue.
+     */
+    fun applySynced(scope: String, key: String, value: String?) {
+        val owner = localOwner(scope)
+        synchronized(this) {
+            val k = cacheKey(scope, owner, key)
+            if (value == null) cache.remove(k) else cache[k] = value
+        }
+        if (value == null) db.settingQueries.remove(scope, owner, key) else db.settingQueries.put(scope, owner, key, value)
+    }
+
+    /** Drops the cached profile settings after a move to another profile; the new profile's arrive by sync. */
+    fun forgetProfile(profileId: String) {
+        synchronized(this) { cache.keys.removeAll { it.startsWith("${Scope.PROFILE.id}/$profileId/") } }
+        db.settingQueries.all().executeAsList().filter { it.scope == Scope.PROFILE.id && it.owner_id == profileId }
+            .forEach { db.settingQueries.remove(it.scope, it.owner_id, it.key) }
     }
 
     fun bool(key: Key, default: Boolean): Boolean = raw(key)?.toBooleanStrictOrNull() ?: default

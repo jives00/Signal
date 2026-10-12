@@ -173,7 +173,9 @@ class ChannelRepository(
         channel.userChannelId?.let { return@withContext it.also { ensureProfileRow(it) } }
         db.transactionWithResult {
             val existing = db.userChannelQueries.userChannelForStream(channel.stream.id).executeAsOneOrNull()
-            val id = existing ?: newId().also { id ->
+            // Named after the stream, not random: two devices that each create one for the same stream
+            // before syncing end up with the same user channel (PLAN §9).
+            val id = existing ?: stableUserChannelId(channel.stream.id).also { id ->
                 db.userChannelQueries.insertUserChannel(id, Clock.System.now().toEpochMilliseconds())
                 db.userChannelQueries.insertLink(id, channel.stream.id, "manual", 1)
             }
@@ -374,6 +376,8 @@ class ChannelRepository(
 
     companion object {
         private val json = Json { ignoreUnknownKeys = true }
+
+        fun stableUserChannelId(streamId: String) = "ch:$streamId"
 
         fun String?.toHeaders(): Map<String, String> =
             if (this.isNullOrEmpty()) emptyMap() else runCatching { json.decodeFromString<Map<String, String>>(this) }.getOrDefault(emptyMap())

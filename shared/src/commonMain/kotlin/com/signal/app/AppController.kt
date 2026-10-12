@@ -29,8 +29,12 @@ import com.signal.db.user.UserDatabase
 import com.signal.input.RemoteDispatcher
 import com.signal.model.Source
 import com.signal.model.SourceKind
-import com.signal.nas.GuideInputs
 import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.drop
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
+import app.cash.sqldelight.coroutines.asFlow
 import com.signal.platform.Platform
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -52,6 +56,8 @@ class AppController(val platform: Platform, val log: Log) {
     val playback = PlaybackController(platform.player, channels, sources, settings, scope, log)
     // The NAS companion (PLAN §5.7): optional; the app works the same without it.
     val nas = com.signal.nas.NasConnection(settings, http, platform.secretBox, platform.appInfo, log)
+    // Settings sync through the companion (PLAN §9).
+    val sync = com.signal.sync.SyncEngine(db, settings, com.signal.sync.SyncTables(db, settings, platform.secretBox), platform.io, log)
 
     // The guide (PLAN §6). It reads and writes only guide.db, so it gets its own IO threads: on the
     // desktop user.db runs one thread at a time, and a guide build must never queue behind or block it.
@@ -117,15 +123,22 @@ class AppController(val platform: Platform, val log: Log) {
         scope.launch { runReminders() }
         // A new guide can move a program: its reminder follows (PLAN §4.3.4 → Guide changes).
         scope.launch { guideStore.version.collect { if (it > 0) followMovedPrograms() } }
-        scope.launch { nas.check() }
-        // Once connected (at launch or just paired), the NAS learns what to build the guide from...
-        scope.launch { nas.status.collect { if (it is com.signal.nas.NasConnection.Status.Connected) pushGuideInputs() } }
-        // ...and again whenever the sources or EPG sources change.
         scope.launch {
-            kotlinx.coroutines.flow.combine(sources.sources(), epg.epgSources()) { _, _ -> }
-                .debounce(3_000)
-                .collect { if (nas.status.value is com.signal.nas.NasConnection.Status.Connected) pushGuideInputs() }
+            sync.load()
+            nas.check()
         }
+        // Settings sync (PLAN §9.2): on connecting (launch, foreground, just paired)...
+        scope.launch {
+            nas.status.map { it is com.signal.nas.NasConnection.Status.Connected }.distinctUntilChanged()
+                .collect { if (it) syncNow() }
+        }
+        // ...after a change here...
+        scope.launch {
+            db.syncQueries.changeTick().asFlow().drop(1).debounce(SYNC_DEBOUNCE_MS)
+                .collect { if (nas.status.value is com.signal.nas.NasConnection.Status.Connected && sync.hasLocalChanges()) syncNow() }
+        }
+        // ...and whenever the NAS says something changed.
+        scope.launch { followEvents() }
         // A NAS build that lands while the app is open (the nightly run, or new inputs) is picked up.
         scope.launch {
             while (true) {
@@ -180,24 +193,89 @@ class AppController(val platform: Platform, val log: Log) {
 
     // ---- The NAS guide (PLAN §5.2, §6) ---------------------------------------------------------
 
-    /** The last inputs sent, so an unchanged list isn't sent again. */
-    private var pushedInputs: GuideInputs? = null
+    // ---- Settings sync (PLAN §5.5, §9.2) ------------------------------------------------------
+
+    /** True while the NAS's event stream is connected; Settings shows it. */
+    val eventsConnected = kotlinx.coroutines.flow.MutableStateFlow(false)
 
     /**
-     * Tells the NAS what to build the guide from: every EPG source, and the sources their Xtream
-     * guides need. Fields that change on every refresh are left out, so a refresh alone sends nothing.
+     * Push, pull, and act on what arrived: new sources load, a removed last source returns to setup,
+     * and a guide change picks up the NAS's build. Returns false when the NAS couldn't be reached.
      */
-    private suspend fun pushGuideInputs() {
-        val epgSources = epg.all().map { it.copy(lastBuiltAt = 0, lastError = null) }
-        val needed = epgSources.mapNotNull { it.sourceId }.toSet()
-        val inputs = GuideInputs(
-            sources.all().filter { it.id in needed && it.kind == SourceKind.XTREAM }.map { it.copy(lastRefreshedAt = 0, lastError = null) },
-            epgSources,
-        )
-        if (inputs == pushedInputs) return
-        if (nas.pushGuideInputs(inputs)) {
-            pushedInputs = inputs
-            log.info("NAS: guide inputs sent (${epgSources.size} EPG sources)")
+    suspend fun syncNow(): Boolean {
+        if (!nas.isPaired) return false
+        val report = sync.sync(nas) ?: return false
+        for (id in report.sourcesToRefresh) {
+            refresh(id)
+            sources.byId(id)?.let { epg.ensureForSource(it) }
+        }
+        if (report.sourcesRemoved && sources.count() == 0L) {
+            playback.stop()
+            navigator.resetTo(Route.Setup)
+        } else if (report.sourcesToRefresh.isNotEmpty() && navigator.current == Route.Setup) {
+            // First run on a paired device: the NAS's settings arrived (PLAN §4.3.1 → First run).
+            navigator.resetTo(Route.Home)
+        }
+        if (report.profileChanged && navigator.current != Route.Setup) navigator.resetTo(Route.Home)
+        if (report.epgChanged || report.sourcesToRefresh.isNotEmpty()) scope.launch {
+            if (installNasGuide() == null && guideIsStale()) rebuildGuide()
+        }
+        return true
+    }
+
+    /**
+     * The NAS's event stream while paired (PLAN §9.2): a settings change pulls, a new guide build
+     * installs. On a drop it reconnects with backoff and syncs on reconnect; while it's down a 5-minute
+     * poll stands in.
+     */
+    private suspend fun followEvents() {
+        var backoff = 2_000L
+        while (true) {
+            if (nas.status.value !is com.signal.nas.NasConnection.Status.Connected) {
+                nas.status.first { it is com.signal.nas.NasConnection.Status.Connected }
+            }
+            runCatching {
+                nas.events().collect { event ->
+                    eventsConnected.value = true
+                    backoff = 2_000L
+                    when (event.kind) {
+                        com.signal.sync.SyncEvent.HELLO -> if (event.rev != sync.state.value.rev) syncNow()
+                        com.signal.sync.SyncEvent.SETTINGS -> if (event.rev != sync.state.value.rev) syncNow()
+                        com.signal.sync.SyncEvent.GUIDE -> if (!guideBuilding) installNasGuide()
+                    }
+                }
+            }.onFailure { if (it is kotlinx.coroutines.CancellationException) throw it }
+            eventsConnected.value = false
+            // Down: poll as a safety net, and try the stream again with backoff.
+            val lastSync = sync.state.value.lastSyncAt ?: 0
+            if (Clock.System.now().toEpochMilliseconds() - lastSync > SYNC_POLL_MS && nas.isPaired) syncNow()
+            delay(backoff)
+            backoff = (backoff * 2).coerceAtMost(60_000L)
+        }
+    }
+
+    /** Unpairing: the key goes, and the next pairing is a first sync again. */
+    suspend fun unpairNas() {
+        nas.unpair()
+        sync.reset()
+    }
+
+    /** Settings → NAS & sync → Export settings: a file of every setting, passwords included (PLAN §9.2 → Fallback). */
+    suspend fun exportSettings(): Result<String> = runCatching {
+        val files = platform.settingsFiles ?: error("Not available on this device")
+        files.save("signal-settings-${Clock.System.now().toEpochMilliseconds() / 1000}.json", sync.exportFile()) ?: error("Not saved")
+    }
+
+    suspend fun importSettings(): Result<Int> {
+        val files = platform.settingsFiles ?: return Result.failure(IllegalStateException("Not available on this device"))
+        val text = files.open() ?: return Result.failure(IllegalStateException("No file chosen"))
+        return sync.importFile(text).onSuccess {
+            sources.all().filter { it.enabled && it.lastRefreshedAt == 0L }.forEach { s ->
+                refresh(s.id)
+                epg.ensureForSource(s)
+            }
+            if (navigator.current == Route.Setup && sources.count() > 0) navigator.resetTo(Route.Home)
+            if (nas.status.value is com.signal.nas.NasConnection.Status.Connected) syncNow()
         }
     }
 
@@ -367,7 +445,10 @@ class AppController(val platform: Platform, val log: Log) {
             playback.resume()
         }
         scope.launch {
+            val wasConnected = nas.status.value is com.signal.nas.NasConnection.Status.Connected
             nas.check()
+            // Still connected, so the status collector won't fire: sync on resume here (PLAN §9.2).
+            if (wasConnected && nas.status.value is com.signal.nas.NasConnection.Status.Connected) syncNow()
             if (nas.isPaired && !guideBuilding) installNasGuide()
         }
         scope.launch { platform.updater?.check() }
@@ -379,5 +460,9 @@ class AppController(val platform: Platform, val log: Log) {
         /** A NAS guide older than this is ignored, and the device builds its own: the nightly run must have stopped. */
         const val NAS_GUIDE_MAX_AGE_MS = 36 * 60 * 60_000L
         const val NAS_GUIDE_CHECK_MS = 30 * 60_000L
+        /** A burst of edits (a move, a rename) goes as one sync. */
+        const val SYNC_DEBOUNCE_MS = 2_000L
+        /** While the event stream is down (PLAN §9.2). */
+        const val SYNC_POLL_MS = 5 * 60_000L
     }
 }

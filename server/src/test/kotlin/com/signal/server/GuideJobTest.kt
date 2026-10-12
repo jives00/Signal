@@ -3,7 +3,6 @@ package com.signal.server
 import com.signal.guide.GuideStore
 import com.signal.model.EpgKind
 import com.signal.model.EpgSource
-import com.signal.nas.GuideInputs
 import com.signal.nas.NasGuideMeta
 import com.signal.nas.NasGuidePaths
 import com.signal.nas.NasPaths
@@ -16,6 +15,15 @@ import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.request.post
 import io.ktor.client.request.put
+import com.signal.sync.BUNDLE_SCHEMA
+import com.signal.sync.PushRequest
+import com.signal.sync.SyncFields
+import com.signal.sync.SyncItem
+import com.signal.sync.SyncPaths
+import com.signal.sync.SyncScope
+import com.signal.sync.SyncType
+import com.signal.model.Source
+import com.signal.model.SourceKind
 import io.ktor.client.request.setBody
 import io.ktor.client.statement.bodyAsBytes
 import io.ktor.client.statement.bodyAsText
@@ -82,6 +90,7 @@ class GuideJobTest {
         Config(port = 0, db = null, secretKey = secretKey, dataDir = dataDir.path, webDir = "missing"),
         deviceStore = MemoryDeviceStore(),
         companionStore = MemoryCompanionStore(),
+        syncStoreOverride = MemorySyncStore(),
     )
 
     private suspend fun HttpClient.pair(): String {
@@ -93,7 +102,11 @@ class GuideJobTest {
         return json.decodeFromString<PairStatus>(get(NasPaths.pairStatus(started.pairingId)).bodyAsText()).apiKey!!
     }
 
-    private val demoInputs = GuideInputs(emptyList(), listOf(EpgSource(id = "epg-demo", name = "Demo guide", kind = EpgKind.DEMO, sourceId = "demo")))
+    // What a TV with the Demo source syncs: its EPG source, as a household item.
+    private val demoPush = PushRequest(
+        BUNDLE_SCHEMA,
+        listOf(SyncItem(SyncType.EPG_SOURCE, "epg-demo", SyncScope.HOUSEHOLD, fields = SyncFields.epgSource(EpgSource(id = "epg-demo", name = "Demo guide", kind = EpgKind.DEMO, sourceId = "demo"), 0))),
+    )
 
     @Test fun aDevicesInputsBuildAGuideItCanDownload() = testApplication {
         val companion = companion()
@@ -101,16 +114,14 @@ class GuideJobTest {
         val key = client.pair()
         assertEquals(HttpStatusCode.NotFound, client.get(NasGuidePaths.META) { header(HttpHeaders.Authorization, bearer(key)) }.status)
 
-        val put = client.put(NasGuidePaths.INPUTS) {
+        val push = client.post(SyncPaths.PUSH) {
             header(HttpHeaders.Authorization, bearer(key))
             contentType(ContentType.Application.Json)
-            setBody(json.encodeToString(GuideInputs.serializer(), demoInputs))
+            setBody(json.encodeToString(PushRequest.serializer(), demoPush))
         }
-        assertEquals(HttpStatusCode.NoContent, put.status)
-        // Stored encrypted.
-        assertTrue(companion.store!!.setting(GuideJob.INPUTS)!!.none { it == '{' })
+        assertEquals(HttpStatusCode.OK, push.status)
 
-        // New inputs start a build at once.
+        // A synced EPG source starts a build at once.
         var meta: NasGuideMeta? = null
         var tries = 0
         while (meta == null && tries++ < 600) {
@@ -145,18 +156,18 @@ class GuideJobTest {
         application { signalModule(companion()) }
         assertEquals(HttpStatusCode.Unauthorized, client.get(NasGuidePaths.META).status)
         assertEquals(HttpStatusCode.Unauthorized, client.get(NasGuidePaths.FILE) { header(HttpHeaders.Authorization, bearer("nope")) }.status)
-        assertEquals(HttpStatusCode.Unauthorized, client.put(NasGuidePaths.INPUTS) { contentType(ContentType.Application.Json); setBody("{}") }.status)
     }
 
-    @Test fun withoutTheSecretKeyInputsAreRefused() = testApplication {
+    @Test fun withoutTheSecretKeyPasswordsAreRefused() = testApplication {
         application { signalModule(companion(secretKey = null)) }
         val key = client.pair()
-        val put = client.put(NasGuidePaths.INPUTS) {
+        val source = Source(id = "x", name = "Provider", kind = SourceKind.XTREAM, url = "http://p.example", username = "me", password = "pw")
+        val push = client.post(SyncPaths.PUSH) {
             header(HttpHeaders.Authorization, bearer(key))
             contentType(ContentType.Application.Json)
-            setBody(json.encodeToString(GuideInputs.serializer(), demoInputs))
+            setBody(json.encodeToString(PushRequest.serializer(), PushRequest(BUNDLE_SCHEMA, listOf(SyncItem(SyncType.SOURCE, "x", SyncScope.HOUSEHOLD, fields = SyncFields.source(source, 0))))))
         }
-        assertEquals(HttpStatusCode.ServiceUnavailable, put.status)
+        assertEquals(HttpStatusCode.ServiceUnavailable, push.status)
     }
 
     @Test fun runNowNeedsInputsAndTheScheduleIsValidated() = testApplication {

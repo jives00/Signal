@@ -43,6 +43,7 @@ class Companion(
     database: Database? = null,
     private val deviceStore: DeviceStore? = null,
     private val companionStore: CompanionStore? = null,
+    private val syncStoreOverride: SyncStore? = null,
 ) {
     /** Set once the database connects; it may not be there yet at start-up (see Main). */
     @Volatile var database: Database? = database
@@ -51,6 +52,7 @@ class Companion(
     /** Null until the database connects. */
     val devices: DeviceStore? get() = deviceStore ?: database?.devices
     val store: CompanionStore? get() = companionStore ?: database?.store
+    val syncStore: SyncStore? get() = syncStoreOverride ?: database?.sync
     val cipher: SecretCipher? = config.secretKey?.let(::SecretCipher)
 
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -65,6 +67,9 @@ class Companion(
     }
     val guide by lazy { GuideBuilds(File(config.dataDir, "guide"), http) }
     val guideJob = GuideJob(this, scope)
+    val sync = SyncService(this)
+    /** What /device/events announces: settings changes and guide builds (PLAN §9.2). */
+    val events = kotlinx.coroutines.flow.MutableSharedFlow<com.signal.sync.SyncEvent>(extraBufferCapacity = 64)
     val version: String =
         Companion::class.java.getResourceAsStream("/signal-version.txt")?.bufferedReader()?.readText()?.trim()?.takeIf { it.isNotEmpty() && !it.startsWith("$") } ?: "dev"
 
@@ -102,10 +107,12 @@ fun Application.signalModule(companion: Companion) {
         trusted {
             deviceRoutes(companion)
             guideDeviceRoutes(companion)
+            syncDeviceRoutes(companion)
             route("/api") {
                 get("/status") { call.respond(Status(companion.version, companion.databaseState(), companion.config.secretKey != null)) }
                 deviceAdminRoutes(companion)
                 guideAdminRoutes(companion)
+                syncAdminRoutes(companion)
             }
             webAdmin(File(companion.config.webDir))
         }

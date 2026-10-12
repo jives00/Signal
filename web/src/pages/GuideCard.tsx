@@ -67,7 +67,7 @@ export default function GuideCard() {
           <div className="detail">
             {meta
               ? `${meta.programs.toLocaleString()} programs · ${meta.channels.toLocaleString()} guide channels · ${size(meta.sizeBytes)}${failures ? ` · ${failures} source${failures > 1 ? "s" : ""} failed` : ""}`
-              : "Builds once a paired device sends its EPG sources"}
+              : "Builds once a paired TV syncs an EPG source"}
           </div>
         </div>
         <div className="card">
@@ -75,8 +75,8 @@ export default function GuideCard() {
           <div className="value">{status.epgSources.length || "None"}</div>
           <div className="detail">
             {status.epgSources.length
-              ? `${status.epgSources.join(", ")}. From ${status.inputsFrom ?? "a device"}${status.inputsAt ? `, ${ago(status.inputsAt)}` : ""}`
-              : "Sent by a paired TV until settings sync arrives"}
+              ? `${status.epgSources.join(", ")}. Last changed by ${status.inputsFrom ?? "a device"}${status.inputsAt ? `, ${ago(status.inputsAt)}` : ""}`
+              : "Synced from a paired TV"}
           </div>
         </div>
         <div className="card">

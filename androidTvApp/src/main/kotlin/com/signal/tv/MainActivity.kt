@@ -34,6 +34,33 @@ class MainActivity : ComponentActivity() {
         }.onFailure { speechCallback = null }
     }
 
+    // Settings files (PLAN §9.2 → Fallback): the system picker. Throws ActivityNotFoundException where
+    // Android TV has none, and AndroidSettingsFiles falls back to Downloads.
+    private var createResult: kotlinx.coroutines.CompletableDeferred<android.net.Uri?>? = null
+    private val createDocument = registerForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
+        createResult?.complete(uri)
+        createResult = null
+    }
+    private var openResult: kotlinx.coroutines.CompletableDeferred<android.net.Uri?>? = null
+    private val openDocument = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        openResult?.complete(uri)
+        openResult = null
+    }
+
+    suspend fun pickFileToCreate(name: String): android.net.Uri? {
+        val result = kotlinx.coroutines.CompletableDeferred<android.net.Uri?>()
+        createResult = result
+        createDocument.launch(name)
+        return result.await()
+    }
+
+    suspend fun pickFileToOpen(): android.net.Uri? {
+        val result = kotlinx.coroutines.CompletableDeferred<android.net.Uri?>()
+        openResult = result
+        openDocument.launch(arrayOf("application/json", "text/plain", "application/octet-stream"))
+        return result.await()
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         signal.platform.activity = WeakReference(this)

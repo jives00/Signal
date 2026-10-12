@@ -19,6 +19,8 @@ interface Platform {
     /** Speech to text for Search's mic button (PLAN §4.3.14), or null where there's none (the dev harness). */
     val voiceInput: VoiceInput?
     val io: CoroutineDispatcher
+    /** Saving and opening a settings file (PLAN §9.2 → Fallback), or null where there's no way to. */
+    val settingsFiles: SettingsFiles? get() = null
 
     fun createUserDatabaseDriver(): SqlDriver
 
@@ -34,6 +36,14 @@ interface Platform {
 
     /** Back on the nav bar of Home exits the app straight away (PLAN §4.3.1). */
     fun exitApp()
+}
+
+/** A settings file on a USB stick or in Downloads. */
+interface SettingsFiles {
+    /** Saves [text] as a new file and returns where it went, for the screen to say; null when cancelled. */
+    suspend fun save(suggestedName: String, text: String): String?
+    /** Lets the user pick a file and returns its text; null when cancelled. */
+    suspend fun open(): String?
 }
 
 /** Listens once and hands back the recognized text; nothing when the user cancels. */

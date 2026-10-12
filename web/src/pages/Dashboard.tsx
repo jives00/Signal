@@ -1,4 +1,5 @@
 import type { Status } from "../api";
+import BackupsCard from "./BackupsCard";
 import GuideCard from "./GuideCard";
 
 /**
@@ -27,6 +28,7 @@ export default function Dashboard({ status, failed }: { status: Status | null; f
         </div>
       </div>
       <GuideCard />
+      <BackupsCard />
     </div>
   );
 }

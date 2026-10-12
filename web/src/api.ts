@@ -28,6 +28,8 @@ export interface Device {
   appVersion: string;
   pairedAt: number;
   lastSeenAt: number;
+  profileId: string;
+  lastSyncAt: number;
 }
 
 /** The companion's own wording for errors is meant for people, so pass it through. */
@@ -101,4 +103,44 @@ export const setGuideSchedule = (schedule: GuideSchedule) => send<void>("/api/gu
 export function size(bytes: number): string {
   if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
   return `${Math.max(1, Math.round(bytes / 1024))} KB`;
+}
+
+/** Settings sync (PLAN §9): profiles and backups. */
+export interface ProfileSummary {
+  id: string;
+  name: string;
+  createdAt: number;
+  devices: string[];
+  items: number;
+}
+
+export interface Snapshot {
+  id: number;
+  createdAt: number;
+  reason: string;
+  items: number;
+}
+
+export interface SyncStatus {
+  rev: number;
+  counts: Record<string, number>;
+  profiles: ProfileSummary[];
+  snapshots: Snapshot[];
+}
+
+export const getSync = () => send<SyncStatus>("/api/sync");
+export const createProfile = (name: string, copyFrom: string | null) => send<ProfileSummary>("/api/profiles", { method: "POST", body: JSON.stringify({ name, copyFrom }) });
+export const renameProfile = (id: string, name: string) => send<void>(`/api/profiles/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify({ name }) });
+export const deleteProfile = (id: string) => send<void>(`/api/profiles/${encodeURIComponent(id)}`, { method: "DELETE" });
+export const setDeviceProfile = (id: string, profileId: string) => send<void>(`/api/devices/${encodeURIComponent(id)}/profile`, { method: "PUT", body: JSON.stringify({ profileId }) });
+export const backUpNow = () => send<Snapshot>("/api/snapshots", { method: "POST", body: JSON.stringify({ reason: "Manual" }) });
+export const restoreSnapshot = (id: number) => send<{ changes: number }>(`/api/snapshots/${id}/restore`, { method: "POST" });
+export const deleteSnapshot = (id: number) => send<void>(`/api/snapshots/${id}`, { method: "DELETE" });
+
+/** "3 sources · 12 favorites": the headline counts from a sync status, for people. */
+export function itemSummary(counts: Record<string, number>): string {
+  const total = (type: string) => Object.entries(counts).filter(([k]) => k.startsWith(`${type}/`)).reduce((n, [, v]) => n + v, 0);
+  const parts: [string, string][] = [["source", "source"], ["favorite", "favorite"], ["playlist", "playlist"], ["reminder", "reminder"]];
+  const shown = parts.map(([type, word]) => [total(type), word] as const).filter(([n]) => n > 0).map(([n, word]) => `${n} ${word}${n === 1 ? "" : "s"}`);
+  return shown.length ? shown.join(" · ") : "Nothing synced yet";
 }

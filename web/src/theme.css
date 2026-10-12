@@ -97,11 +97,12 @@ a { color: inherit; text-decoration: none; }
   .topbar, .page { padding-left: 16px; padding-right: 16px; }
 }
 
-button {
+button, a.button {
   font: inherit; font-weight: 600; color: var(--text); background: var(--neutral-300);
-  border: 0; padding: 8px 14px; cursor: pointer;
+  border: 0; padding: 8px 14px; cursor: pointer; text-decoration: none;
 }
-button:hover:not(:disabled) { background: var(--surface); outline: 2px solid var(--divider); }
+button:hover:not(:disabled), a.button:hover { background: var(--surface); outline: 2px solid var(--divider); }
+.table select { font: inherit; }
 button.primary { background: var(--accent); color: var(--on-accent); }
 button.primary:hover:not(:disabled) { background: var(--accent-600); outline: none; }
 button:disabled { opacity: 0.5; cursor: default; }

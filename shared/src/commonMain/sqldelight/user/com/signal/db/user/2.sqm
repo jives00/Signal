@@ -1,0 +1,14 @@
+-- Milestone 3 (settings sync): the state last agreed with the companion, and sync bookkeeping.
+CREATE TABLE sync_base (
+    type TEXT NOT NULL,
+    scope TEXT NOT NULL,
+    owner_id TEXT NOT NULL,
+    id TEXT NOT NULL,
+    fields TEXT NOT NULL,
+    PRIMARY KEY (type, scope, owner_id, id)
+);
+
+CREATE TABLE sync_state (
+    key TEXT NOT NULL PRIMARY KEY,
+    value TEXT NOT NULL
+);

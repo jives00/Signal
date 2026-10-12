@@ -31,8 +31,8 @@ private enum class SetupStep { CHOOSE, NAS, PAIRED, SOURCE }
 
 /**
  * First run, with no sources yet (PLAN §4.3.1 → First run). Home and the nav bar don't open until
- * a source loads. Connect to NAS pairs the device; until settings sync arrives, a source is still
- * added here afterwards.
+ * a source loads. Connect to NAS pairs the device and downloads the NAS's settings; a source is
+ * added here only when the NAS has none.
  */
 @Composable
 fun SetupScreen() {
@@ -41,6 +41,8 @@ fun SetupScreen() {
     val scope = rememberCoroutineScope()
     var step by remember { mutableStateOf(SetupStep.CHOOSE) }
     var pairedAs by remember { mutableStateOf("") }
+    // After pairing: true while the first sync runs, false when it brought no sources, null when it failed.
+    var syncing by remember { mutableStateOf<Boolean?>(true) }
     var status by remember { mutableStateOf<String?>(null) }
     val first = remember { FocusRequester() }
 
@@ -71,10 +73,22 @@ fun SetupScreen() {
             }
             SetupStep.NAS -> {
                 SText("Pair this TV with Signal's NAS companion.", 26, Modifier.padding(top = 8.dp, bottom = 32.dp), color = c.muted)
-                NasForm(pair = true, onPaired = { pairedAs = it; step = SetupStep.PAIRED }, onCancel = { step = SetupStep.CHOOSE })
+                NasForm(pair = true, onPaired = {
+                    pairedAs = it
+                    step = SetupStep.PAIRED
+                    syncing = true
+                    // First run on a paired device: the NAS's settings download, and Home opens once a source loads (PLAN §4.3.1).
+                    // On the app's scope: Home replaces this screen mid-sync, and the sync must carry on.
+                    app.scope.launch { syncing = if (app.syncNow()) false else null }
+                }, onCancel = { step = SetupStep.CHOOSE })
             }
             SetupStep.PAIRED -> {
-                SText("This TV is paired as $pairedAs. Settings don't sync from the NAS yet, so add a source here for now.", 26, Modifier.padding(top = 8.dp, bottom = 48.dp), color = c.muted, maxLines = 2)
+                val text = when (syncing) {
+                    true -> "This TV is paired as $pairedAs. Getting your settings from the NAS…"
+                    false -> "This TV is paired as $pairedAs. The NAS has no sources yet: add one here, and your other TVs get it too."
+                    null -> "This TV is paired as $pairedAs, but the NAS didn't answer. Add a source here; it syncs once the NAS is back."
+                }
+                SText(text, 26, Modifier.padding(top = 8.dp, bottom = 48.dp), color = c.muted, maxLines = 2)
                 Column(Modifier.width(900.dp)) {
                     ListRow("Add a source", detail = "M3U or Xtream Codes", onSelect = { step = SetupStep.SOURCE }, focusRequester = first)
                 }

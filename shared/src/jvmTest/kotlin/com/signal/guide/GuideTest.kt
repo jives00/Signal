@@ -282,7 +282,7 @@ class UserDatabaseMigrationTest {
         val url = "jdbc:sqlite:${file.absolutePath}"
         JdbcSqliteDriver(url).use { d ->
             UserDatabase.Schema.create(d)
-            listOf("guide_mapping", "reminder", "epg_source").forEach { d.execute(null, "DROP TABLE $it", 0) }
+            listOf("guide_mapping", "reminder", "epg_source", "sync_base", "sync_state").forEach { d.execute(null, "DROP TABLE $it", 0) }
             d.execute(null, "DROP INDEX IF EXISTS reminder_start", 0)
             d.execute(null, "INSERT INTO source(id, name, kind, url, created_at) VALUES ('s', 'Kept', 'M3U', 'http://x', 1)", 0)
             d.execute(null, "PRAGMA user_version = 1", 0)
@@ -292,6 +292,24 @@ class UserDatabaseMigrationTest {
             assertEquals("Kept", db.sourceQueries.byId("s").executeAsOne().name)
             assertTrue(db.guideQueries.allEpgSources().executeAsList().isEmpty())
             assertTrue(db.reminderQueries.remindersFor("main").executeAsList().isEmpty())
+        }
+    }
+
+    /** A 0.2.x user.db (schema version 2) gains the sync tables and keeps its data. */
+    @Test fun version2MigratesToTheSyncTables() {
+        val file = java.io.File.createTempFile("user-v2", ".db").apply { delete(); deleteOnExit() }
+        val url = "jdbc:sqlite:${file.absolutePath}"
+        JdbcSqliteDriver(url).use { d ->
+            UserDatabase.Schema.create(d)
+            listOf("sync_base", "sync_state").forEach { d.execute(null, "DROP TABLE $it", 0) }
+            d.execute(null, "INSERT INTO favorite(profile_id, user_channel_id, sort_key) VALUES ('main', 'uc', 'a0')", 0)
+            d.execute(null, "PRAGMA user_version = 2", 0)
+        }
+        JdbcSqliteDriver(url, java.util.Properties(), UserDatabase.Schema).use { d ->
+            val db = UserDatabase(d)
+            assertEquals(listOf("uc"), db.syncQueries.allFavorites("main").executeAsList().map { it.user_channel_id })
+            assertTrue(db.syncQueries.allBase().executeAsList().isEmpty())
+            assertNull(db.syncQueries.state("rev").executeAsOneOrNull())
         }
     }
 }

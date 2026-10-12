@@ -45,7 +45,8 @@ class EpgRepository(private val db: UserDatabase, private val settings: Settings
             SourceKind.M3U -> return@withContext false
         }
         if (db.guideQueries.epgSourceForSource(source.id).executeAsOneOrNull() != null) return@withContext false
-        save(EpgSource(id = newId(), name = "${source.name} guide", kind = kind, sourceId = source.id, position = nextPosition()))
+        // Named after the source, so every device that adds it agrees on the ID (PLAN §9).
+        save(EpgSource(id = "epg:${source.id}", name = "${source.name} guide", kind = kind, sourceId = source.id, position = nextPosition()))
         true
     }
 

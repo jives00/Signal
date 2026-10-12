@@ -9,7 +9,10 @@ import io.ktor.client.request.HttpRequestBuilder
 import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.request.post
-import io.ktor.client.request.put
+import io.ktor.client.request.prepareGet
+import io.ktor.client.plugins.timeout
+import io.ktor.client.statement.bodyAsChannel
+import io.ktor.utils.io.readLine
 import io.ktor.client.request.setBody
 import io.ktor.client.statement.HttpResponse
 import io.ktor.client.statement.bodyAsText
@@ -43,7 +46,7 @@ class NasConnection(
     private val appInfo: AppInfo,
     private val log: Log,
     private val pollMs: Long = POLL_MS,
-) {
+) : com.signal.sync.SyncTransport {
     enum class Via(val label: String) { HOME("home network"), TAILSCALE("Tailscale") }
 
     sealed interface Status {
@@ -200,20 +203,6 @@ class NasConnection(
 
     // ---- Guide (PLAN §6: the NAS build first, the device's own build as the fallback) ----------
 
-    /** Sends what the NAS builds the guide from. False when not paired or not reachable. */
-    suspend fun pushGuideInputs(inputs: GuideInputs): Boolean {
-        if (!isPaired) return false
-        val response = call { base ->
-            http.put(base + NasGuidePaths.INPUTS) {
-                asDevice()
-                contentType(ContentType.Application.Json)
-                setBody(json.encodeToString(GuideInputs.serializer(), inputs))
-            }
-        }
-        if (response?.status == HttpStatusCode.Unauthorized) check()
-        return response?.status?.isSuccess() == true
-    }
-
     /** The NAS's latest guide build, or null when there's none, or no NAS to ask. */
     suspend fun guideMeta(): NasGuideMeta? {
         if (!isPaired) return null
@@ -241,6 +230,69 @@ class NasConnection(
         return false
     }
 
+    // ---- Settings sync (PLAN §5.5, §9.2) --------------------------------------------------------
+
+    override suspend fun push(request: com.signal.sync.PushRequest): com.signal.sync.PushResult? {
+        if (!isPaired) return null
+        val response = call(SYNC_TIMEOUT_MS) { base ->
+            http.post(base + com.signal.sync.SyncPaths.PUSH) {
+                asDevice()
+                contentType(ContentType.Application.Json)
+                setBody(json.encodeToString(com.signal.sync.PushRequest.serializer(), request))
+            }
+        } ?: return null
+        return response.decodeOrReport(com.signal.sync.PushResult.serializer())
+    }
+
+    override suspend fun pull(since: Long): com.signal.sync.PullResult? {
+        if (!isPaired) return null
+        val response = call(SYNC_TIMEOUT_MS) { base ->
+            http.get(base + com.signal.sync.SyncPaths.PULL) {
+                asDevice()
+                url.parameters.append("since", since.toString())
+                url.parameters.append("schema", com.signal.sync.BUNDLE_SCHEMA.toString())
+            }
+        } ?: return null
+        return response.decodeOrReport(com.signal.sync.PullResult.serializer())
+    }
+
+    private suspend fun <T> HttpResponse.decodeOrReport(serializer: kotlinx.serialization.KSerializer<T>): T? {
+        if (status == HttpStatusCode.Unauthorized) { check(); return null }
+        if (!status.isSuccess()) {
+            // Refused (an incompatible version, no secret key on the NAS): say why in Settings.
+            error(bodyAsText().take(200).ifBlank { "The NAS refused: $status" })
+        }
+        return json.decodeFromString(serializer, bodyAsText())
+    }
+
+    /**
+     * The NAS's event stream (PLAN §9.2 → Real-time updates): emits each event until the connection
+     * drops, then completes. The caller reconnects. The NAS sends a comment every 20 seconds, so a dead
+     * connection is noticed within the socket timeout.
+     */
+    fun events(): Flow<com.signal.sync.SyncEvent> = flow {
+        val key = apiKey ?: return@flow
+        val base = active?.second ?: findAddress()?.second ?: return@flow
+        http.prepareGet(base + com.signal.sync.SyncPaths.EVENTS) {
+            header(DEVICE_KEY_HEADER, bearer(key))
+            header(APP_VERSION_HEADER, appInfo.versionName)
+            header("Accept", "text/event-stream")
+            timeout {
+                requestTimeoutMillis = io.ktor.client.plugins.HttpTimeoutConfig.INFINITE_TIMEOUT_MS
+                socketTimeoutMillis = EVENTS_SOCKET_TIMEOUT_MS
+            }
+        }.execute { response ->
+            if (response.status == HttpStatusCode.Unauthorized) { check(); return@execute }
+            if (!response.status.isSuccess()) return@execute
+            val channel = response.bodyAsChannel()
+            while (true) {
+                val line = channel.readLine() ?: break
+                if (!line.startsWith("data:")) continue
+                runCatching { json.decodeFromString<com.signal.sync.SyncEvent>(line.removePrefix("data:").trim()) }.getOrNull()?.let { emit(it) }
+            }
+        }
+    }
+
     /** Forgets the key on this device only. The web admin still lists it until forgotten there too. */
     fun unpair() {
         settings.put(Settings.Key.NAS_API_KEY, null)
@@ -256,6 +308,8 @@ class NasConnection(
         const val REQUEST_TIMEOUT_MS = 10_000L
         const val POLL_MS = 2_000L
         const val DOWNLOAD_TIMEOUT_MS = 10 * 60_000L
+        const val SYNC_TIMEOUT_MS = 30_000L
+        const val EVENTS_SOCKET_TIMEOUT_MS = 60_000L
 
         /** "192.168.0.105:3013" → "http://192.168.0.105:3013"; a scheme the user typed is kept. */
         fun baseUrl(address: String): String {

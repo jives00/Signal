@@ -44,6 +44,13 @@ class DesktopPlatform(override val player: VideoPlayer) : Platform {
     // thread, and two writing at once deadlock with SQLITE_BUSY.
     override val io = Dispatchers.IO.limitedParallelism(1)
 
+    // Settings files (PLAN §9.2 → Fallback): the harness uses ~/Downloads with no picker.
+    override val settingsFiles = object : com.signal.platform.SettingsFiles {
+        private val dir = File(System.getProperty("user.home"), "Downloads")
+        override suspend fun save(suggestedName: String, text: String): String = File(dir.apply { mkdirs() }, suggestedName).also { it.writeText(text) }.path
+        override suspend fun open(): String? = dir.listFiles { f -> f.name.startsWith("signal-settings") }?.maxByOrNull { it.lastModified() }?.readText()
+    }
+
     override fun createUserDatabaseDriver(): SqlDriver =
         JdbcSqliteDriver("jdbc:sqlite:${File(dir, "user.db").absolutePath}", sqliteProperties(), UserDatabase.Schema)
 

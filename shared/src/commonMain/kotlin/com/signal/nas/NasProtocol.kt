@@ -51,8 +51,6 @@ const val APP_VERSION_HEADER = "X-Signal-Version"
 
 /** Guide endpoints (PLAN §5.2 → Endpoints → Guide). All need the device's key. */
 object NasGuidePaths {
-    /** PUT [GuideInputs]: what the NAS builds the guide from, until settings sync owns it. */
-    const val INPUTS = "/device/guide/inputs"
     /** GET → [NasGuideMeta]; 404 when the NAS hasn't built one yet. */
     const val META = "/device/guide"
     /** GET → the gzipped guide.db that [META] describes. */
@@ -60,9 +58,8 @@ object NasGuidePaths {
 }
 
 /**
- * The device's EPG sources, and the IPTV sources their Xtream guides need, sent to the NAS so it can
- * build the same guide.db the device would, with the same EPG source IDs (the guide's mappings point
- * at them). Interim: settings sync replaces this with the shared bundle.
+ * What the NAS builds the guide from: the household's sources and EPG sources, from the synced items
+ * (PLAN §5.2). The EPG source IDs are the devices' own, because guide.db is keyed by them.
  */
 @Serializable
 data class GuideInputs(val sources: List<com.signal.model.Source>, val epgSources: List<com.signal.model.EpgSource>)

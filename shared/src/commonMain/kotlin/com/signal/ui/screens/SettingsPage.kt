@@ -293,35 +293,66 @@ fun updatePanel(app: AppController, state: UpdateState.Available): PanelPage {
     )
 }
 
-/** NAS & sync (PLAN §4.3.15 → 7): the connection, pairing, and the addresses. Sync joins later. */
+/** NAS & sync (PLAN §4.3.15 → 7): the connection, sync, pairing, the addresses and the settings file. */
 @Composable
 private fun NasSection(app: AppController, onForm: (pair: Boolean) -> Unit, returnTo: FocusRequester) {
     val c = SignalTheme.colors
     val status by app.nas.status.collectAsState()
+    val sync by app.sync.state.collectAsState()
+    val events by app.eventsConnected.collectAsState()
+    var fileMessage by remember { mutableStateOf<String?>(null) }
     val paired = app.nas.isPaired
     val name = app.settings.raw(Settings.Key.NAS_DEVICE_NAME)
     val summary = when (val s = status) {
-        NasConnection.Status.NotPaired -> "Not paired. The app works on its own; pairing adds the NAS guide and sync as they arrive."
+        NasConnection.Status.NotPaired -> "Not paired. The app works on its own; pairing adds the NAS guide and settings sync."
         NasConnection.Status.Checking -> "Checking…"
         is NasConnection.Status.Connected -> "Connected over the ${s.via.label} (${s.address.removePrefix("http://")}) as ${s.deviceName}."
-        NasConnection.Status.Unreachable -> "Paired as ${name ?: "this device"}, but the NAS isn't answering at either address."
+        NasConnection.Status.Unreachable -> "Paired as ${name ?: "this device"}, but the NAS isn't answering at either address. Changes wait here until it's back."
         NasConnection.Status.Removed -> "This device was removed in the web admin. Pair again to reconnect."
     }
     LazyColumn(Modifier.width(1100.dp)) {
         item { SectionTitle("Status") }
         item { SText(summary, 24, Modifier.padding(horizontal = 40.dp).padding(bottom = 16.dp), color = c.secondaryText, maxLines = 2) }
-        if (paired) item { ListRow("Check connection", onSelect = { app.scope.launch { app.nas.check() } }) }
+        if (paired) {
+            item {
+                val last = sync.lastSyncAt?.let { refreshedLabel(app, it).replace("refreshed", "last synced") } ?: "not synced yet"
+                val detail = when {
+                    sync.running -> "Syncing…"
+                    sync.error != null -> "${sync.error} · $last"
+                    else -> last.replaceFirstChar { it.uppercase() } + if (events) " · live updates on" else " · live updates off"
+                }
+                ListRow("Sync now", detail = detail, onSelect = { app.scope.launch { app.syncNow() } })
+            }
+            item { ListRow("Profile", detail = sync.profileName ?: "Main", onSelect = null) }
+            item { ListRow("Check connection", onSelect = { app.scope.launch { app.nas.check() } }) }
+        }
         item { SectionTitle("Pairing") }
         item { ListRow(if (paired) "Pair again" else "Pair with NAS", detail = "Shows a code to approve in the web admin", onSelect = { onForm(true) }) }
         if (paired) item {
             ListRow("Unpair this device", onSelect = {
-                app.panel.open(PanelPage.Confirm("Unpair this device?", "It stops using the NAS until it's paired again. Forget it in the web admin's Devices too.", "Unpair") {
-                    app.nas.unpair()
+                app.panel.open(PanelPage.Confirm("Unpair this device?", "It stops using the NAS until it's paired again, and keeps its settings. Forget it in the web admin's Devices too.", "Unpair") {
+                    app.scope.launch { app.unpairNas() }
                 }, returnTo)
             })
         }
         item { SectionTitle("Connection") }
         item { ListRow("Home network address", detail = app.nas.homeAddress, onSelect = { onForm(false) }) }
         item { ListRow("Tailscale address", detail = app.nas.tailscaleAddress, onSelect = { onForm(false) }) }
+        if (app.platform.settingsFiles != null) {
+            item { SectionTitle("Settings file") }
+            item {
+                ListRow("Export settings", detail = "A file with every setting, for a backup or another TV. It includes source passwords.", onSelect = {
+                    fileMessage = "Exporting…"
+                    app.scope.launch { fileMessage = app.exportSettings().fold({ "Saved to $it" }, { "Not exported: ${it.message}" }) }
+                })
+            }
+            item {
+                ListRow("Import settings", detail = "Adds a file's settings here. Its values win; nothing here is removed.", onSelect = {
+                    fileMessage = "Importing…"
+                    app.scope.launch { fileMessage = app.importSettings().fold({ "Imported $it settings" }, { "Not imported: ${it.message}" }) }
+                })
+            }
+            fileMessage?.let { m -> item { SText(m, 22, Modifier.padding(horizontal = 40.dp, vertical = 12.dp), color = c.secondaryText, maxLines = 2) } }
+        }
     }
 }

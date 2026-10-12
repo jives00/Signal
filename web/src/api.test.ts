@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ago, cleanCode, health, size } from "./api";
+import { ago, cleanCode, health, itemSummary, size } from "./api";
 
 describe("health", () => {
   it("is ok only with the database and the secret key", () => {
@@ -32,5 +32,13 @@ describe("size", () => {
     expect(size(830 * 1024)).toBe("830 KB");
     expect(size(14.2 * 1024 * 1024)).toBe("14.2 MB");
     expect(size(10)).toBe("1 KB");
+  });
+});
+
+describe("itemSummary", () => {
+  it("adds up each type across scopes", () => {
+    expect(itemSummary({ "source/household": 2, "favorite/profile": 12, "setting/profile": 4 })).toBe("2 sources · 12 favorites");
+    expect(itemSummary({ "reminder/profile": 1 })).toBe("1 reminder");
+    expect(itemSummary({})).toBe("Nothing synced yet");
   });
 });

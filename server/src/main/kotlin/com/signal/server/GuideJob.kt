@@ -73,25 +73,17 @@ class GuideJob(private val companion: Companion, private val scope: CoroutineSco
         wake.trySend(Unit)
     }
 
-    fun inputs(): GuideInputs? {
-        val stored = companion.store?.setting(INPUTS) ?: return null
-        val cipher = companion.cipher ?: return null
-        return runCatching { json.decodeFromString<GuideInputs>(cipher.decrypt(stored)) }
-            .onFailure { log.error("Stored guide inputs can't be read (was SIGNAL_SECRET_KEY changed?): ${it.message}") }
-            .getOrNull()
-    }
+    /** The household's sources and EPG sources, from settings sync (PLAN §5.2). */
+    fun inputs(): GuideInputs? = companion.sync.guideInputs()
 
-    /** Stores what [device] sent. A change starts a build straight away instead of waiting for the night. */
-    fun putInputs(inputs: GuideInputs, device: Device) {
-        val store = companion.store ?: error("The database isn't connected yet")
-        val cipher = companion.cipher ?: error("SIGNAL_SECRET_KEY isn't set")
-        val changed = inputs != inputs()
-        store.putSetting(INPUTS, cipher.encrypt(json.encodeToString(GuideInputs.serializer(), inputs)))
-        store.putSetting(INPUTS_FROM, device.name)
+    /** Sync changed what the guide is built from: build now instead of waiting for the night. */
+    fun inputsChanged(inputs: GuideInputs?, from: String) {
+        val store = companion.store ?: return
+        store.putSetting(INPUTS_FROM, from)
         store.putSetting(INPUTS_AT, System.currentTimeMillis().toString())
-        if (changed && inputs.epgSources.any { it.enabled }) {
-            log.info("Guide inputs changed (${inputs.epgSources.size} EPG sources from ${device.name}): building")
-            runInBackground("inputs changed")
+        if (inputs != null && inputs.epgSources.any { it.enabled }) {
+            log.info("Guide inputs changed (${inputs.epgSources.size} EPG sources, from $from): building")
+            runInBackground("sources changed")
         }
     }
 
@@ -123,7 +115,7 @@ class GuideJob(private val companion: Companion, private val scope: CoroutineSco
         if (store == null || inputs == null || inputs.epgSources.none { it.enabled }) {
             val why = when {
                 store == null -> "no database"
-                inputs == null -> "no guide inputs yet; pair a device"
+                inputs == null -> "no EPG sources yet"
                 else -> "no enabled EPG sources"
             }
             log.info("Guide build ($trigger) skipped: $why")
@@ -136,19 +128,24 @@ class GuideJob(private val companion: Companion, private val scope: CoroutineSco
             { "$trigger: ${it.message}" },
         )
         store.finishJob(id, System.currentTimeMillis(), if (result.isSuccess) "ok" else "failed", detail)
+        // Open apps swap the new build in without waiting for their 30-minute check (PLAN §9.2).
+        result.onSuccess { companion.events.tryEmit(com.signal.sync.SyncEvent(com.signal.sync.SyncEvent.GUIDE, builtAt = it.builtAt)) }
     }
 
     /** The nightly loop: sleeps until the next run, or until the schedule changes. */
     fun start() = scope.launch {
         while (true) {
             val wait = schedule().nextAfter(System.currentTimeMillis()) - System.currentTimeMillis()
-            if (withTimeoutOrNull(wait.coerceAtLeast(1)) { wake.receive() } == null) run("nightly")
+            if (withTimeoutOrNull(wait.coerceAtLeast(1)) { wake.receive() } == null) {
+                run("nightly")
+                // Then the settings backup (PLAN §5.8: guide build → … → backup snapshot).
+                runCatching { companion.sync.nightly() }.onFailure { log.error("Nightly snapshot failed: ${it.message}") }
+            }
         }
     }
 
     companion object Keys {
         const val JOB = "guide_build"
-        const val INPUTS = "guide_inputs"
         const val INPUTS_FROM = "guide_inputs_from"
         const val INPUTS_AT = "guide_inputs_at"
         const val SCHEDULE_TIME = "guide_build_time"
@@ -157,21 +154,6 @@ class GuideJob(private val companion: Companion, private val scope: CoroutineSco
 }
 
 fun Route.guideDeviceRoutes(companion: Companion) {
-    put(NasGuidePaths.INPUTS) {
-        val device = call.device(companion) ?: return@put
-        if (companion.cipher == null) {
-            call.respondText("SIGNAL_SECRET_KEY isn't set on the companion, so it can't store credentials.", status = HttpStatusCode.ServiceUnavailable)
-            return@put
-        }
-        val inputs = runCatching { call.receive<GuideInputs>() }.getOrNull()
-        if (inputs == null) {
-            call.respondText("Bad guide inputs", status = HttpStatusCode.BadRequest)
-            return@put
-        }
-        companion.guideJob.putInputs(inputs, device)
-        call.respond(HttpStatusCode.NoContent)
-    }
-
     get(NasGuidePaths.META) {
         call.device(companion) ?: return@get
         val meta = companion.guide.meta
@@ -191,7 +173,7 @@ fun Route.guideAdminRoutes(companion: Companion) {
     post("/guide/build") {
         when {
             companion.store == null -> call.respondText("The database isn't connected yet.", status = HttpStatusCode.ServiceUnavailable)
-            companion.guideJob.inputs()?.epgSources?.any { it.enabled } != true -> call.respondText("No EPG sources yet: a paired device sends them.", status = HttpStatusCode.Conflict)
+            companion.guideJob.inputs()?.epgSources?.any { it.enabled } != true -> call.respondText("No EPG sources yet: add a source on a paired TV.", status = HttpStatusCode.Conflict)
             !companion.guideJob.runInBackground("run now") -> call.respondText("A guide build is already running.", status = HttpStatusCode.Conflict)
             else -> call.respond(HttpStatusCode.Accepted)
         }

@@ -22,6 +22,7 @@ class Database(config: Config.DbConfig) : AutoCloseable {
     val dataSource: DataSource get() = pool
     val devices: DeviceStore = JdbcDeviceStore(pool)
     val store: CompanionStore = JdbcCompanionStore(pool)
+    val sync: SyncStore = JdbcSyncStore(pool)
 
     init {
         Flyway.configure().dataSource(pool).locations("classpath:db/migration").load().migrate()
