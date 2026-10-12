@@ -27,50 +27,77 @@ import com.signal.ui.theme.SignalSizes
 import com.signal.ui.theme.SignalTheme
 import kotlinx.coroutines.launch
 
+private enum class SetupStep { CHOOSE, NAS, PAIRED, SOURCE }
+
 /**
  * First run, with no sources yet (PLAN §4.3.1 → First run). Home and the nav bar don't open until
- * a source loads. "Connect to NAS" arrives with the companion in milestone 3.
+ * a source loads. Connect to NAS pairs the device; until settings sync arrives, a source is still
+ * added here afterwards.
  */
 @Composable
 fun SetupScreen() {
     val app = LocalApp.current
     val c = SignalTheme.colors
     val scope = rememberCoroutineScope()
-    var addingSource by remember { mutableStateOf(false) }
+    var step by remember { mutableStateOf(SetupStep.CHOOSE) }
+    var pairedAs by remember { mutableStateOf("") }
     var status by remember { mutableStateOf<String?>(null) }
     val first = remember { FocusRequester() }
 
     RemoteHandler { action ->
-        // Back steps out of the form; on the first step it exits, like Back on Home.
+        // Back steps out of a step; on the first step it exits, like Back on Home.
         if (action != RemoteAction.Back) return@RemoteHandler false
-        if (addingSource) addingSource = false else app.platform.exitApp()
+        when (step) {
+            SetupStep.CHOOSE -> app.platform.exitApp()
+            SetupStep.SOURCE -> step = if (app.nas.isPaired) SetupStep.PAIRED else SetupStep.CHOOSE
+            else -> step = SetupStep.CHOOSE
+        }
         true
     }
 
     Column(Modifier.fillMaxSize().padding(SignalSizes.EDGE_MARGIN.dp)) {
         Wordmark()
-        SText(if (addingSource) "Add a source" else "Welcome to Signal", 64, Modifier.padding(top = 64.dp), weight = FontWeight.ExtraBold)
-        if (addingSource) {
-            SText("Enter the M3U link or the Xtream Codes login from your provider.", 26, Modifier.padding(top = 8.dp, bottom = 32.dp), color = c.muted)
-            SourceForm(existing = null, onDone = { app.navigator.resetTo(Route.Home) }, onCancel = { addingSource = false })
-            return@Column
+        val title = when (step) {
+            SetupStep.CHOOSE -> "Welcome to Signal"
+            SetupStep.NAS -> "Connect to NAS"
+            SetupStep.PAIRED -> "Paired with the NAS"
+            SetupStep.SOURCE -> "Add a source"
         }
-        SText("Signal plays the channels from your own IPTV provider. Start by adding one.", 26, Modifier.padding(top = 8.dp, bottom = 48.dp), color = c.muted)
-        Column(Modifier.width(900.dp)) {
-            ListRow("Add a source", detail = "M3U or Xtream Codes", onSelect = { addingSource = true }, focusRequester = first)
-            ListRow("Connect to NAS", detail = "Arrives with the NAS companion", enabled = false, onSelect = null)
-            if (app.platform.appInfo.isDebug) {
-                ListRow("Use the Demo source", detail = "Debug builds only", onSelect = {
-                    status = "Loading the Demo source…"
-                    scope.launch {
-                        app.addDemoSource()
-                            .onSuccess { app.navigator.resetTo(Route.Home) }
-                            .onFailure { status = "Couldn't load it: ${it.message}" }
+        SText(title, 64, Modifier.padding(top = 64.dp), weight = FontWeight.ExtraBold)
+        when (step) {
+            SetupStep.SOURCE -> {
+                SText("Enter the M3U link or the Xtream Codes login from your provider.", 26, Modifier.padding(top = 8.dp, bottom = 32.dp), color = c.muted)
+                SourceForm(existing = null, onDone = { app.navigator.resetTo(Route.Home) }, onCancel = { step = SetupStep.CHOOSE })
+            }
+            SetupStep.NAS -> {
+                SText("Pair this TV with Signal's NAS companion.", 26, Modifier.padding(top = 8.dp, bottom = 32.dp), color = c.muted)
+                NasForm(pair = true, onPaired = { pairedAs = it; step = SetupStep.PAIRED }, onCancel = { step = SetupStep.CHOOSE })
+            }
+            SetupStep.PAIRED -> {
+                SText("This TV is paired as $pairedAs. Settings don't sync from the NAS yet, so add a source here for now.", 26, Modifier.padding(top = 8.dp, bottom = 48.dp), color = c.muted, maxLines = 2)
+                Column(Modifier.width(900.dp)) {
+                    ListRow("Add a source", detail = "M3U or Xtream Codes", onSelect = { step = SetupStep.SOURCE }, focusRequester = first)
+                }
+            }
+            SetupStep.CHOOSE -> {
+                SText("Signal plays the channels from your own IPTV provider.", 26, Modifier.padding(top = 8.dp, bottom = 48.dp), color = c.muted)
+                Column(Modifier.width(900.dp)) {
+                    ListRow("Connect to NAS", detail = "Recommended", onSelect = { step = SetupStep.NAS }, focusRequester = first)
+                    ListRow("Add a source", detail = "M3U or Xtream Codes", onSelect = { step = SetupStep.SOURCE })
+                    if (app.platform.appInfo.isDebug) {
+                        ListRow("Use the Demo source", detail = "Debug builds only", onSelect = {
+                            status = "Loading the Demo source…"
+                            scope.launch {
+                                app.addDemoSource()
+                                    .onSuccess { app.navigator.resetTo(Route.Home) }
+                                    .onFailure { status = "Couldn't load it: ${it.message}" }
+                            }
+                        })
                     }
-                })
+                }
+                status?.let { SText(it, 24, Modifier.padding(top = 32.dp), color = c.secondaryText) }
             }
         }
-        status?.let { SText(it, 24, Modifier.padding(top = 32.dp), color = c.secondaryText) }
     }
-    LaunchedEffect(addingSource) { if (!addingSource) first.requestFocusWhenReady() }
+    LaunchedEffect(step) { if (step == SetupStep.CHOOSE || step == SetupStep.PAIRED) first.requestFocusWhenReady() }
 }

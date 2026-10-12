@@ -43,6 +43,11 @@ class Settings(private val db: UserDatabase, private val io: CoroutineDispatcher
         REMINDER_AUTO_SWITCH(Scope.PROFILE, "reminder_auto_switch"),
         RECENT_SEARCHES(Scope.DEVICE, "recent_searches"),
         SEARCH_FILTER(Scope.DEVICE, "search_filter"),
+        // The NAS companion (PLAN §5.7). The key is encrypted with the SecretBox and never synced.
+        NAS_HOME_ADDRESS(Scope.DEVICE, "nas_home_address"),
+        NAS_TAILSCALE_ADDRESS(Scope.DEVICE, "nas_tailscale_address"),
+        NAS_API_KEY(Scope.DEVICE, "nas_api_key"),
+        NAS_DEVICE_NAME(Scope.DEVICE, "nas_device_name"),
     }
 
     private fun owner(key: Key): String = when (key.scope) {

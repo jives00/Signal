@@ -48,6 +48,8 @@ class AppController(val platform: Platform, val log: Log) {
     val sources = SourceRepository(db, http, platform.secretBox, platform.io, log)
     val channels = ChannelRepository(db, settings, platform.io)
     val playback = PlaybackController(platform.player, channels, sources, settings, scope, log)
+    // The NAS companion (PLAN §5.7): optional; the app works the same without it.
+    val nas = com.signal.nas.NasConnection(settings, http, platform.secretBox, platform.appInfo, log)
 
     // The guide (PLAN §6). It reads and writes only guide.db, so it gets its own IO threads: on the
     // desktop user.db runs one thread at a time, and a guide build must never queue behind or block it.
@@ -112,6 +114,7 @@ class AppController(val platform: Platform, val log: Log) {
         scope.launch { runReminders() }
         // A new guide can move a program: its reminder follows (PLAN §4.3.4 → Guide changes).
         scope.launch { guideStore.version.collect { if (it > 0) followMovedPrograms() } }
+        scope.launch { nas.check() }
         scope.launch { platform.updater?.check() }
     }
 
@@ -287,6 +290,7 @@ class AppController(val platform: Platform, val log: Log) {
         } else if (away != null && navigator.current.showsVideo) {
             playback.resume()
         }
+        scope.launch { nas.check() }
         scope.launch { platform.updater?.check() }
     }
 

@@ -37,7 +37,9 @@ class SettingsAndSetupKeyMapTest {
         focusedStartsWith("Settings")
     }
 
-    @Test fun setupUpDownMoveAndSkipTheDisabledItem() = keyMapTest(start = Route.Setup, withDemo = false) {
+    @Test fun setupUpDownMove() = keyMapTest(start = Route.Setup, withDemo = false) {
+        focusedStartsWith("Connect to NAS")
+        press(RemoteAction.Down)
         focusedStartsWith("Add a source")
         press(RemoteAction.Down)
         focusedStartsWith("Use the Demo source")
@@ -46,21 +48,44 @@ class SettingsAndSetupKeyMapTest {
     }
 
     @Test fun setupOkOpensTheStepAndBackReturnsThenExits() = keyMapTest(start = Route.Setup, withDemo = false) {
-        focusedStartsWith("Add a source")
+        focusedStartsWith("Connect to NAS")
+        press(RemoteAction.Down)
         press(RemoteAction.Select)
         eventually("the source form") { shows("Enter the M3U link") }
         press(RemoteAction.Back)
         eventually("the first step") { shows("Welcome to Signal") }
-        focusedStartsWith("Add a source")
+        focusedStartsWith("Connect to NAS")
         assertEquals(0, platform.exits)
         press(RemoteAction.Back)
         eventually("exit") { platform.exits == 1 }
     }
 
     @Test fun setupDemoSourceGoesHome() = keyMapTest(start = Route.Setup, withDemo = false) {
-        focusedStartsWith("Add a source")
+        focusedStartsWith("Connect to NAS")
+        press(RemoteAction.Down)
         press(RemoteAction.Down)
         press(RemoteAction.Select)
         route(Route.Home)
+    }
+
+    @Test fun setupConnectToNasOpensTheFormAndBackReturns() = keyMapTest(start = Route.Setup, withDemo = false) {
+        focusedStartsWith("Connect to NAS")
+        press(RemoteAction.Select)
+        eventually("the NAS form") { shows("Pair this TV") }
+        press(RemoteAction.Back)
+        eventually("the first step") { shows("Welcome to Signal") }
+        focusedStartsWith("Connect to NAS")
+    }
+
+    @Test fun settingsNasSectionOffersPairing() = keyMapTest(start = Route.Settings) {
+        focusedStartsWith("Sources")
+        repeat(4) { press(RemoteAction.Down) }
+        focusedStartsWith("NAS & sync")
+        press(RemoteAction.Right)
+        focusedStartsWith("Pair with NAS")
+        press(RemoteAction.Select)
+        eventually("the NAS form") { shows("Home network address") }
+        press(RemoteAction.Back)
+        eventually("back to the section") { shows("Pair with NAS") }
     }
 }

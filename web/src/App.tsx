@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { NavLink, Route, Routes } from "react-router-dom";
 import { getStatus, health, type Status } from "./api";
 import Dashboard from "./pages/Dashboard";
+import Devices from "./pages/Devices";
 
 /** The sidebar (PLAN §4.3.18). Pages without a link yet arrive with their part of milestone 3. */
 const pages: { path: string; title: string; ready: boolean }[] = [
@@ -15,7 +16,7 @@ const pages: { path: string; title: string; ready: boolean }[] = [
   { path: "/switch", title: "Provider switch", ready: false },
   { path: "/reminders", title: "Reminders", ready: false },
   { path: "/settings", title: "Settings", ready: false },
-  { path: "/devices", title: "Devices & profiles", ready: false },
+  { path: "/devices", title: "Devices & profiles", ready: true },
   { path: "/backups", title: "Backups", ready: false },
   { path: "/jobs", title: "Jobs & logs", ready: false },
 ];
@@ -57,6 +58,7 @@ export default function App() {
         </header>
         <Routes>
           <Route path="/" element={<Dashboard status={status} failed={failed} />} />
+          <Route path="/devices" element={<Devices />} />
           <Route path="*" element={<Dashboard status={status} failed={failed} />} />
         </Routes>
       </div>

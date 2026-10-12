@@ -32,9 +32,13 @@ data class Health(val status: String, val version: String, val database: String)
 data class Status(val version: String, val database: String, val secretKey: Boolean)
 
 /** Everything the routes need, so tests can build the app without a database. */
-class Companion(val config: Config, database: Database? = null) {
+class Companion(val config: Config, database: Database? = null, private val deviceStore: DeviceStore? = null) {
     /** Set once the database connects; it may not be there yet at start-up (see Main). */
     @Volatile var database: Database? = database
+    val pairings = Pairings()
+
+    /** Null until the database connects. */
+    val devices: DeviceStore? get() = deviceStore ?: database?.devices
     val version: String =
         Companion::class.java.getResourceAsStream("/signal-version.txt")?.bufferedReader()?.readText()?.trim()?.takeIf { it.isNotEmpty() && !it.startsWith("$") } ?: "dev"
 
@@ -67,11 +71,13 @@ fun Application.signalModule(companion: Companion) {
             call.respond(if (ok) HttpStatusCode.OK else HttpStatusCode.ServiceUnavailable, Health(if (ok) "ok" else "degraded", companion.version, db))
         }
 
-        // The web admin and its API: network trust only (PLAN §5.7). Device endpoints, which use a
-        // per-device API key instead, arrive with pairing.
+        // Everything else is for the home network and Tailscale only (PLAN §5.7). The web admin's
+        // API stops there; device endpoints also need the device's own key (Pairing.kt).
         trusted {
+            deviceRoutes(companion)
             route("/api") {
                 get("/status") { call.respond(Status(companion.version, companion.databaseState(), companion.config.secretKey != null)) }
+                deviceAdminRoutes(companion)
             }
             webAdmin(File(companion.config.webDir))
         }

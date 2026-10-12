@@ -96,3 +96,28 @@ a { color: inherit; text-decoration: none; }
   .nav a, .nav .soon { white-space: nowrap; padding: 10px 14px; }
   .topbar, .page { padding-left: 16px; padding-right: 16px; }
 }
+
+button {
+  font: inherit; font-weight: 600; color: var(--text); background: var(--neutral-300);
+  border: 0; padding: 8px 14px; cursor: pointer;
+}
+button:hover:not(:disabled) { background: var(--surface); outline: 2px solid var(--divider); }
+button.primary { background: var(--accent); color: var(--on-accent); }
+button.primary:hover:not(:disabled) { background: var(--accent-600); outline: none; }
+button:disabled { opacity: 0.5; cursor: default; }
+input {
+  font: inherit; color: var(--text); background: var(--bg); border: 2px solid var(--divider); padding: 8px 12px;
+}
+input:focus { outline: none; border-color: var(--accent); }
+.row { display: flex; gap: 12px; align-items: center; }
+.detail { color: var(--muted); }
+.error-text { color: var(--error); }
+
+.approve { max-width: 560px; margin-bottom: 24px; }
+.approve .code { font-size: 28px; font-weight: 800; letter-spacing: 0.3em; width: 220px; }
+
+.table { width: 100%; border-collapse: collapse; }
+.table th { text-align: left; font-size: 13px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; padding: 8px 12px; border-bottom: 2px solid var(--divider); }
+.table td { padding: 12px; border-bottom: 2px solid var(--divider); }
+.table .actions { text-align: right; white-space: nowrap; }
+.table .actions button + button { margin-left: 8px; }

@@ -35,6 +35,7 @@ import com.signal.model.ChannelSort
 import com.signal.model.GroupSort
 import com.signal.model.Source
 import com.signal.model.SourceKind
+import com.signal.nas.NasConnection
 import com.signal.ui.LocalApp
 import com.signal.ui.components.ListRow
 import com.signal.ui.components.PageChrome
@@ -58,6 +59,7 @@ private enum class Section(val title: String) {
     CHANNELS("Channels & groups"),
     LIVE_TV("Live TV & guide"),
     APPEARANCE("Appearance"),
+    NAS("NAS & sync"),
     GUIDE_DATA("Guide data"),
     ABOUT("About & updates"),
 }
@@ -74,6 +76,8 @@ fun SettingsPage() {
     var section by remember { mutableStateOf(Section.SOURCES) }
     var editing by remember { mutableStateOf<Source?>(null) }
     var adding by remember { mutableStateOf(false) }
+    // NAS & sync's form: null when closed, else whether it pairs (true) or only edits the addresses.
+    var nasForm by remember { mutableStateOf<Boolean?>(null) }
     val contentFocus = remember { FocusRequester() }
     val firstSection = remember { FocusRequester() }
     var contentHasFocus by remember { mutableStateOf(false) }
@@ -89,17 +93,19 @@ fun SettingsPage() {
             Column(Modifier.width(400.dp).fillMaxHeight().onFocusChanged { sectionsHaveFocus = it.hasFocus }.focusRequester(chrome.contentFocus).focusRestorer(firstSection)) {
                 Box(Modifier.padding(top = 24.dp))
                 Section.entries.forEach { s ->
-                    ListRow(s.title, selected = s == section, onSelect = { section = s; adding = false; editing = null; focusSection() }, onFocused = { section = s; adding = false; editing = null }, focusRequester = if (s == Section.entries.first()) firstSection else null)
+                    ListRow(s.title, selected = s == section, onSelect = { section = s; adding = false; editing = null; nasForm = null; focusSection() }, onFocused = { section = s; adding = false; editing = null; nasForm = null }, focusRequester = if (s == Section.entries.first()) firstSection else null)
                 }
             }
             VDivider()
             Box(Modifier.fillMaxSize().padding(start = 48.dp, top = 24.dp).onFocusChanged { contentHasFocus = it.hasFocus }.focusRequester(contentFocus).focusRestorer()) {
                 when {
                     adding || editing != null -> SourceForm(editing, onDone = { adding = false; editing = null }, onCancel = { adding = false; editing = null })
+                    nasForm != null -> NasForm(pair = nasForm == true, onPaired = { nasForm = null; focusSection() }, onCancel = { nasForm = null; focusSection() })
                     section == Section.SOURCES -> SourcesSection(app, onAdd = { adding = true }, onEdit = { editing = it }, returnTo = contentFocus)
                     section == Section.CHANNELS -> ChannelsSection(app, contentFocus)
                     section == Section.LIVE_TV -> LiveTvGuideSection(app, contentFocus)
                     section == Section.APPEARANCE -> AppearanceSection(app, contentFocus)
+                    section == Section.NAS -> NasSection(app, onForm = { nasForm = it }, returnTo = contentFocus)
                     section == Section.GUIDE_DATA -> GuideDataSection(app)
                     section == Section.ABOUT -> AboutSection(app)
                 }
@@ -109,7 +115,7 @@ fun SettingsPage() {
 
     // Sections ↔ content, and Back goes up a level before the nav bar (PLAN §12.1). Registered after
     // TopLevelPage's handler, so it's asked first.
-    val inForm = adding || editing != null
+    val inForm = adding || editing != null || nasForm != null
     RemoteHandler { action ->
         when {
             action == RemoteAction.Right && sectionsHaveFocus -> { focusSection(); true }
@@ -117,6 +123,7 @@ fun SettingsPage() {
             action == RemoteAction.Back && inForm -> {
                 adding = false
                 editing = null
+                nasForm = null
                 focusSection()
                 true
             }
@@ -284,4 +291,37 @@ fun updatePanel(app: AppController, state: UpdateState.Available): PanelPage {
         ),
         subtitle = state.changelog.take(600).ifEmpty { "No changelog for this release." },
     )
+}
+
+/** NAS & sync (PLAN §4.3.15 → 7): the connection, pairing, and the addresses. Sync joins later. */
+@Composable
+private fun NasSection(app: AppController, onForm: (pair: Boolean) -> Unit, returnTo: FocusRequester) {
+    val c = SignalTheme.colors
+    val status by app.nas.status.collectAsState()
+    val paired = app.nas.isPaired
+    val name = app.settings.raw(Settings.Key.NAS_DEVICE_NAME)
+    val summary = when (val s = status) {
+        NasConnection.Status.NotPaired -> "Not paired. The app works on its own; pairing adds the NAS guide and sync as they arrive."
+        NasConnection.Status.Checking -> "Checking…"
+        is NasConnection.Status.Connected -> "Connected over the ${s.via.label} (${s.address.removePrefix("http://")}) as ${s.deviceName}."
+        NasConnection.Status.Unreachable -> "Paired as ${name ?: "this device"}, but the NAS isn't answering at either address."
+        NasConnection.Status.Removed -> "This device was removed in the web admin. Pair again to reconnect."
+    }
+    LazyColumn(Modifier.width(1100.dp)) {
+        item { SectionTitle("Status") }
+        item { SText(summary, 24, Modifier.padding(horizontal = 40.dp).padding(bottom = 16.dp), color = c.secondaryText, maxLines = 2) }
+        if (paired) item { ListRow("Check connection", onSelect = { app.scope.launch { app.nas.check() } }) }
+        item { SectionTitle("Pairing") }
+        item { ListRow(if (paired) "Pair again" else "Pair with NAS", detail = "Shows a code to approve in the web admin", onSelect = { onForm(true) }) }
+        if (paired) item {
+            ListRow("Unpair this device", onSelect = {
+                app.panel.open(PanelPage.Confirm("Unpair this device?", "It stops using the NAS until it's paired again. Forget it in the web admin's Devices too.", "Unpair") {
+                    app.nas.unpair()
+                }, returnTo)
+            })
+        }
+        item { SectionTitle("Connection") }
+        item { ListRow("Home network address", detail = app.nas.homeAddress, onSelect = { onForm(false) }) }
+        item { ListRow("Tailscale address", detail = app.nas.tailscaleAddress, onSelect = { onForm(false) }) }
+    }
 }
