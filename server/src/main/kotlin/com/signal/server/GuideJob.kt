@@ -132,11 +132,21 @@ class GuideJob(private val companion: Companion, private val scope: CoroutineSco
         result.onSuccess { companion.events.tryEmit(com.signal.sync.SyncEvent(com.signal.sync.SyncEvent.GUIDE, builtAt = it.builtAt)) }
     }
 
+    /** Refreshes every source in the companion's catalog, recorded as its own job (PLAN §5.8). */
+    suspend fun refreshSources(trigger: String) {
+        val store = companion.store ?: return
+        val id = store.startJob(SOURCE_JOB, System.currentTimeMillis())
+        val result = runCatching { companion.catalog.refreshAll() }
+        store.finishJob(id, System.currentTimeMillis(), if (result.getOrNull()?.contains("failed") == false) "ok" else "failed", "$trigger: ${result.getOrElse { it.message }}")
+    }
+
     /** The nightly loop: sleeps until the next run, or until the schedule changes. */
     fun start() = scope.launch {
         while (true) {
             val wait = schedule().nextAfter(System.currentTimeMillis()) - System.currentTimeMillis()
             if (withTimeoutOrNull(wait.coerceAtLeast(1)) { wake.receive() } == null) {
+                // Source refresh first, so the guide build and the web admin see fresh streams (PLAN §5.8).
+                refreshSources("nightly")
                 run("nightly")
                 // Then the settings backup (PLAN §5.8: guide build → … → backup snapshot).
                 runCatching { companion.sync.nightly() }.onFailure { log.error("Nightly snapshot failed: ${it.message}") }
@@ -146,6 +156,7 @@ class GuideJob(private val companion: Companion, private val scope: CoroutineSco
 
     companion object Keys {
         const val JOB = "guide_build"
+        const val SOURCE_JOB = "source_refresh"
         const val INPUTS_FROM = "guide_inputs_from"
         const val INPUTS_AT = "guide_inputs_at"
         const val SCHEDULE_TIME = "guide_build_time"

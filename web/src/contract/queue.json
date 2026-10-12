@@ -1,0 +1,43 @@
+{
+    "remaining": 12,
+    "channel": {
+        "streamId": "src:x:42",
+        "sourceId": "src",
+        "sourceName": "Provider",
+        "group": "US Sports",
+        "rawName": "US: FOX Sports 1 ᴴᴰ",
+        "name": "FOX Sports 1",
+        "number": 42,
+        "logo": "http://logo.example/fs1.png",
+        "tvgId": "FS1.us",
+        "userChannelId": "ch:src:x:42",
+        "favorite": true,
+        "playlists": [
+            "Sports"
+        ],
+        "hidden": false,
+        "groupHidden": false,
+        "customName": null,
+        "customLogo": null,
+        "customNumber": null,
+        "guide": null,
+        "now": {
+            "title": "Live football",
+            "start": 1791828000000,
+            "stop": 1791835200000
+        },
+        "next": null,
+        "unavailable": false
+    },
+    "suggestions": [
+        {
+            "epgSourceId": "epg:src",
+            "epgSourceName": "Provider guide",
+            "id": "fs1.us",
+            "displayName": "Fox Sports 1",
+            "score": 0.95,
+            "now": null,
+            "next": null
+        }
+    ]
+}

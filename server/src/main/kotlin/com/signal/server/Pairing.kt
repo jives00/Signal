@@ -58,7 +58,14 @@ fun Route.deviceAdminRoutes(companion: Companion) {
         val code = runCatching { call.receive<ApproveRequest>().code }.getOrDefault("")
         val device = companion.pairings.approve(code, store)
         if (device == null) call.respondText("No device is showing that code. Codes last 10 minutes; check the TV.", status = HttpStatusCode.NotFound)
-        else call.respond(device)
+        else {
+            // New devices join Main, or get their own profile, as Settings → Companion says (PLAN §9.1).
+            val fresh = device.lastSyncAt == 0L && device.profileId == SyncService.MAIN
+            val placed = if (fresh && companion.settings.newDeviceProfile == CompanionSettings.OWN && companion.syncStore != null) {
+                runCatching { companion.sync.ownProfile(device) }.map { device.copy(profileId = it.id) }.getOrDefault(device)
+            } else device
+            call.respond(placed)
+        }
     }
 
     patch("/devices/{id}") {

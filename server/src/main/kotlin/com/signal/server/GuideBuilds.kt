@@ -41,6 +41,9 @@ class GuideBuilds(private val dir: File, private val http: HttpClient) {
 
     fun file(): File? = meta?.let { gzFor(it.builtAt) }?.takeIf { it.isFile }
 
+    /** The published build unpacked, for the web admin to read (GuideReader). */
+    fun dbFile(): File? = meta?.let { dbFor(it.builtAt) }?.takeIf { it.isFile }
+
     private fun dbFor(builtAt: Long) = File(dir, "guide-$builtAt.db")
     private fun gzFor(builtAt: Long) = File(dir, "guide-$builtAt.db.gz")
 

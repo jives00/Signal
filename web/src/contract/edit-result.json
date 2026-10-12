@@ -1,0 +1,14 @@
+{
+    "rev": 8,
+    "changed": 1,
+    "undo": [
+        {
+            "type": "favorite",
+            "id": "ch:src:x:42",
+            "scope": "profile",
+            "owner": "main",
+            "fields": {},
+            "deleted": true
+        }
+    ]
+}

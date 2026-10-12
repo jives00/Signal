@@ -33,7 +33,7 @@ export interface Device {
 }
 
 /** The companion's own wording for errors is meant for people, so pass it through. */
-async function send<T>(path: string, init?: RequestInit): Promise<T> {
+export async function send<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, { ...init, headers: { "Content-Type": "application/json", ...init?.headers } });
   if (!response.ok) throw new Error((await response.text()) || `HTTP ${response.status}`);
   if (response.status === 202 || response.status === 204) return undefined as T;

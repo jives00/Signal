@@ -1,16 +1,14 @@
-import { useCallback, useEffect, useState, type FormEvent } from "react";
-import { ago, buildGuide, getGuide, setGuideSchedule, size, type GuideStatus } from "../api";
+import { useCallback, useEffect, useState } from "react";
+import { Link } from "react-router-dom";
+import { ago, buildGuide, getGuide, size, type GuideStatus } from "../api";
 
 /**
  * The NAS guide build on the Dashboard (PLAN §4.3.18 → Dashboard, §5.2 → Jobs): the published
- * build, the last run, Run now, and the nightly schedule. The schedule moves to Settings →
- * Companion when that page arrives.
+ * build, the last run and Run now. The schedule is in Settings → Companion.
  */
 export default function GuideCard() {
   const [status, setStatus] = useState<GuideStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [time, setTime] = useState("");
-  const [zone, setZone] = useState("");
   const [message, setMessage] = useState<string | null>(null);
 
   const load = useCallback(() => {
@@ -18,8 +16,6 @@ export default function GuideCard() {
       .then((s) => {
         setStatus(s);
         setError(null);
-        setTime((t) => t || s.schedule.time);
-        setZone((z) => z || s.schedule.timeZone);
       })
       .catch((e: Error) => setError(e.message));
   }, []);
@@ -35,17 +31,6 @@ export default function GuideCard() {
     try {
       await buildGuide();
       setMessage("Building…");
-      load();
-    } catch (e) {
-      setMessage((e as Error).message);
-    }
-  }
-
-  async function saveSchedule(event: FormEvent) {
-    event.preventDefault();
-    try {
-      await setGuideSchedule({ time, timeZone: zone.trim() });
-      setMessage("Schedule saved.");
       load();
     } catch (e) {
       setMessage((e as Error).message);
@@ -86,14 +71,12 @@ export default function GuideCard() {
         </div>
       </div>
 
-      <form className="row schedule" onSubmit={saveSchedule}>
+      <div className="row schedule">
         <button type="button" className="primary" onClick={runNow} disabled={status.running || status.epgSources.length === 0}>Run now</button>
-        <span className="detail">Nightly at</span>
-        <input type="time" value={time} onChange={(e) => setTime(e.target.value)} aria-label="Build time" />
-        <input value={zone} onChange={(e) => setZone(e.target.value)} aria-label="Time zone" placeholder="America/Chicago" />
-        <button type="submit">Save</button>
-        {status.nextRunAt && <span className="detail">Next: {new Date(status.nextRunAt).toLocaleString()}</span>}
-      </form>
+        <span className="detail">
+          Nightly at {status.schedule.time} ({status.schedule.timeZone}){status.nextRunAt ? `, next ${new Date(status.nextRunAt).toLocaleString()}` : ""} · <Link className="inline" to="/settings">change</Link>
+        </span>
+      </div>
       {message && <p className="detail">{message}</p>}
     </section>
   );

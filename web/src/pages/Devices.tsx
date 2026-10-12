@@ -1,4 +1,7 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { copySections, ownProfile } from "../admin";
+import { useProfiles, useToast } from "../context";
+import DeviceSettings from "./DeviceSettings";
 import {
   ago, approveDevice, cleanCode, createProfile, deleteProfile, forgetDevice, getDevices, getSync, renameDevice, renameProfile,
   setDeviceProfile, type Device, type ProfileSummary,
@@ -15,6 +18,9 @@ export default function Devices() {
   const [code, setCode] = useState("");
   const [message, setMessage] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [settingsFor, setSettingsFor] = useState<Device | null>(null);
+  const { reloadProfiles } = useProfiles();
+  const { save } = useToast();
 
   const load = useCallback(() => {
     getDevices().then((d) => { setDevices(d); setError(null); }).catch((e: Error) => setError(e.message));
@@ -29,8 +35,14 @@ export default function Devices() {
   }, [load]);
 
   async function run(action: () => Promise<unknown>) {
-    try { await action(); load(); } catch (e) { setError((e as Error).message); }
+    try { await action(); load(); reloadProfiles(); } catch (e) { setError((e as Error).message); }
   }
+
+  function giveOwn(device: Device) {
+    if (window.confirm(`Give ${device.name} its own profile? It starts as a copy of its current one, and from then on changes there don't reach other devices.`)) run(() => ownProfile(device.id));
+  }
+
+  const [copyFrom, setCopyFrom] = useState<ProfileSummary | null>(null);
 
   async function approve(event: FormEvent) {
     event.preventDefault();
@@ -128,6 +140,8 @@ export default function Devices() {
                 <td>{ago(d.lastSeenAt)}</td>
                 <td>{d.lastSyncAt ? ago(d.lastSyncAt) : "Never"}</td>
                 <td className="actions">
+                  <button onClick={() => setSettingsFor(settingsFor?.id === d.id ? null : d)}>Settings</button>
+                  <button onClick={() => giveOwn(d)}>Own profile</button>
                   <button onClick={() => rename(d)}>Rename</button>
                   <button onClick={() => forget(d)}>Forget</button>
                 </td>
@@ -136,6 +150,7 @@ export default function Devices() {
           </tbody>
         </table>
       )}
+      {settingsFor && <DeviceSettings device={settingsFor} onClose={() => setSettingsFor(null)} />}
 
       <section className="section">
         <h2 className="section-title">Profiles</h2>
@@ -151,6 +166,7 @@ export default function Devices() {
                 <td>{p.devices.length ? p.devices.join(", ") : "None"}</td>
                 <td>{p.items}</td>
                 <td className="actions">
+                  {profiles.length > 1 && <button onClick={() => setCopyFrom(p)}>Copy to…</button>}
                   <button onClick={() => renameP(p)}>Rename</button>
                   {p.id !== "main" && <button onClick={() => removeP(p)}>Delete</button>}
                 </td>
@@ -159,7 +175,36 @@ export default function Devices() {
           </tbody>
         </table>
         <div className="row"><button onClick={addProfile}>Add profile</button></div>
+        {copyFrom && <CopyPanel from={copyFrom} profiles={profiles} onClose={() => setCopyFrom(null)} onCopy={(to, sections, replace) => save(`Copied to ${to.length} profile${to.length === 1 ? "" : "s"}`, () => copySections(copyFrom.id, to, sections, replace), () => { setCopyFrom(null); load(); })} />}
       </section>
+    </div>
+  );
+}
+
+const sections: [string, string][] = [["favorites", "Favorites"], ["playlists", "Playlists"], ["channels", "Renamed and hidden channels"], ["groups", "Group settings"], ["reminders", "Reminders"], ["settings", "Settings"]];
+
+/** Copy to… (PLAN §9.1): whole sections from one profile into others, replacing or merging. */
+function CopyPanel({ from, profiles, onClose, onCopy }: {
+  from: ProfileSummary;
+  profiles: ProfileSummary[];
+  onClose: () => void;
+  onCopy: (to: string[], sections: string[], replace: boolean) => void;
+}) {
+  const others = profiles.filter((p) => p.id !== from.id);
+  const [to, setTo] = useState<string[]>(others.slice(0, 1).map((p) => p.id));
+  const [chosen, setChosen] = useState<string[]>(["favorites", "playlists"]);
+  const [replace, setReplace] = useState(false);
+  const flip = (list: string[], id: string) => (list.includes(id) ? list.filter((x) => x !== id) : [...list, id]);
+  return (
+    <div className="card form section">
+      <h2>Copy from {from.name}</h2>
+      <fieldset><legend>To</legend>{others.map((p) => <label key={p.id} className="check"><input type="checkbox" checked={to.includes(p.id)} onChange={() => setTo(flip(to, p.id))} /> {p.name}</label>)}</fieldset>
+      <fieldset><legend>Sections</legend>{sections.map(([id, label]) => <label key={id} className="check"><input type="checkbox" checked={chosen.includes(id)} onChange={() => setChosen(flip(chosen, id))} /> {label}</label>)}</fieldset>
+      <label className="check"><input type="checkbox" checked={replace} onChange={(e) => setReplace(e.target.checked)} /> Replace what's there (otherwise merge, keeping the targets' own items)</label>
+      <div className="row">
+        <button className="primary" disabled={!to.length || !chosen.length} onClick={() => { if (!replace || window.confirm("Replace removes the targets' other items in those sections. Continue?")) onCopy(to, chosen, replace); }}>Copy</button>
+        <button onClick={onClose}>Cancel</button>
+      </div>
     </div>
   );
 }

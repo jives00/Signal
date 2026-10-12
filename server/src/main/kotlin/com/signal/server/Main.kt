@@ -17,6 +17,7 @@ fun main() {
     // Serve straight away, even before the database answers, so /health can say what's wrong
     // instead of the container restarting in a loop.
     config.db?.let { db -> connectInBackground(companion, db) }
+    companion.startCatalog()
     companion.guideJob.start()
     log.info("Signal companion ${companion.version} on port ${config.port}")
     embeddedServer(Netty, port = config.port) { signalModule(companion) }.start(wait = true)
@@ -31,6 +32,8 @@ private fun connectInBackground(companion: Companion, db: Config.DbConfig) = thr
             .onSuccess {
                 companion.database = it
                 log.info("Database ${db.host}:${db.port}/${db.name} connected")
+                // The catalog follows the synced sources (PLAN §5.2 → Source refresh).
+                companion.onSourcesChanged()
             }
             .onFailure {
                 // The first failure, then every tenth, so a long outage doesn't flood the log.

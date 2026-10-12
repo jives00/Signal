@@ -1,0 +1,36 @@
+{
+    "sources": [
+        {
+            "id": "src",
+            "name": "Provider",
+            "kind": "XTREAM",
+            "url": "http://p.example",
+            "username": "me",
+            "hasPassword": true,
+            "userAgent": null,
+            "referrer": null,
+            "enabled": true,
+            "liveFormat": "TS",
+            "connectionLimit": 2,
+            "lastRefreshedAt": 1791828000000,
+            "lastError": null,
+            "streams": 57000,
+            "refreshing": false
+        }
+    ],
+    "epgSources": [
+        {
+            "id": "epg:src",
+            "name": "Provider guide",
+            "kind": "XTREAM",
+            "url": "",
+            "sourceId": "src",
+            "enabled": true,
+            "timeShiftMinutes": 0,
+            "isDefault": true,
+            "channels": 8343,
+            "programs": 118000,
+            "error": null
+        }
+    ]
+}

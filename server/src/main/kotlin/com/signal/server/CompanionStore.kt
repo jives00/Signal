@@ -15,6 +15,8 @@ interface CompanionStore {
     fun startJob(job: String, at: Long): Long
     fun finishJob(id: Long, at: Long, result: String, detail: String?)
     fun lastJob(job: String): JobRun?
+    /** The newest [limit] runs, for Jobs & logs. */
+    fun jobs(limit: Int): List<JobRun>
 }
 
 class JdbcCompanionStore(private val db: DataSource) : CompanionStore {
@@ -65,6 +67,15 @@ class JdbcCompanionStore(private val db: DataSource) : CompanionStore {
             }
         }
     }
+
+    override fun jobs(limit: Int): List<JobRun> = db.connection.use { c ->
+        c.prepareStatement("SELECT id, job, started_at, finished_at, result, detail FROM job_run ORDER BY started_at DESC LIMIT ?").use { s ->
+            s.setInt(1, limit)
+            s.executeQuery().use { r ->
+                buildList { while (r.next()) add(JobRun(r.getLong(1), r.getString(2), r.getLong(3), r.getLong(4).takeIf { !r.wasNull() }, r.getString(5), r.getString(6))) }
+            }
+        }
+    }
 }
 
 /** For tests, and nothing else. */
@@ -79,4 +90,5 @@ class MemoryCompanionStore : CompanionStore {
         if (i >= 0) jobs[i] = jobs[i].copy(finishedAt = at, result = result, detail = detail)
     }
     @Synchronized override fun lastJob(job: String) = jobs.lastOrNull { it.job == job }
+    @Synchronized override fun jobs(limit: Int) = jobs.sortedByDescending { it.startedAt }.take(limit)
 }

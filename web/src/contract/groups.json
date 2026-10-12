@@ -1,0 +1,16 @@
+{
+    "groupSort": "PROVIDER",
+    "channelSort": "PROVIDER",
+    "groups": [
+        {
+            "sourceId": "src",
+            "sourceName": "Provider",
+            "name": "US Sports",
+            "title": "Sports",
+            "count": 120,
+            "hidden": false,
+            "channelSort": null,
+            "customName": "Sports"
+        }
+    ]
+}

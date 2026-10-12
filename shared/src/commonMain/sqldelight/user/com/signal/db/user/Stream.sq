@@ -74,3 +74,7 @@ LEFT JOIN channel_profile cp ON cp.user_channel_id = cl.user_channel_id AND cp.p
 LEFT JOIN favorite f ON f.user_channel_id = cl.user_channel_id AND f.profile_id = :profileId
 LEFT JOIN group_override go ON go.profile_id = :profileId AND go.source_id = s.source_id AND go.group_name = s.group_name
 ORDER BY src.created_at, s.position;
+
+-- Every cached stream, in source order: the companion's catalog for the web admin (PLAN §4.3.18 → Channels).
+allStreams:
+SELECT id, source_id, raw_name, display_name, group_name, logo_url, tvg_id, provider_number, position FROM stream ORDER BY source_id, position;

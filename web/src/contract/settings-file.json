@@ -1,0 +1,19 @@
+{
+    "format": "signal-settings",
+    "schema": 1,
+    "exportedAt": 1791828000000,
+    "items": [
+        {
+            "type": "favorite",
+            "id": "ch:src:x:42",
+            "scope": "profile",
+            "owner": "main",
+            "fields": {
+                "sort_key": "a0"
+            },
+            "deleted": false,
+            "rev": 7,
+            "updatedAt": 1
+        }
+    ]
+}

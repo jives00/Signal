@@ -1,0 +1,15 @@
+{
+    "household": {
+        "default_epg_source": "epg:src"
+    },
+    "profile": {
+        "clock_24h": "true"
+    },
+    "companion": {
+        "buildTime": "03:00",
+        "timeZone": "America/Chicago",
+        "snapshotsToKeep": 30,
+        "tombstoneDays": 90,
+        "newDeviceProfile": "main"
+    }
+}

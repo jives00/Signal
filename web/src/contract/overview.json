@@ -1,0 +1,50 @@
+{
+    "sources": [
+        {
+            "id": "src",
+            "name": "Provider",
+            "kind": "XTREAM",
+            "url": "http://p.example",
+            "username": "me",
+            "hasPassword": true,
+            "userAgent": null,
+            "referrer": null,
+            "enabled": true,
+            "liveFormat": "TS",
+            "connectionLimit": 2,
+            "lastRefreshedAt": 1791828000000,
+            "lastError": null,
+            "streams": 57000,
+            "refreshing": false
+        }
+    ],
+    "coverage": {
+        "mapped": 900,
+        "total": 1000
+    },
+    "unmappedFavorites": 2,
+    "unavailableFavorites": 0,
+    "failedJobs": [
+        {
+            "id": 1,
+            "job": "guide_build",
+            "startedAt": 1791828000000,
+            "finishedAt": 1791828160000,
+            "result": "ok",
+            "detail": "nightly: 283302 programs"
+        }
+    ],
+    "devices": [
+        {
+            "id": "d1",
+            "name": "Living room",
+            "model": "SHIELD",
+            "appVersion": "0.3.0",
+            "pairedAt": 1,
+            "lastSeenAt": 2,
+            "profileId": "main",
+            "lastSyncAt": 3
+        }
+    ],
+    "latestAppVersion": "0.3.0"
+}

@@ -7,6 +7,7 @@ import io.ktor.http.ContentType
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import io.ktor.http.HttpStatusCode
 import io.ktor.serialization.kotlinx.json.json
 import io.ktor.server.application.Application
@@ -68,6 +69,27 @@ class Companion(
     val guide by lazy { GuideBuilds(File(config.dataDir, "guide"), http) }
     val guideJob = GuideJob(this, scope)
     val sync = SyncService(this)
+    val settings = CompanionSettings(this)
+    /** Every source's channel list, for the web admin (PLAN §5.2 → Source refresh). */
+    val catalog by lazy { Catalog(File(config.dataDir, "catalog"), http, cipher) }
+    val guideReader = GuideReader { guide.dbFile() }
+    private val sourcesChanged = kotlinx.coroutines.channels.Channel<Unit>(kotlinx.coroutines.channels.Channel.CONFLATED)
+
+    /** The synced sources changed (or the database just connected): the catalog follows. */
+    fun onSourcesChanged() {
+        sourcesChanged.trySend(Unit)
+    }
+
+    fun startCatalog() = scope.launch {
+        catalog.load()
+        for (signal in sourcesChanged) {
+            runCatching {
+                val wanted = sync.liveItems().filter { it.scope == com.signal.sync.SyncScope.HOUSEHOLD && it.type == com.signal.sync.SyncType.SOURCE }
+                    .map { com.signal.sync.SyncFields.source(it.id, it.fields) }
+                catalog.match(wanted)
+            }.onFailure { org.slf4j.LoggerFactory.getLogger("Catalog").warn("Catalog update failed: ${it.message}") }
+        }
+    }
     /** What /device/events announces: settings changes and guide builds (PLAN §9.2). */
     val events = kotlinx.coroutines.flow.MutableSharedFlow<com.signal.sync.SyncEvent>(extraBufferCapacity = 64)
     val version: String =
@@ -113,6 +135,7 @@ fun Application.signalModule(companion: Companion) {
                 deviceAdminRoutes(companion)
                 guideAdminRoutes(companion)
                 syncAdminRoutes(companion)
+                adminPageRoutes(companion)
             }
             webAdmin(File(companion.config.webDir))
         }

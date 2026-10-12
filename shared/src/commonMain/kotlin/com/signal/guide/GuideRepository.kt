@@ -3,7 +3,6 @@ package com.signal.guide
 import com.signal.data.synchronized
 import com.signal.data.Settings
 import com.signal.db.guide.GuideDatabase
-import com.signal.match.GuideNames
 import com.signal.model.Channel
 import com.signal.model.EpgSource
 import com.signal.model.GuideRef
@@ -36,15 +35,8 @@ class GuideRepository(
         State(v, sources, epg.defaultId(sources), mappings)
     }.stateIn(scope, SharingStarted.Eagerly, State(0, emptyList(), null, emptyMap()))
 
-    /** Per EPG source, built once per guide version: guide channel IDs that have programs, and their normalized names. */
-    private class SourceIndex(
-        /** Lowercased tvg-id → the guide's own ID: XMLTV IDs often differ from the M3U's only in case. */
-        val byId: Map<String, String>,
-        val byName: Map<String, String>,
-    )
-
     private var indexVersion = -1
-    private val indexes = HashMap<String, SourceIndex>()
+    private val indexes = HashMap<String, GuideResolver.SourceIndex>()
     private val refs = HashMap<String, GuideRef?>()
     private var refsState: State? = null
 
@@ -78,42 +70,8 @@ class GuideRepository(
     }
 
     private fun compute(userChannelId: String?, rawTvgId: String?, rawName: String, s: State, db: GuideDatabase): GuideRef? {
-        val enabled = s.sources.filter { it.enabled }
-        if (enabled.isEmpty()) return null
-        val mapping = userChannelId?.let { s.mappings[it] }
-        val chosenId = mapping?.epgSourceId?.takeIf { id -> enabled.any { it.id == id } } ?: s.defaultId
-        val chosen = enabled.firstOrNull { it.id == chosenId }
-        val order = listOfNotNull(chosen) + enabled.filter { it.id != chosenId }
-        val name = GuideNames.normalize(rawName)
-        val tvgId = rawTvgId?.takeIf { it.isNotBlank() }
-        for ((i, src) in order.withIndex()) {
-            val index = indexes.getOrPut(src.id) { buildIndex(db, src.id) }
-            val guideChannel = when {
-                // 1. A manual mapping names both the EPG source and the guide channel: the strongest override.
-                i == 0 && mapping?.guideChannelId != null && mapping.epgSourceId == src.id -> mapping.guideChannelId
-                // 2. tvg-id in this EPG source.
-                tvgId != null && tvgId.lowercase() in index.byId -> index.byId.getValue(tvgId.lowercase())
-                // 3. The normalized name in this EPG source.
-                else -> index.byName[name]
-            } ?: continue
-            return GuideRef(src.id, guideChannel, src.timeShiftMs, isFallback = i > 0)
-        }
-        return null
-    }
-
-    private fun buildIndex(db: GuideDatabase, epgSourceId: String): SourceIndex {
-        val withPrograms = db.guideQueries.channelsWithPrograms(epgSourceId).executeAsList().toHashSet()
-        val byId = HashMap<String, String>()
-        for (id in withPrograms) byId.putIfAbsent(id.lowercase(), id)
-        val byName = HashMap<String, String>()
-        for (c in db.guideQueries.channelsForSource(epgSourceId).executeAsList()) {
-            if (c.id in withPrograms && c.normalized_name.isNotEmpty()) byName.putIfAbsent(c.normalized_name, c.id)
-        }
-        // Then every other name each channel goes by; the first display-name wins a tie.
-        for (n in db.guideQueries.channelNamesForSource(epgSourceId).executeAsList()) {
-            if (n.guide_channel_id in withPrograms) byName.putIfAbsent(n.normalized_name, n.guide_channel_id)
-        }
-        return SourceIndex(byId, byName)
+        val mapping = userChannelId?.let { s.mappings[it] }?.let { GuideResolver.Mapping(it.epgSourceId, it.guideChannelId) }
+        return GuideResolver.resolve(mapping, rawTvgId, rawName, s.sources, s.defaultId) { id -> indexes.getOrPut(id) { GuideResolver.buildIndex(db, id) } }
     }
 
     /** [channel]'s programs overlapping [from, to), in shifted (displayed) time. */

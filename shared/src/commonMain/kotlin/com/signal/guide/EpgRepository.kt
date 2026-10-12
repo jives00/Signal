@@ -28,9 +28,7 @@ class EpgRepository(private val db: UserDatabase, private val settings: Settings
     suspend fun byId(id: String): EpgSource? = withContext(io) { db.guideQueries.epgSourceById(id).executeAsOneOrNull()?.toModel() }
 
     /** The default EPG source's ID: the setting, else the first enabled source. */
-    fun defaultId(sources: List<EpgSource>): String? =
-        settings.raw(Settings.Key.DEFAULT_EPG_SOURCE)?.takeIf { id -> sources.any { it.id == id && it.enabled } }
-            ?: sources.firstOrNull { it.enabled }?.id
+    fun defaultId(sources: List<EpgSource>): String? = GuideResolver.defaultId(settings.raw(Settings.Key.DEFAULT_EPG_SOURCE), sources)
 
     fun setDefault(id: String) = settings.put(Settings.Key.DEFAULT_EPG_SOURCE, id)
 

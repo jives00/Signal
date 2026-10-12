@@ -17,6 +17,7 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import org.slf4j.LoggerFactory
@@ -63,7 +64,7 @@ class SyncService(private val companion: Companion) {
 
     private fun seal(type: String, fields: JsonObject): JsonObject {
         val password = fields.str(SyncFields.PASSWORD)
-        if (type != SyncType.SOURCE || password.isNullOrEmpty()) return fields
+        if (type != SyncType.SOURCE || password.isNullOrEmpty() || password.startsWith(SEALED)) return fields
         val cipher = companion.cipher ?: throw SyncRefused(503, "SIGNAL_SECRET_KEY isn't set on the companion, so it can't store passwords.")
         return JsonObject(fields + (SyncFields.PASSWORD to JsonPrimitive(SEALED + cipher.encrypt(password))))
     }
@@ -91,43 +92,83 @@ class SyncService(private val companion: Companion) {
             // Pairing a device that already has settings: its values win, so keep a way back (PLAN §5.5).
             snapshotLocked(store, "Before ${device.name} joined", now)
         }
-        val guideBefore = if (request.items.any { it.touchesGuide() }) guideInputs() else null
-        val written = ArrayList<StoredItem>()
-        for (op in request.items) {
+        val ops = request.items.map { op ->
             val owner = when (op.scope) {
                 SyncScope.HOUSEHOLD -> ""
                 SyncScope.PROFILE -> device.profileId
                 SyncScope.DEVICE -> device.id
                 else -> throw SyncRefused(400, "Unknown scope ${op.scope}")
             }
+            AdminOp(op.type, op.id, op.scope, owner, op.fields, op.deleted)
+        }
+        val (written, _) = applyLocked(store, ops, device.name, now)
+        companion.devices?.synced(device.id, now)
+        PushResult(currentRev(), written)
+    }
+
+    /**
+     * A web admin edit (PLAN §4.3.18 → Saving): the same field-by-field merge as a push, with each
+     * op's owner given. Returns the ops that undo it, for the toast's Undo.
+     */
+    suspend fun edit(ops: List<AdminOp>, by: String = "the web admin"): EditResult = lock.withLock {
+        val (changed, undo) = applyLocked(store(), ops, by, System.currentTimeMillis())
+        EditResult(currentRev(), changed, undo)
+    }
+
+    /** Merges [ops] in order, writes them in one go, and tells everyone who needs to know. */
+    private fun applyLocked(store: SyncStore, ops: List<AdminOp>, by: String, now: Long): Pair<Int, List<AdminOp>> {
+        val guideBefore = if (ops.any { it.touchesGuide() }) guideInputs() else null
+        // Later ops in the same batch see earlier ones (a new user channel, then its link).
+        val pending = HashMap<List<String>, StoredItem>()
+        val written = ArrayList<StoredItem>()
+        val undo = ArrayList<AdminOp>()
+        for (op in ops) {
+            if (op.scope !in SCOPES) throw SyncRefused(400, "Unknown scope ${op.scope}")
             if (!TYPE.matches(op.type) || op.id.isEmpty() || op.id.length > 255) throw SyncRefused(400, "Bad item ${op.type}/${op.id}")
-            val existing = store.get(op.type, op.scope, owner, op.id)
+            val key = listOf(op.type, op.scope, op.owner, op.id)
+            val existing = pending[key] ?: store.get(op.type, op.scope, op.owner, op.id)
             val live = existing?.takeIf { !it.deleted }?.let { parse(it.fields) }
             val item = if (op.deleted) {
                 if (live == null) continue
-                StoredItem(op.type, op.scope, owner, op.id, existing!!.fields, true, 0, now)
+                StoredItem(op.type, op.scope, op.owner, op.id, existing!!.fields, true, 0, now)
             } else {
-                // Field by field: what the device sent replaces only those fields (PLAN §5.5).
+                // Field by field: what arrived replaces only those fields (PLAN §5.5).
                 val merged = JsonObject((live ?: JsonObject(emptyMap())) + seal(op.type, op.fields))
                 if (merged == live) continue
-                StoredItem(op.type, op.scope, owner, op.id, merged.toString(), false, 0, now)
+                StoredItem(op.type, op.scope, op.owner, op.id, merged.toString(), false, 0, now)
             }
-            written += item.copy(rev = nextRev(store))
+            undo += if (live == null) op.copy(fields = JsonObject(emptyMap()), deleted = true)
+            else op.copy(fields = JsonObject(if (op.deleted) live else op.fields.keys.associateWith { live[it] ?: JsonNull }), deleted = false)
+            val stored = item.copy(rev = nextRev(store))
+            pending[key] = stored
+            written += stored
         }
         store.write(written)
-        companion.devices?.synced(device.id, now)
         if (written.isNotEmpty()) {
-            log.info("${device.name} sent ${written.size} changes; now at revision $rev")
+            itemsCache = null
+            log.info("$by: ${written.size} changes; now at revision $rev")
             companion.events.tryEmit(SyncEvent(SyncEvent.SETTINGS, rev = rev ?: 0))
             if (written.any { it.scope == SyncScope.HOUSEHOLD && (it.type == SyncType.SOURCE || it.type == SyncType.EPG_SOURCE) }) {
+                companion.onSourcesChanged()
                 val after = guideInputs()
-                if (after != guideBefore) companion.guideJob.inputsChanged(after, device.name)
+                if (after != guideBefore) companion.guideJob.inputsChanged(after, by)
             }
         }
-        PushResult(currentRev(), written.size)
+        return written.size to undo.asReversed()
     }
 
-    private fun SyncItem.touchesGuide() = scope == SyncScope.HOUSEHOLD && (type == SyncType.SOURCE || type == SyncType.EPG_SOURCE)
+    private fun AdminOp.touchesGuide() = scope == SyncScope.HOUSEHOLD && (type == SyncType.SOURCE || type == SyncType.EPG_SOURCE)
+
+    @Volatile private var itemsCache: Pair<Long, List<SyncItem>>? = null
+
+    /** Every live item, passwords readable: what the web admin's pages are built from. Cached per revision. */
+    fun liveItems(): List<SyncItem> {
+        val store = store()
+        val r = currentRev()
+        itemsCache?.takeIf { it.first == r }?.let { return it.second }
+        return store.all().filter { !it.deleted }.map { it.toItem() }.also { itemsCache = r to it }
+    }
+
 
     fun pull(device: Device, since: Long, schema: Int): PullResult {
         checkSchema(schema)
@@ -197,6 +238,7 @@ class SyncService(private val companion: Companion) {
         companion.devices?.moveProfile(id, MAIN)
         store.deleteOwner(SyncScope.PROFILE, id)
         store.deleteProfile(id)
+        itemsCache = null
         companion.events.tryEmit(SyncEvent(SyncEvent.SETTINGS, rev = FORCE))
         true
     }
@@ -207,6 +249,29 @@ class SyncService(private val companion: Companion) {
         // The device learns on its next pull; nudge it now.
         if (ok) companion.events.tryEmit(SyncEvent(SyncEvent.SETTINGS, rev = FORCE))
         return ok
+    }
+
+    /** "Give *device* its own profile" (PLAN §9.1): a copy of its current profile, named after it. */
+    suspend fun ownProfile(device: Device): Profile {
+        val profile = createProfile(device.name, copyFrom = device.profileId)
+        assignDevice(device.id, profile.id)
+        return profile
+    }
+
+    /**
+     * Copy to… (PLAN §9.1): one profile's items of [types] into others. Merge keeps what the targets
+     * have and overwrites the same items; replace also removes the targets' other items of those types.
+     */
+    suspend fun copySection(from: String, to: List<String>, types: Set<String>, replace: Boolean): EditResult {
+        val items = liveItems().filter { it.scope == SyncScope.PROFILE && it.type in types }
+        val source = items.filter { it.owner == from }
+        val sourceIds = source.map { it.type to it.id }.toSet()
+        val ops = to.filter { it != from }.flatMap { target ->
+            val removals = if (!replace) emptyList() else items.filter { it.owner == target && (it.type to it.id) !in sourceIds }
+                .map { AdminOp(it.type, it.id, it.scope, target, deleted = true) }
+            removals + source.map { AdminOp(it.type, it.id, it.scope, target, it.fields) }
+        }
+        return edit(ops, "Copy to")
     }
 
     // ---- Backups (PLAN §9.3) ---------------------------------------------------------------------
@@ -220,45 +285,91 @@ class SyncService(private val companion: Companion) {
         return SnapshotInfo(id, now, reason, items.size)
     }
 
+    /** What a snapshot holds, for the restore summary (PLAN §9.3: counts such as sources and favorites). */
+    fun snapshotSummary(id: Long): SnapshotSummary {
+        val saved = savedItems(id)
+        return SnapshotSummary(
+            counts = saved.groupingBy { "${it.type}/${it.scope}" }.eachCount().toSortedMap(),
+            profiles = saved.filter { it.scope == SyncScope.PROFILE }.map { it.owner }.distinct(),
+            devices = saved.filter { it.scope == SyncScope.DEVICE }.map { it.owner }.distinct(),
+        )
+    }
+
+    private fun savedItems(id: Long): List<StoredItem> {
+        val bundle = store().snapshotBundle(id) ?: throw SyncRefused(404, "No such snapshot")
+        return json.decodeFromString(ListSerializer(StoredItem.serializer()), bundle)
+    }
+
     /**
-     * Restores everything from a snapshot (PLAN §9.3): a snapshot of now first, then every item back to
-     * its saved fields and everything newer deleted, each as a new revision so devices pull it.
+     * Restores from a snapshot (PLAN §9.3): everything, one profile's items, or one device's. A
+     * snapshot of now comes first; then each item in [part] goes back to its saved fields and anything
+     * newer in [part] is deleted, each as a new revision so devices pull it.
      */
-    suspend fun restore(id: Long): Int = lock.withLock {
+    suspend fun restore(id: Long, part: RestorePart = RestorePart.All): Int = lock.withLock {
         val store = store()
-        val bundle = store.snapshotBundle(id) ?: throw SyncRefused(404, "No such snapshot")
-        val saved = json.decodeFromString(ListSerializer(StoredItem.serializer()), bundle)
+        val inPart: (StoredItem) -> Boolean = when (part) {
+            RestorePart.All -> { _ -> true }
+            is RestorePart.Profile -> { i -> i.scope == SyncScope.PROFILE && i.owner == part.id }
+            is RestorePart.Device -> { i -> i.scope == SyncScope.DEVICE && i.owner == part.id }
+        }
+        val saved = savedItems(id).filter(inPart)
         val now = System.currentTimeMillis()
         snapshotLocked(store, "Before restoring a backup", now)
         val guideBefore = guideInputs()
         val key = { i: StoredItem -> listOf(i.type, i.scope, i.owner, i.id) }
         val savedByKey = saved.associateBy(key)
-        val current = store.all().associateBy(key)
+        val current = store.all().filter(inPart).associateBy(key)
         val written = ArrayList<StoredItem>()
         for ((k, item) in current) {
             if (!item.deleted && k !in savedByKey) written += item.copy(deleted = true, rev = nextRev(store), updatedAt = now)
         }
         for ((k, item) in savedByKey) {
-            val now0 = current[k]
-            if (now0 == null || now0.deleted || now0.fields != item.fields) written += item.copy(deleted = false, rev = nextRev(store), updatedAt = now)
+            val was = current[k]
+            if (was == null || was.deleted || was.fields != item.fields) written += item.copy(deleted = false, rev = nextRev(store), updatedAt = now)
         }
         store.write(written)
+        itemsCache = null
         if (written.isNotEmpty()) companion.events.tryEmit(SyncEvent(SyncEvent.SETTINGS, rev = rev ?: 0))
         val after = guideInputs()
-        if (after != guideBefore) companion.guideJob.inputsChanged(after, "a restored backup")
-        log.info("Restored snapshot $id: ${written.size} changes")
+        if (after != guideBefore) {
+            companion.onSourcesChanged()
+            companion.guideJob.inputsChanged(after, "a restored backup")
+        }
+        log.info("Restored snapshot $id ($part): ${written.size} changes")
         written.size
     }
 
     /** The whole bundle as a settings file, passwords readable (web admin → Export). */
-    fun exportFile(): SettingsFile = SettingsFile(exportedAt = System.currentTimeMillis(), items = store().all().filter { !it.deleted }.map { it.toItem() })
+    fun exportFile(): SettingsFile = SettingsFile(exportedAt = System.currentTimeMillis(), items = liveItems())
 
-    /** Nightly (PLAN §9.3): a snapshot, the oldest nightly ones pruned, tombstones over 90 days dropped. */
+    /**
+     * Imports a settings file into the companion (PLAN §9.2 → Fallback), the pairing rule again: the
+     * file's values win and nothing is removed. Profile items land in [profileId]; device items only
+     * when that device is still paired. A snapshot comes first.
+     */
+    suspend fun importFile(file: SettingsFile, profileId: String): EditResult {
+        if (file.format != SettingsFile.FORMAT) throw SyncRefused(400, "That isn't a Signal settings file.")
+        checkSchema(file.schema)
+        if (store().profiles().none { it.id == profileId }) throw SyncRefused(404, "No such profile")
+        snapshot("Before importing a settings file")
+        val devices = companion.devices?.all().orEmpty().map { it.id }.toSet()
+        val ops = file.items.filter { !it.deleted }.mapNotNull { i ->
+            when (i.scope) {
+                SyncScope.HOUSEHOLD -> AdminOp(i.type, i.id, i.scope, "", i.fields)
+                SyncScope.PROFILE -> AdminOp(i.type, i.id, i.scope, profileId, i.fields)
+                SyncScope.DEVICE -> i.owner.takeIf { it in devices }?.let { AdminOp(i.type, i.id, i.scope, it, i.fields) }
+                else -> null
+            }
+        }
+        return edit(ops, "a settings file")
+    }
+
+    /** Nightly (PLAN §9.3): a snapshot, the oldest nightly ones pruned, old tombstones dropped. */
     suspend fun nightly() {
         val store = companion.syncStore ?: return
         snapshot(NIGHTLY)
-        store.pruneSnapshots(NIGHTLY, 30)
-        val dropped = lock.withLock { store.compact(System.currentTimeMillis() - TOMBSTONE_DAYS * 24 * 60 * 60_000L) }
+        store.pruneSnapshots(NIGHTLY, companion.settings.snapshotsToKeep)
+        val dropped = lock.withLock { store.compact(System.currentTimeMillis() - companion.settings.tombstoneDays * 24 * 60 * 60_000L) }
         if (dropped != null) {
             val previous = companion.store?.setting(COMPACTED_REV)?.toLongOrNull() ?: 0
             companion.store?.putSetting(COMPACTED_REV, maxOf(previous, dropped).toString())
@@ -270,9 +381,33 @@ class SyncService(private val companion: Companion) {
         const val NIGHTLY = "Nightly"
         private const val SEALED = "enc:"
         private const val COMPACTED_REV = "sync_compacted_rev"
-        private const val TOMBSTONE_DAYS = 90L
         /** A settings event that always pulls: a profile change moves no revision. */
         const val FORCE = -1L
         private val TYPE = Regex("[a-z_]{1,40}")
+        private val SCOPES = setOf(SyncScope.HOUSEHOLD, SyncScope.PROFILE, SyncScope.DEVICE)
     }
+}
+
+/** An edit from the web admin, or a push turned into one: the owner is always explicit. */
+@Serializable
+data class AdminOp(
+    val type: String,
+    val id: String,
+    val scope: String,
+    val owner: String = "",
+    val fields: JsonObject = JsonObject(emptyMap()),
+    val deleted: Boolean = false,
+)
+
+/** What an edit changed, and the ops that undo it. */
+@Serializable
+data class EditResult(val rev: Long, val changed: Int, val undo: List<AdminOp>)
+
+@Serializable
+data class SnapshotSummary(val counts: Map<String, Int>, val profiles: List<String>, val devices: List<String>)
+
+sealed interface RestorePart {
+    data object All : RestorePart
+    data class Profile(val id: String) : RestorePart
+    data class Device(val id: String) : RestorePart
 }
