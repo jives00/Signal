@@ -42,7 +42,10 @@ fun VideoBox(modifier: Modifier = Modifier, aspect: AspectMode = AspectMode.FIT,
     val app = LocalApp.current
     val state by app.platform.player.state.collectAsState()
     val c = SignalTheme.colors
-    Box(modifier.background(c.videoGround), contentAlignment = Alignment.Center) {
+    // No background while video plays: the player draws through a hole in the window, and anything
+    // painted here would cover it until something else forced a redraw.
+    val playing = state.status == PlaybackState.Status.PLAYING || state.status == PlaybackState.Status.BUFFERING
+    Box(if (playing) modifier else modifier.background(c.videoGround), contentAlignment = Alignment.Center) {
         if (state.status != PlaybackState.Status.IDLE) app.platform.player.Surface(Modifier.fillMaxSize(), aspect)
         when (state.status) {
             PlaybackState.Status.BUFFERING -> DelayedSpinner(if (compact) 48 else 72)

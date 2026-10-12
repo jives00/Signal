@@ -109,7 +109,7 @@ fun FullScreenPlayback(route: Route.FullScreen) {
     val groupChannels by remember(app.playback.currentGroup, current) { app.channels.channels(app.playback.currentGroup) }.collectAsState(emptyList())
     NumberJump(groupChannels) { ch -> app.playback.tune(ch, fullScreen = true); bannerTick++ }
 
-    Box(Modifier.fillMaxSize().background(SignalTheme.colors.videoGround)) {
+    Box(Modifier.fillMaxSize()) {
         VideoBox(Modifier.fillMaxSize(), aspect = aspect)
         val ch = current
         if (ch != null) {

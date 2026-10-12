@@ -18,6 +18,8 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         signal.platform.activity = WeakReference(this)
+        // Black, not the theme's grey, behind video while it starts and between frames.
+        window.setBackgroundDrawable(android.graphics.drawable.ColorDrawable(android.graphics.Color.BLACK))
         val controller = signal.controller
         setContent { SignalApp(controller) }
 

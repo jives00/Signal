@@ -3,6 +3,9 @@ package com.signal.tv.player
 import android.content.Context
 import android.os.Handler
 import android.os.Looper
+import android.view.SurfaceHolder
+import android.view.SurfaceView
+import android.view.View
 import android.view.ViewGroup
 import androidx.annotation.OptIn
 import androidx.compose.foundation.layout.Box
@@ -151,6 +154,19 @@ class ExoVideoPlayer(context: Context) : VideoPlayer {
                         setKeepContentOnPlayerReset(true)
                         isFocusable = false
                         player = exo
+                        // The SurfaceView cuts its hole in the window when it draws. Inside Compose
+                        // nothing redraws it once its surface exists, so a new full-screen view
+                        // showed the background over the video (audio, grey picture) until an
+                        // overlay happened to trigger a redraw. Redraw as soon as the surface is ready.
+                        (videoSurfaceView as? SurfaceView)?.holder?.addCallback(object : SurfaceHolder.Callback {
+                            override fun surfaceCreated(holder: SurfaceHolder) {
+                                post { invalidate(); (parent as? View)?.invalidate() }
+                            }
+                            override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {
+                                post { invalidate() }
+                            }
+                            override fun surfaceDestroyed(holder: SurfaceHolder) = Unit
+                        })
                     }
                 },
                 update = { view ->
