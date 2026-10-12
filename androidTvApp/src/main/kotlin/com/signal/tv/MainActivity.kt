@@ -47,6 +47,16 @@ class MainActivity : ComponentActivity() {
         openResult = null
     }
 
+    /**
+     * Whether a real file picker handles [action]. Android TV builds often register only
+     * `frameworkpackagestubs`, which cancels at once, so that counts as none.
+     */
+    fun hasFilePicker(action: String): Boolean {
+        val intent = Intent(action).addCategory(Intent.CATEGORY_OPENABLE).setType("application/json")
+        val handler = packageManager.resolveActivity(intent, 0)?.activityInfo?.packageName ?: return false
+        return handler != "com.android.tv.frameworkpackagestubs" && handler != "android"
+    }
+
     suspend fun pickFileToCreate(name: String): android.net.Uri? {
         val result = kotlinx.coroutines.CompletableDeferred<android.net.Uri?>()
         createResult = result

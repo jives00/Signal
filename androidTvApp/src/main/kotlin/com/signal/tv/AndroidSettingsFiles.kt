@@ -16,8 +16,10 @@ import kotlinx.coroutines.withContext
  */
 class AndroidSettingsFiles(private val context: Context, private val activity: () -> MainActivity?) : SettingsFiles {
     override suspend fun save(suggestedName: String, text: String): String? {
+        val activity = activity() ?: return null
+        if (!activity.hasFilePicker(android.content.Intent.ACTION_CREATE_DOCUMENT)) return saveToDownloads(suggestedName, text)
         val picked = try {
-            activity()?.pickFileToCreate(suggestedName) ?: return null
+            activity.pickFileToCreate(suggestedName)
         } catch (_: ActivityNotFoundException) {
             return saveToDownloads(suggestedName, text)
         } ?: return null
@@ -28,8 +30,10 @@ class AndroidSettingsFiles(private val context: Context, private val activity: (
     }
 
     override suspend fun open(): String? {
+        val activity = activity() ?: return null
+        if (!activity.hasFilePicker(android.content.Intent.ACTION_OPEN_DOCUMENT)) return newestInDownloads()
         val picked = try {
-            activity()?.pickFileToOpen() ?: return null
+            activity.pickFileToOpen()
         } catch (_: ActivityNotFoundException) {
             return newestInDownloads()
         } ?: return null

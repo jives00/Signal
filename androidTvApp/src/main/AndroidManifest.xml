@@ -9,6 +9,18 @@
     <!-- The auto-updater hands downloaded release APKs to the package installer (PLAN §4.3.15). -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
+    <!-- Settings files (PLAN §9.2): to see whether a real file picker exists, or only Android TV's stub. -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.CREATE_DOCUMENT" />
+            <data android:mimeType="application/json" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.OPEN_DOCUMENT" />
+            <data android:mimeType="application/json" />
+        </intent>
+    </queries>
+
     <application
         android:name=".SignalApplication"
         android:allowBackup="false"
