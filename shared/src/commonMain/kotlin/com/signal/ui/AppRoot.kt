@@ -21,7 +21,6 @@ import com.signal.ui.components.VideoLayer
 import com.signal.ui.components.VideoLayerHost
 import com.signal.ui.panel.SidePanelHost
 import com.signal.ui.screens.FullScreenPlayback
-import com.signal.ui.screens.GuideSpike
 import com.signal.ui.screens.HomePage
 import com.signal.ui.screens.LiveTvPage
 import com.signal.ui.screens.SettingsPage
@@ -61,7 +60,6 @@ fun SignalApp(app: AppController) {
                             Route.LiveTv -> LiveTvPage()
                             Route.Settings -> SettingsPage()
                             is Route.FullScreen -> FullScreenPlayback(route)
-                            Route.GuideSpike -> GuideSpike(onClose = { app.navigator.back() })
                         }
                         SidePanelHost(app.panel)
                     }

@@ -5,17 +5,28 @@ import com.signal.input.RemoteAction
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotEquals
+import kotlin.test.assertTrue
 
 /**
- * PLAN §12.1, Live TV guide and Group panel rows, against milestone 1's stand-in: a group column
- * and a channel list (PLAN §8). OK previews then goes full screen; the group column is the panel.
+ * PLAN §12.1, the Live TV guide and Group panel rows. The grid is one focus target that describes
+ * its focus as "channel · program" (or "channel · channel" on the channel column).
  */
 class LiveTvKeyMapTest {
-    @Test fun okPreviewsThenGoesFullScreen() = keyMapTest(start = Route.LiveTv) {
+    private suspend fun KeyMapScope.guide() {
+        guideReady()
+        ui.runOnIdle { app.navigator.go(Route.LiveTv) }
         liveTvReady()
+        eventually("programs loaded") { focusedText()?.endsWith("No information") == false }
+    }
+
+    private fun KeyMapScope.focusedChannel() = focusedText()!!.substringBefore(" · ")
+    private fun KeyMapScope.focusedProgram() = focusedText()!!.substringAfter(" · ")
+
+    @Test fun okOnALiveProgramPreviewsThenGoesFullScreen() = keyMapTest {
+        guide()
         val first = current!!
         press(RemoteAction.Down)
-        eventually("next row") { focusedText()?.contains(first.displayName) == false }
+        eventually("next row") { focusedChannel() != first.displayName }
         press(RemoteAction.Select)
         eventually("preview tuned") { current?.key != first.key }
         assertEquals(Route.LiveTv, app.navigator.current)
@@ -23,46 +34,80 @@ class LiveTvKeyMapTest {
         eventually("full screen") { app.navigator.current is Route.FullScreen }
     }
 
-    @Test fun longPressOpensTheChannelMenu() = keyMapTest(start = Route.LiveTv) {
-        liveTvReady()
-        press(RemoteAction.Options)
-        eventually("channel menu") { panelTitle?.contains(current!!.displayName) == true }
-    }
-
-    @Test fun backAndUpFromTheTopRowRevealTheNavBar() = keyMapTest(start = Route.LiveTv) {
-        liveTvReady()
+    @Test fun okOnAFutureProgramOpensDetails() = keyMapTest {
+        guide()
+        val live = focusedProgram()
+        press(RemoteAction.Right)
+        eventually("a later program") { focusedProgram() != live }
+        val future = focusedProgram()
+        press(RemoteAction.Select)
+        eventually("program details") { panelTitle == future }
+        assertEquals(Route.LiveTv, app.navigator.current)
         press(RemoteAction.Back)
-        focusedStartsWith("Live TV")
-        press(RemoteAction.Down)
-        liveTvReady()
-        press(RemoteAction.Up)
-        focusedStartsWith("Live TV")
+        eventually("closed, back on the same cell") { !app.panel.isOpen && focusedProgram() == future }
     }
 
-    @Test fun leftReachesTheGroupsAndRightReturns() = keyMapTest(start = Route.LiveTv) {
-        liveTvReady()
+    @Test fun longPressOnAProgramOpensDetailsAndOnTheChannelColumnTheChannelMenu() = keyMapTest {
+        guide()
+        val live = focusedProgram()
+        press(RemoteAction.Options)
+        eventually("details of the live program") { panelTitle == live }
+        press(RemoteAction.Back)
+        press(RemoteAction.Left)
+        eventually("channel column") { focusedProgram() == "channel" }
+        val channel = focusedChannel()
+        press(RemoteAction.Options)
+        eventually("channel menu") { panelTitle?.contains(channel) == true }
+    }
+
+    @Test fun leftReachesTheChannelColumnThenTheGroupPanel() = keyMapTest {
+        guide()
         val group = current!!.groupName
+        press(RemoteAction.Right)
+        press(RemoteAction.Left)
+        eventually("back on the live program") { focusedProgram() != "channel" }
+        press(RemoteAction.Left)
+        eventually("channel column") { focusedProgram() == "channel" }
         press(RemoteAction.Left)
         focusedStartsWith(group)
         press(RemoteAction.Right)
-        liveTvReady()
+        eventually("panel closed") { focusedProgram() == "channel" }
     }
 
-    @Test fun leftReachesAGroupScrolledOutOfView() = keyMapTest {
-        heroFocused()
-        val last = app.groups.value.last().group
-        ui.runOnIdle {
-            app.liveTvGroup = last
-            app.navigator.go(Route.LiveTv)
-        }
-        eventually("Live TV on the last group") { shows("${last.title} · ") && focusedText()?.first()?.isDigit() == true }
-        press(RemoteAction.Left)
-        focusedStartsWith(last.title)
+    @Test fun upDownChangeRowAndUpFromTheTopRevealsTheNavBar() = keyMapTest {
+        guide()
+        val first = focusedChannel()
+        press(RemoteAction.Down)
+        eventually("next row") { focusedChannel() != first }
+        press(RemoteAction.Up)
+        eventually("first row") { focusedChannel() == first }
+        press(RemoteAction.Up)
+        focusedStartsWith("Live TV")
+        press(RemoteAction.Down)
+        eventually("back in the grid") { focusedChannel() == first }
+        press(RemoteAction.Back)
+        focusedStartsWith("Live TV")
     }
 
-    @Test fun groupPanelOkAppliesTheGroup() = keyMapTest(start = Route.LiveTv) {
-        liveTvReady()
+    @Test fun playPauseJumpsToNowAndFastForwardRewindMoveByADay() = keyMapTest {
+        guide()
+        val live = focusedProgram()
+        press(RemoteAction.FastForward)
+        eventually("a day ahead") { shows("Tomorrow · ") }
+        press(RemoteAction.Rewind)
+        eventually("back to today") { shows("Today · ") }
+        press(RemoteAction.Rewind)
+        assertTrue(shows("Today · "), "never before now")
+        press(RemoteAction.Right, times = 3)
+        press(RemoteAction.PlayPause)
+        eventually("now again") { focusedProgram() == live }
+    }
+
+    @Test fun groupPanelOkAppliesTheGroupAndBackCloses() = keyMapTest {
+        guide()
         val before = current!!.groupName
+        val oldChannel = focusedChannel()
+        press(RemoteAction.Left)
         press(RemoteAction.Left)
         focusedStartsWith(before)
         press(RemoteAction.Down)
@@ -70,17 +115,35 @@ class LiveTvKeyMapTest {
         assertNotEquals(before, next)
         val nextTitle = app.groups.value.map { it.group.title }.filter { next.startsWith(it) }.maxBy { it.length }
         press(RemoteAction.Select)
-        // The list shows the new group and takes focus (rows start with the channel number); the preview keeps playing.
-        eventually("the new group's channels") { shows("$nextTitle · ") && focusedText()?.first()?.isDigit() == true }
-        assertEquals(before, current!!.groupName)
+        eventually("the new group in the grid") { shows("Today · $nextTitle") && focusedText()?.contains(" · ") == true && focusedChannel() != oldChannel && focusedChannel() != "No channels" }
+        assertEquals(before, current!!.groupName, "the preview keeps playing")
+        press(RemoteAction.Left)
+        press(RemoteAction.Left)
+        focusedStartsWith(nextTitle)
+        press(RemoteAction.Back)
+        eventually("closed") { focusedProgram() == "channel" }
     }
 
-    @Test fun groupPanelLongPressOpensTheGroupMenu() = keyMapTest(start = Route.LiveTv) {
-        liveTvReady()
+    @Test fun groupPanelLongPressOpensTheGroupMenu() = keyMapTest {
+        guide()
         val group = current!!.groupName
+        press(RemoteAction.Left)
         press(RemoteAction.Left)
         focusedStartsWith(group)
         press(RemoteAction.Options)
         eventually("group menu") { panelTitle == "Group: $group" }
+    }
+
+    @Test fun groupPanelReachesAGroupScrolledOutOfView() = keyMapTest {
+        guideReady()
+        val last = app.groups.value.last().group
+        ui.runOnIdle {
+            app.liveTvGroup = last
+            app.navigator.go(Route.LiveTv)
+        }
+        eventually("Live TV on the last group, loaded") { shows("Today · ${last.title}") && focusedText()?.let { it.contains(" · ") && !it.startsWith("No channels") } == true }
+        press(RemoteAction.Left)
+        press(RemoteAction.Left)
+        focusedStartsWith(last.title)
     }
 }

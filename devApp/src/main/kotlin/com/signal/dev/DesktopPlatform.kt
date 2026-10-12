@@ -44,7 +44,14 @@ class DesktopPlatform(override val player: VideoPlayer) : Platform {
     override val io = Dispatchers.IO.limitedParallelism(1)
 
     override fun createUserDatabaseDriver(): SqlDriver =
-        JdbcSqliteDriver("jdbc:sqlite:${File(dir, "user.db").absolutePath}", Properties(), UserDatabase.Schema)
+        JdbcSqliteDriver("jdbc:sqlite:${File(dir, "user.db").absolutePath}", sqliteProperties(), UserDatabase.Schema)
+
+    // WAL, so a read on another thread (the UI reads too) never blocks a write; and a busy timeout,
+    // so the rare write from outside io waits its turn instead of failing.
+    private fun sqliteProperties() = Properties().apply {
+        put("journal_mode", "WAL")
+        put("busy_timeout", "5000")
+    }
 
     override val guideDirectory: String = File(dir, "guide").apply { mkdirs() }.absolutePath
 

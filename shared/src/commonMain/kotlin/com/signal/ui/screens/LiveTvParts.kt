@@ -58,110 +58,8 @@ import com.signal.ui.theme.SignalTheme
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
-/**
- * Live TV (PLAN §4.3.2). Until the guide grid lands in milestone 2, it shows a group column and the
- * group's channel list under the preview (PLAN §8 → milestone 1). The preview plays the last played
- * channel and doesn't follow focus: the first OK on a channel tunes the preview, the second goes
- * full screen.
- */
-@Composable
-fun LiveTvPage() {
-    val app = LocalApp.current
-    val chrome = remember { PageChrome() }
-    val scope = rememberCoroutineScope()
-    val groups by app.groups.collectAsState()
-    val current by app.playback.current.collectAsState()
-    var group by remember { mutableStateOf<ChannelGroup?>(null) }
-    val groupCol = remember { ListFocus() }
-    val channelCol = remember { ListFocus() }
-    val channelList = rememberLazyListState()
-    val groupList = rememberLazyListState()
-
-    // The group's row may be scrolled out of view, and a row that isn't composed can't take focus.
-    fun focusGroup(g: ChannelGroup) {
-        val i = app.groups.value.indexOfFirst { it.group == g }
-        if (i >= 0) groupList.requestScrollToItem(i)
-        groupCol.focus(g.key)
-    }
-    val move = remember { MoveState() }
-
-    // Opens on Favorites every time; with no favorites, the first visible group (PLAN §4.3.2).
-    LaunchedEffect(groups.isNotEmpty()) {
-        if (group != null || groups.isEmpty()) return@LaunchedEffect
-        val favoriteCount = groups.firstOrNull { it.group == ChannelGroup.Favorites }?.count ?: 0
-        group = app.liveTvGroup
-            ?: if (favoriteCount > 0) ChannelGroup.Favorites
-            else groups.firstOrNull { it.group is ChannelGroup.Provider }?.group ?: ChannelGroup.Favorites
-        app.liveTvGroup = null
-    }
-    val channels = channelsOf(app, group)
-
-    LaunchedEffect(Unit) {
-        // The preview plays the last played channel, the same as the Home hero (PLAN §4.3.2).
-        if (app.playback.current.value == null) app.playback.startingChannel()?.let { app.playback.tune(it, fullScreen = false) }
-        else app.playback.resumeIfStopped()
-    }
-    DisposableEffect(Unit) {
-        onDispose { if (app.navigator.current !is Route.FullScreen) app.playback.stop() }
-    }
-
-    // Initial focus: the channel that was playing full screen, else the playing channel, else the first row.
-    LaunchedEffect(channels != null, group) {
-        val list = channels ?: return@LaunchedEffect
-        if (list.isEmpty()) {
-            group?.let { focusGroup(it) }
-            return@LaunchedEffect
-        }
-        val target = app.liveTvFocusKey ?: current?.key
-        app.liveTvFocusKey = null
-        val index = list.indexOfFirst { it.key == target || it.stream.id == current?.stream?.id }.coerceAtLeast(0)
-        channelList.requestScrollToItem(index)
-        channelCol.focus(list[index].key)
-    }
-
-    NumberJump(channels.orEmpty()) { ch ->
-        scope.launch {
-            val i = channels.orEmpty().indexOfFirst { it.key == ch.key }
-            if (i >= 0) channelList.requestScrollToItem(i)
-            channelCol.focus(ch.key)
-        }
-    }
-
-    // Up from the top row reveals the nav bar; Left and Right switch columns (PLAN §4.3.2).
-    RemoteHandler { action ->
-        if (move.active) return@RemoteHandler false
-        val col = if (groupCol.hasFocus) groupCol else if (channelCol.hasFocus) channelCol else null
-        when {
-            action == RemoteAction.Up && col != null && col.focusedIndex == 0 -> { chrome.focusNav(); true }
-            action == RemoteAction.Left && col === channelCol -> { group?.let { focusGroup(it) }; true }
-            action == RemoteAction.Right && col === groupCol -> { runCatching { channelCol.column.requestFocus() }; true }
-            else -> false
-        }
-    }
-    MoveHandler(move)
-
-    TopLevelPage(Route.LiveTv, chrome, hideNav = true) {
-        Column(Modifier.fillMaxSize()) {
-            Row(Modifier.fillMaxWidth().height(360.dp)) {
-                VideoBox(Modifier.width(640.dp).fillMaxHeight(), compact = true, emptyText = "Pick a channel")
-                VDivider()
-                PreviewDetails(current)
-            }
-            HDivider()
-            Row(Modifier.fillMaxSize()) {
-                GroupColumn(app, groups, group, groupCol, groupList, move) { g ->
-                    group = g
-                    scope.launch {
-                        delay(50)
-                        runCatching { channelCol.column.requestFocus() }
-                    }
-                }
-                VDivider()
-                ChannelColumn(app, group, channels, current, channelList, channelCol, move, chrome.contentFocus)
-            }
-        }
-    }
-}
+// Live TV's shared pieces: the group column (the guide's group panel), move mode, number jump and
+// channel loading. The guide itself is in GuidePage.kt.
 
 /** Focus bookkeeping for one list column. */
 @Stable
@@ -234,7 +132,7 @@ internal class MoveState {
 }
 
 @Composable
-private fun MoveHandler(move: MoveState) {
+internal fun MoveHandler(move: MoveState) {
     RemoteHandler(enabled = move.active, priority = RemoteDispatcher.Priority.OVERLAY) { action ->
         when (action) {
             RemoteAction.Up -> { move.step(-1); true }
@@ -247,22 +145,7 @@ private fun MoveHandler(move: MoveState) {
 }
 
 @Composable
-private fun PreviewDetails(channel: Channel?) {
-    val c = SignalTheme.colors
-    Column(Modifier.fillMaxSize().padding(horizontal = 64.dp, vertical = 40.dp)) {
-        if (channel == null) return@Column
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            LogoTile(channel.displayName, channel.logoUrl, 80, 48)
-            SText("${channel.number}  ${channel.displayName}", 26, Modifier.padding(start = 24.dp), weight = FontWeight.SemiBold, color = c.accentText)
-        }
-        SText(channel.displayName, 56, Modifier.padding(top = 20.dp), weight = FontWeight.ExtraBold)
-        // The details strip follows guide focus once the guide lands (PLAN §4.3.2).
-        SText("No guide information", 26, Modifier.padding(top = 8.dp), color = c.muted)
-    }
-}
-
-@Composable
-private fun GroupColumn(
+internal fun GroupColumn(
     app: AppController,
     groups: List<GroupEntry>,
     selected: ChannelGroup?,
@@ -347,70 +230,6 @@ private fun openGroupMenu(
 }
 
 @Composable
-private fun ChannelColumn(
-    app: AppController,
-    group: ChannelGroup?,
-    channels: List<Channel>?,
-    current: Channel?,
-    state: LazyListState,
-    focus: ListFocus,
-    move: MoveState,
-    // Down from the nav bar lands here, on the last focused row.
-    navTarget: FocusRequester,
-) {
-    val c = SignalTheme.colors
-    val shown = move.arrange(MoveState.Kind.CHANNEL, channels.orEmpty()) { it.key }
-    // When the focused row disappears (removed from Favorites, hidden), focus its neighbor.
-    var focusedKey by remember { mutableStateOf<String?>(null) }
-    LaunchedEffect(shown) {
-        val key = focusedKey ?: return@LaunchedEffect
-        if (shown.isNotEmpty() && shown.none { it.key == key } && !app.panel.isOpen) {
-            focus.focus(shown[focus.focusedIndex.coerceAtMost(shown.lastIndex)].key)
-        }
-    }
-    Column(Modifier.fillMaxSize()) {
-        SText("${group?.title.orEmpty()} · ${shown.size} channels", 24, Modifier.padding(start = 40.dp, top = 20.dp, bottom = 8.dp), weight = FontWeight.SemiBold, color = c.muted)
-        if (channels != null && channels.isEmpty()) {
-            SText(
-                if (group == ChannelGroup.Favorites) "No favorites yet. Long-press OK on a channel to add one." else "No channels in this group.",
-                24, Modifier.padding(40.dp), color = c.muted, maxLines = 2,
-            )
-        }
-        LazyColumn(Modifier.fillMaxSize().onFocusChanged { focus.hasFocus = it.hasFocus }.focusRequester(focus.column).focusRequester(navTarget).focusRestorer(), state = state) {
-            itemsIndexed(shown, key = { _, ch -> ch.key }) { i, ch ->
-                val requester = remember { FocusRequester() }
-                LaunchedEffect(focus.tick) { if (focus.targetKey == ch.key) requester.requestFocusWhenReady() }
-                val playing = current?.stream?.id == ch.stream.id
-                val moving = move.movingKey == ch.key
-                Focusable(
-                    Modifier.fillMaxWidth(),
-                    focusRequester = requester,
-                    onFocused = { focus.focusedIndex = i; focusedKey = ch.key },
-                    onSelect = {
-                        when {
-                            move.active -> move.drop()
-                            // First OK tunes the preview; the second goes full screen (PLAN §4.3.2).
-                            playing && group != null -> {
-                                app.playback.tune(ch, fullScreen = true, group = group)
-                                app.navigator.go(Route.FullScreen(group))
-                            }
-                            else -> app.playback.tune(ch, fullScreen = false, group = group)
-                        }
-                    },
-                    onOptions = {
-                        if (move.active) return@Focusable
-                        val canMove = group == ChannelGroup.Favorites || group is ChannelGroup.Playlist
-                        val onMove = if (canMove) ({ startChannelMove(app, move, group, ch.key, channels.orEmpty()) }) else null
-                        app.panel.open(app.menus.channelMenu(ch, group, onMove), focus.column)
-                    },
-                ) { focused -> ChannelRow(ch, focused = focused || moving, playing = playing, moving = moving) }
-            }
-        }
-    }
-}
-
-
-@Composable
 internal fun ChannelRow(ch: Channel, focused: Boolean, playing: Boolean, moving: Boolean = false) {
     val c = SignalTheme.colors
     Row(
@@ -425,7 +244,7 @@ internal fun ChannelRow(ch: Channel, focused: Boolean, playing: Boolean, moving:
     }
 }
 
-private fun startChannelMove(app: AppController, move: MoveState, group: ChannelGroup, key: String?, channels: List<Channel>? = null) {
+internal fun startChannelMove(app: AppController, move: MoveState, group: ChannelGroup, key: String?, channels: List<Channel>? = null) {
     app.scope.launch {
         val list = channels ?: app.channels.channelsNow(group)
         val start = key ?: list.firstOrNull()?.key ?: return@launch

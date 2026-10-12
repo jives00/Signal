@@ -5,6 +5,10 @@ import app.cash.sqldelight.coroutines.mapToList
 import com.signal.db.user.UserDatabase
 import com.signal.model.ChannelSort
 import com.signal.model.GroupSort
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
@@ -46,11 +50,30 @@ class Settings(private val db: UserDatabase, private val io: CoroutineDispatcher
         Scope.DEVICE -> "this-device"
     }
 
-    fun raw(key: Key): String? = db.settingQueries.get(key.scope.id, owner(key), key.id).executeAsOneOrNull()
+    // Settings are read during composition (the clock format, once per guide cell), so reads come from
+    // memory. This class is the table's only writer, so the cache never goes stale.
+    private val cache: MutableMap<String, String> by lazy {
+        db.settingQueries.all().executeAsList().associateTo(HashMap()) { cacheKey(it.scope, it.owner_id, it.key) to it.value_ }
+    }
+
+    private fun cacheKey(scope: String, owner: String, key: String) = "$scope/$owner/$key"
+
+    fun raw(key: Key): String? = synchronized(this) { cache[cacheKey(key.scope.id, owner(key), key.id)] }
 
     fun put(key: Key, value: String?) {
-        if (value == null) db.settingQueries.remove(key.scope.id, owner(key), key.id)
-        else db.settingQueries.put(key.scope.id, owner(key), key.id, value)
+        synchronized(this) {
+            val k = cacheKey(key.scope.id, owner(key), key.id)
+            if (value == null) cache.remove(k) else cache[k] = value
+        }
+        writes.trySend { if (value == null) db.settingQueries.remove(key.scope.id, owner(key), key.id) else db.settingQueries.put(key.scope.id, owner(key), key.id, value) }
+    }
+
+    // Writes go to the database in order, one at a time, on io: never on the caller's (often the UI)
+    // thread, where they'd block it or race the IO thread's transactions. Reads come from the cache.
+    private val writes = Channel<() -> Unit>(Channel.UNLIMITED)
+
+    init {
+        CoroutineScope(SupervisorJob() + io).launch { for (write in writes) runCatching { write() } }
     }
 
     fun bool(key: Key, default: Boolean): Boolean = raw(key)?.toBooleanStrictOrNull() ?: default

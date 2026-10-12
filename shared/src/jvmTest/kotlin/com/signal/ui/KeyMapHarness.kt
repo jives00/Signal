@@ -10,7 +10,9 @@ import androidx.compose.ui.test.ComposeUiTest
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.isFocused
 import androidx.compose.ui.test.onRoot
-import androidx.compose.ui.test.runComposeUiTest
+import androidx.compose.ui.test.captureToImage
+import androidx.compose.ui.graphics.toAwtImage
+import androidx.compose.ui.test.runSkikoComposeUiTest
 import app.cash.sqldelight.driver.jdbc.sqlite.JdbcSqliteDriver
 import com.signal.app.AppController
 import com.signal.app.Route
@@ -81,7 +83,7 @@ class TestPlatform : Platform {
 
     // A file, not IN_MEMORY: the in-memory driver shares one connection, so transactions on two threads collide.
     private val dbFile = java.io.File.createTempFile("signal-test", ".db").apply { delete(); deleteOnExit() }
-    override fun createUserDatabaseDriver() = JdbcSqliteDriver("jdbc:sqlite:${dbFile.absolutePath}", java.util.Properties(), UserDatabase.Schema)
+    override fun createUserDatabaseDriver() = JdbcSqliteDriver("jdbc:sqlite:${dbFile.absolutePath}", java.util.Properties().apply { put("journal_mode", "WAL"); put("busy_timeout", "5000") }, UserDatabase.Schema)
     override val guideDirectory: String = java.nio.file.Files.createTempDirectory("signal-guide").toFile().apply { deleteOnExit() }.absolutePath
     override fun createGuideDatabaseDriver(path: String) = JdbcSqliteDriver("jdbc:sqlite:$path", java.util.Properties(), com.signal.db.guide.GuideDatabase.Schema)
     override fun createHttpClient() = HttpClient(MockEngine { respondError(HttpStatusCode.NotFound) })
@@ -124,7 +126,12 @@ class KeyMapScope(val ui: ComposeUiTest, val app: AppController, val platform: T
      */
     fun focusedText(): String? = ui.runOnUiThread {
         val node = ui.onAllNodes(isFocused(), useUnmergedTree = true).fetchSemanticsNodes().firstOrNull()
-        if (node == null || node.id == keyLayerRoot().id) null else texts(node).joinToString(" ")
+        when {
+            node == null || node.id == keyLayerRoot().id -> null
+            // The guide grid is one focus target and describes what's focused inside it.
+            SemanticsProperties.ContentDescription in node.config -> node.config[SemanticsProperties.ContentDescription].joinToString(" ")
+            else -> texts(node).joinToString(" ")
+        }
     }
 
     /** RemoteInput's root: the outermost focusable node. */
@@ -144,6 +151,13 @@ class KeyMapScope(val ui: ComposeUiTest, val app: AppController, val platform: T
         ui.onAllNodes(androidx.compose.ui.test.hasText(text, substring = true), useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty()
     }
 
+    /** Saves the screen to build/screenshots/[name].png, for looking at a layout. */
+    fun screenshot(name: String) {
+        val image = ui.onRoot().captureToImage().toAwtImage()
+        val dir = java.io.File("build/screenshots").apply { mkdirs() }
+        javax.imageio.ImageIO.write(image, "png", java.io.File(dir, "$name.png"))
+    }
+
     suspend fun route(route: Route) = eventually("route $route") { app.navigator.current == route }
 
     private fun texts(node: SemanticsNode): List<String> =
@@ -160,7 +174,7 @@ fun keyMapTest(
     withDemo: Boolean = true,
     favorites: Int = 0,
     block: suspend KeyMapScope.() -> Unit,
-) = runComposeUiTest {
+) = runSkikoComposeUiTest(size = androidx.compose.ui.geometry.Size(1920f, 1080f), density = androidx.compose.ui.unit.Density(1f)) {
     val platform = TestPlatform()
     startApp(platform, start, withDemo, favorites, block)
 }
@@ -206,3 +220,6 @@ suspend fun KeyMapScope.liveTvReady() {
         ch != null && focusedText()?.contains(ch.displayName) == true
     }
 }
+
+/** Waits for the Demo guide the app builds after the Demo source is added. */
+suspend fun KeyMapScope.guideReady() = eventually("the Demo guide built", timeoutMs = 60_000) { app.guideStore.db != null && !app.guideBuilding }

@@ -14,6 +14,7 @@ class PanelAndMoveKeyMapTest {
 
     @Test fun sidePanelMovesClosesAndIsModal() = keyMapTest(start = Route.LiveTv) {
         liveTvReady()
+        toChannelColumn()
         val row = focusedText()
         press(RemoteAction.Options)
         focusedStartsWith("Add to Favorites")
@@ -30,6 +31,7 @@ class PanelAndMoveKeyMapTest {
 
     @Test fun sidePanelOkActivates() = keyMapTest(start = Route.LiveTv) {
         liveTvReady()
+        toChannelColumn()
         press(RemoteAction.Options)
         focusedStartsWith("Add to Favorites")
         press(RemoteAction.Select)
@@ -39,6 +41,7 @@ class PanelAndMoveKeyMapTest {
 
     @Test fun sidePanelBackPopsOnePageAtATime() = keyMapTest(start = Route.LiveTv) {
         liveTvReady()
+        toChannelColumn()
         press(RemoteAction.Options)
         focusedStartsWith("Add to Favorites")
         press(RemoteAction.Down)
@@ -50,10 +53,17 @@ class PanelAndMoveKeyMapTest {
         eventually("closed") { !app.panel.isOpen }
     }
 
+    // In the guide, the channel menu is on the channel column (PLAN §12.1).
+    private suspend fun KeyMapScope.toChannelColumn() {
+        press(RemoteAction.Left)
+        eventually("channel column") { focusedText()?.endsWith(" · channel") == true }
+    }
+
     /** Live TV opens on Favorites when there are some; the channel menu there has Move, third. */
     private suspend fun KeyMapScope.startMovingFirstFavorite(): List<String> {
         val before = favorites()
         eventually("first favorite focused") { focusedText()?.contains(before[0].displayName) == true }
+        toChannelColumn()
         press(RemoteAction.Options)
         focusedStartsWith("Remove from Favorites")
         press(RemoteAction.Down, times = 2)
