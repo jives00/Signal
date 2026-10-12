@@ -31,6 +31,8 @@
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
+                <!-- Also a plain launcher entry: the package installer's Open button and launch tools look for it. -->
+                <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
 
