@@ -5,6 +5,7 @@ import com.signal.data.SourceRepository
 import com.signal.db.guide.GuideDatabase
 import com.signal.demo.DemoData
 import com.signal.match.GuideNames
+import com.signal.match.SearchText
 import com.signal.model.CredentialMasking
 import com.signal.model.EpgKind
 import com.signal.model.EpgSource
@@ -33,21 +34,23 @@ class GuideBuilder(
 
     suspend fun build(epgSources: List<EpgSource>, fresh: GuideDatabase, previous: GuideDatabase?, now: Long): Map<String, Outcome> = withContext(io) {
         val out = LinkedHashMap<String, Outcome>()
+        // Program IDs are assigned here, so the search index can be written alongside each program.
+        var nextId = 1L
+        val ids = { nextId++ }
         for (epg in epgSources.filter { it.enabled }) {
-            val result = runCatching { load(epg, fresh, now) }
+            val result = runCatching { load(epg, fresh, now, ids) }
             out[epg.id] = result.getOrElse { e ->
                 val message = e.message ?: e::class.simpleName ?: "Failed"
                 log.warn("Guide ${epg.name} failed: $message")
-                val carried = previous?.let { carryOver(epg, it, fresh, now) } ?: 0
+                val carried = previous?.let { carryOver(epg, it, fresh, now, ids) } ?: 0
                 Outcome(0, carried, error = message, carriedOver = carried > 0)
             }
         }
-        fresh.guideQueries.indexAllForSearch()
         out
     }
 
-    private suspend fun load(epg: EpgSource, db: GuideDatabase, now: Long): Outcome {
-        val writer = Writer(db, epg, now)
+    private suspend fun load(epg: EpgSource, db: GuideDatabase, now: Long, ids: () -> Long): Outcome {
+        val writer = Writer(db, epg, now, ids)
         when (epg.kind) {
             EpgKind.DEMO -> demo(writer, now)
             EpgKind.XMLTV -> readXmltv(http, epg.url, emptyMap()) { XmltvParser(writer::channel, writer::program).parse(it) }
@@ -85,17 +88,19 @@ class GuideBuilder(
         }
     }
 
-    private fun carryOver(epg: EpgSource, from: GuideDatabase, to: GuideDatabase, now: Long): Int {
+    private fun carryOver(epg: EpgSource, from: GuideDatabase, to: GuideDatabase, now: Long, ids: () -> Long): Int {
         var count = 0
         to.transaction {
             from.guideQueries.guideChannelsForSource(epg.id).executeAsList().forEach {
                 to.guideQueries.insertChannel(it.epg_source_id, it.id, it.display_name, it.normalized_name, it.icon)
             }
             from.guideQueries.programsForSource(epg.id, now - epg.timeShiftMs).executeAsList().forEach { p ->
+                val id = ids()
                 to.guideQueries.insertProgram(
-                    p.epg_source_id, p.guide_channel_id, p.start, p.stop, p.title, p.sub_title, p.description, p.categories,
+                    id, p.epg_source_id, p.guide_channel_id, p.start, p.stop, p.title, p.sub_title, p.description, p.categories,
                     p.season, p.episode, p.episode_label, p.icon, p.rating, p.year, p.flags, p.credits,
                 )
+                to.guideQueries.insertSearchText(id, SearchText.fold(p.title), p.sub_title?.let(SearchText::fold).orEmpty())
                 count++
             }
         }
@@ -103,7 +108,7 @@ class GuideBuilder(
     }
 
     /** Batches inserts into transactions: one per row would be far too slow for 300k programs. */
-    private class Writer(private val db: GuideDatabase, private val epg: EpgSource, now: Long) {
+    private class Writer(private val db: GuideDatabase, private val epg: EpgSource, now: Long, private val ids: () -> Long) {
         // Pruning works in guide time: a program is shown at time + shift.
         private val keepAfter = now - epg.timeShiftMs
         private val keepBefore = now + 7 * 24 * 60 * 60_000L - epg.timeShiftMs
@@ -134,12 +139,14 @@ class GuideBuilder(
                 }
                 for (p in pendingPrograms) {
                     val flags = (if (p.isNew) 1L else 0) or (if (p.isLive) 2L else 0) or (if (p.previouslyShown) 4L else 0)
+                    val id = ids()
                     db.guideQueries.insertProgram(
-                        epg.id, p.channel, p.start, p.stop, p.title, p.subTitle, p.description,
+                        id, epg.id, p.channel, p.start, p.stop, p.title, p.subTitle, p.description,
                         p.categories.takeIf { it.isNotEmpty() }?.joinToString(SEPARATOR),
                         p.season?.toLong(), p.episode?.toLong(), p.episodeLabel, p.icon, p.rating, p.year?.toLong(), flags,
                         p.credits.takeIf { it.isNotEmpty() }?.joinToString(SEPARATOR),
                     )
+                    db.guideQueries.insertSearchText(id, SearchText.fold(p.title), p.subTitle?.let(SearchText::fold).orEmpty())
                 }
             }
             pendingChannels.clear()

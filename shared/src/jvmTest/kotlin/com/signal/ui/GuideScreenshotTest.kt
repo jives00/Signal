@@ -2,6 +2,7 @@ package com.signal.ui
 
 import com.signal.app.Route
 import com.signal.input.RemoteAction
+import androidx.compose.ui.test.performTextReplacement
 import kotlin.test.Test
 
 /** Renders the guide at 1080p for a look; the images land in shared/build/screenshots. */
@@ -47,5 +48,18 @@ class ReminderScreenshotTest {
         heroFocused()
         eventually("prompt and row") { shows("Starting now") && shows("Reminders") }
         screenshot("reminders")
+    }
+}
+
+class SearchScreenshotTest {
+    @Test fun results() = keyMapTest {
+        guideReady()
+        ui.runOnIdle { app.navigator.go(Route.Search) }
+        settle()
+        ui.onAllNodes(androidx.compose.ui.test.hasSetTextAction())[0].performTextReplacement("science")
+        ui.mainClock.advanceTimeBy(400)
+        eventually("results") { shows("Channels · ") && shows("Programs · ") }
+        settle()
+        screenshot("search")
     }
 }

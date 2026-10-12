@@ -16,6 +16,8 @@ interface Platform {
     val player: VideoPlayer
     /** Null where updates don't apply (the dev harness, debug builds). */
     val updater: Updater?
+    /** Speech to text for Search's mic button (PLAN §4.3.14), or null where there's none (the dev harness). */
+    val voiceInput: VoiceInput?
     val io: CoroutineDispatcher
 
     fun createUserDatabaseDriver(): SqlDriver
@@ -32,6 +34,11 @@ interface Platform {
 
     /** Back on the nav bar of Home exits the app straight away (PLAN §4.3.1). */
     fun exitApp()
+}
+
+/** Listens once and hands back the recognized text; nothing when the user cancels. */
+fun interface VoiceInput {
+    fun listen(onText: (String) -> Unit)
 }
 
 data class AppInfo(

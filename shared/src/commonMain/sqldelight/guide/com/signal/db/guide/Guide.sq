@@ -36,7 +36,9 @@ CREATE TABLE guide_channel (
     PRIMARY KEY (epg_source_id, id)
 );
 
--- Program search (PLAN §4.3.14): the docid is the program's id.
+-- Program search (PLAN §4.3.14): the docid is the program's id. The text is folded by the app
+-- (SearchText.fold: case, accents, junk characters) the same way queries are, so matching never
+-- depends on which tokenizers the device's SQLite has.
 CREATE VIRTUAL TABLE program_fts USING fts4(title, sub_title);
 
 CREATE TABLE meta (
@@ -45,14 +47,14 @@ CREATE TABLE meta (
 );
 
 insertProgram:
-INSERT INTO program(epg_source_id, guide_channel_id, start, stop, title, sub_title, description, categories, season, episode, episode_label, icon, rating, year, flags, credits)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+INSERT INTO program(id, epg_source_id, guide_channel_id, start, stop, title, sub_title, description, categories, season, episode, episode_label, icon, rating, year, flags, credits)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+
+insertSearchText:
+INSERT INTO program_fts(docid, title, sub_title) VALUES (?, ?, ?);
 
 insertChannel:
 INSERT OR REPLACE INTO guide_channel(epg_source_id, id, display_name, normalized_name, icon) VALUES (?, ?, ?, ?, ?);
-
-indexAllForSearch:
-INSERT INTO program_fts(docid, title, sub_title) SELECT id, title, coalesce(sub_title, '') FROM program;
 
 putMeta:
 INSERT OR REPLACE INTO meta(key, value) VALUES (?, ?);

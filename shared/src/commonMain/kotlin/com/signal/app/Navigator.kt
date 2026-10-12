@@ -12,10 +12,11 @@ sealed interface Route {
     data object Home : Route
     data object LiveTv : Route
     data class FullScreen(val group: ChannelGroup) : Route
+    data object Search : Route
     data object Settings : Route
 
     /** The pages on the nav bar; the rest are reached from them. */
-    val isTopLevel: Boolean get() = this == Home || this == LiveTv || this == Settings
+    val isTopLevel: Boolean get() = this == Home || this == LiveTv || this == Search || this == Settings
 
     /** Screens with a player on them: the only ones that resume playback after sleep (PLAN §4.2). */
     val showsVideo: Boolean get() = this == Home || this == LiveTv || this is FullScreen

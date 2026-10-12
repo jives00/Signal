@@ -61,18 +61,27 @@ class GuideRepository(
             indexes.clear()
             indexVersion = s.version
         }
-        return refs.getOrPut(channel.stream.id) { compute(channel, s, db) }
+        return refs.getOrPut(channel.stream.id) { compute(channel.userChannelId, channel.stream.tvgId, channel.stream.rawName, s, db) }
     }
 
-    private fun compute(channel: Channel, s: State, db: GuideDatabase): GuideRef? {
+    /** Resolution from a channel's raw fields, for search's map from guide channels back to channels. */
+    internal fun resolve(streamId: String, userChannelId: String?, tvgId: String?, rawName: String): GuideRef? = synchronized(lock) {
+        val s = state.value
+        val db = store.db ?: return null
+        if (refsState != s) { refs.clear(); refsState = s }
+        if (indexVersion != s.version) { indexes.clear(); indexVersion = s.version }
+        return refs.getOrPut(streamId) { compute(userChannelId, tvgId, rawName, s, db) }
+    }
+
+    private fun compute(userChannelId: String?, rawTvgId: String?, rawName: String, s: State, db: GuideDatabase): GuideRef? {
         val enabled = s.sources.filter { it.enabled }
         if (enabled.isEmpty()) return null
-        val mapping = channel.userChannelId?.let { s.mappings[it] }
+        val mapping = userChannelId?.let { s.mappings[it] }
         val chosenId = mapping?.epgSourceId?.takeIf { id -> enabled.any { it.id == id } } ?: s.defaultId
         val chosen = enabled.firstOrNull { it.id == chosenId }
         val order = listOfNotNull(chosen) + enabled.filter { it.id != chosenId }
-        val name = GuideNames.normalize(channel.stream.rawName)
-        val tvgId = channel.stream.tvgId?.takeIf { it.isNotBlank() }
+        val name = GuideNames.normalize(rawName)
+        val tvgId = rawTvgId?.takeIf { it.isNotBlank() }
         for ((i, src) in order.withIndex()) {
             val index = indexes.getOrPut(src.id) { buildIndex(db, src.id) }
             val guideChannel = when {
@@ -111,6 +120,21 @@ class GuideRepository(
         val current = list.firstOrNull { it.isOn(now) }
         val next = list.firstOrNull { it.start >= (current?.stop ?: now) }
         return current to next
+    }
+
+    /**
+     * Programs whose title or episode title has every word in [words] as a word prefix, not ended
+     * by shifted time (PLAN §4.3.14). [words] are already folded (SearchText).
+     */
+    suspend fun search(words: List<String>, now: Long, limit: Int): List<Program> = withContext(io) {
+        val db = store.db ?: return@withContext emptyList()
+        if (words.isEmpty()) return@withContext emptyList()
+        val shifts = state.value.sources.associate { it.id to it.timeShiftMs }
+        // FTS4 prefix query; the words are letters and digits only, so nothing needs escaping.
+        val match = words.joinToString(" ") { "$it*" }
+        db.guideQueries.searchPrograms(match, now - 12 * 60 * 60_000L, limit.toLong() * 2).executeAsList()
+            .map { it.toModel(shifts[it.epg_source_id] ?: 0) }
+            .filter { it.stop > now }
     }
 
     suspend fun program(id: Long): Program? = withContext(io) {

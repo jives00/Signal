@@ -41,6 +41,8 @@ class Settings(private val db: UserDatabase, private val io: CoroutineDispatcher
         DEFAULT_EPG_SOURCE(Scope.HOUSEHOLD, "default_epg_source"),
         REMINDER_LEAD_MINUTES(Scope.PROFILE, "reminder_lead_minutes"),
         REMINDER_AUTO_SWITCH(Scope.PROFILE, "reminder_auto_switch"),
+        RECENT_SEARCHES(Scope.DEVICE, "recent_searches"),
+        SEARCH_FILTER(Scope.DEVICE, "search_filter"),
     }
 
     private fun owner(key: Key): String = when (key.scope) {

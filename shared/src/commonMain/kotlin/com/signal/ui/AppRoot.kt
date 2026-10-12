@@ -24,6 +24,7 @@ import com.signal.ui.components.ReminderPrompt
 import com.signal.ui.screens.FullScreenPlayback
 import com.signal.ui.screens.HomePage
 import com.signal.ui.screens.LiveTvPage
+import com.signal.ui.screens.SearchPage
 import com.signal.ui.screens.SettingsPage
 import com.signal.ui.screens.SetupScreen
 import com.signal.ui.theme.SignalTheme
@@ -59,6 +60,7 @@ fun SignalApp(app: AppController) {
                             Route.Setup -> SetupScreen()
                             Route.Home -> HomePage()
                             Route.LiveTv -> LiveTvPage()
+                            Route.Search -> SearchPage()
                             Route.Settings -> SettingsPage()
                             is Route.FullScreen -> FullScreenPlayback(route)
                         }

@@ -19,6 +19,7 @@ import com.signal.guide.GuideBuilder
 import com.signal.guide.GuideRepository
 import com.signal.guide.GuideStore
 import com.signal.guide.ReminderRepository
+import com.signal.search.SearchRepository
 import com.signal.model.Channel
 import com.signal.model.Reminder
 import kotlinx.coroutines.delay
@@ -56,6 +57,7 @@ class AppController(val platform: Platform, val log: Log) {
     val guide = GuideRepository(guideStore, epg, settings, guideIo, scope)
     private val guideBuilder = GuideBuilder(http, sources, guideIo, log)
     val reminders = ReminderRepository(db, settings, channels, platform.io)
+    val search = SearchRepository(db, settings, channels, guide, platform.io, scope)
     val reminderList: StateFlow<List<Reminder>> = reminders.reminders().stateIn(scope, SharingStarted.Eagerly, emptyList())
     val dispatcher = RemoteDispatcher()
     val navigator = Navigator(Route.Home)

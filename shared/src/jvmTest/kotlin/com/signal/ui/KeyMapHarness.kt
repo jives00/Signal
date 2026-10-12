@@ -76,6 +76,7 @@ class TestPlatform : Platform {
     }
     override val player = TestPlayer()
     override val updater = null
+    override val voiceInput = null
     // One database thread at a time, like Android's single connection: the JDBC driver opens one per
     // thread, and two writing at once deadlock with SQLITE_BUSY.
     override val io = Dispatchers.IO.limitedParallelism(1)
