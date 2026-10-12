@@ -9,8 +9,12 @@ import kotlin.math.round
  *
  * Feed it each rendered frame's presentation time. Once it has enough gaps between frames it
  * returns the rate a single time, snapped to the nearest broadcast rate when it's close to one.
+ *
+ * It averages the gaps rather than taking their median: some restreams round timestamps to whole
+ * milliseconds, so 59.94 fps arrives as gaps of 17, 17, 16 ms, whose median says 58.82. Gaps far
+ * from the median (dropped frames, discontinuities) are left out of the average.
  */
-class FrameRateMeter(private val samples: Int = 48) {
+class FrameRateMeter(private val samples: Int = 240) {
     private val deltas = ArrayList<Long>(samples)
     private var lastUs = -1L
     private var done = false
@@ -28,7 +32,8 @@ class FrameRateMeter(private val samples: Int = 48) {
         if (deltas.size < samples) return null
         done = true
         val median = deltas.sorted()[deltas.size / 2]
-        return snap(1_000_000f / median)
+        val typical = deltas.filter { it in median * 3 / 4..median * 5 / 4 }
+        return snap(1_000_000f * typical.size / typical.sum())
     }
 
     companion object {

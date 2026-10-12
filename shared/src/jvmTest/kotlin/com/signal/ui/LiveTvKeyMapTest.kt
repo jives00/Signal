@@ -48,6 +48,18 @@ class LiveTvKeyMapTest {
         liveTvReady()
     }
 
+    @Test fun leftReachesAGroupScrolledOutOfView() = keyMapTest {
+        heroFocused()
+        val last = app.groups.value.last().group
+        ui.runOnIdle {
+            app.liveTvGroup = last
+            app.navigator.go(Route.LiveTv)
+        }
+        eventually("Live TV on the last group") { shows("${last.title} · ") && focusedText()?.first()?.isDigit() == true }
+        press(RemoteAction.Left)
+        focusedStartsWith(last.title)
+    }
+
     @Test fun groupPanelOkAppliesTheGroup() = keyMapTest(start = Route.LiveTv) {
         liveTvReady()
         val before = current!!.groupName

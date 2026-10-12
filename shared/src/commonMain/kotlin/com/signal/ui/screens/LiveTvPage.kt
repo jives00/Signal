@@ -22,6 +22,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -55,7 +56,6 @@ import com.signal.ui.components.requestFocusWhenReady
 import com.signal.ui.theme.SignalSizes
 import com.signal.ui.theme.SignalTheme
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.launch
 
 /**
@@ -75,6 +75,14 @@ fun LiveTvPage() {
     val groupCol = remember { ListFocus() }
     val channelCol = remember { ListFocus() }
     val channelList = rememberLazyListState()
+    val groupList = rememberLazyListState()
+
+    // The group's row may be scrolled out of view, and a row that isn't composed can't take focus.
+    fun focusGroup(g: ChannelGroup) {
+        val i = app.groups.value.indexOfFirst { it.group == g }
+        if (i >= 0) groupList.requestScrollToItem(i)
+        groupCol.focus(g.key)
+    }
     val move = remember { MoveState() }
 
     // Opens on Favorites every time; with no favorites, the first visible group (PLAN §4.3.2).
@@ -86,7 +94,7 @@ fun LiveTvPage() {
             else groups.firstOrNull { it.group is ChannelGroup.Provider }?.group ?: ChannelGroup.Favorites
         app.liveTvGroup = null
     }
-    val channels by remember(group) { group?.let { app.channels.channels(it) } ?: flowOf(null) }.collectAsState(null)
+    val channels = channelsOf(app, group)
 
     LaunchedEffect(Unit) {
         // The preview plays the last played channel, the same as the Home hero (PLAN §4.3.2).
@@ -101,20 +109,20 @@ fun LiveTvPage() {
     LaunchedEffect(channels != null, group) {
         val list = channels ?: return@LaunchedEffect
         if (list.isEmpty()) {
-            group?.let { groupCol.focus(it.key) }
+            group?.let { focusGroup(it) }
             return@LaunchedEffect
         }
         val target = app.liveTvFocusKey ?: current?.key
         app.liveTvFocusKey = null
         val index = list.indexOfFirst { it.key == target || it.stream.id == current?.stream?.id }.coerceAtLeast(0)
-        channelList.scrollToItem(index)
+        channelList.requestScrollToItem(index)
         channelCol.focus(list[index].key)
     }
 
     NumberJump(channels.orEmpty()) { ch ->
         scope.launch {
             val i = channels.orEmpty().indexOfFirst { it.key == ch.key }
-            if (i >= 0) channelList.scrollToItem(i)
+            if (i >= 0) channelList.requestScrollToItem(i)
             channelCol.focus(ch.key)
         }
     }
@@ -125,7 +133,7 @@ fun LiveTvPage() {
         val col = if (groupCol.hasFocus) groupCol else if (channelCol.hasFocus) channelCol else null
         when {
             action == RemoteAction.Up && col != null && col.focusedIndex == 0 -> { chrome.focusNav(); true }
-            action == RemoteAction.Left && col === channelCol -> { group?.let { groupCol.focus(it.key) }; true }
+            action == RemoteAction.Left && col === channelCol -> { group?.let { focusGroup(it) }; true }
             action == RemoteAction.Right && col === groupCol -> { runCatching { channelCol.column.requestFocus() }; true }
             else -> false
         }
@@ -141,7 +149,7 @@ fun LiveTvPage() {
             }
             HDivider()
             Row(Modifier.fillMaxSize()) {
-                GroupColumn(app, groups, group, groupCol, move) { g ->
+                GroupColumn(app, groups, group, groupCol, groupList, move) { g ->
                     group = g
                     scope.launch {
                         delay(50)
@@ -259,6 +267,7 @@ private fun GroupColumn(
     groups: List<GroupEntry>,
     selected: ChannelGroup?,
     focus: ListFocus,
+    state: LazyListState,
     move: MoveState,
     onApply: (ChannelGroup) -> Unit,
 ) {
@@ -266,7 +275,7 @@ private fun GroupColumn(
     val shown = move.arrange(MoveState.Kind.GROUP, groups) { it.group.key }
     Column(Modifier.width(380.dp).fillMaxHeight()) {
         SText("Groups", 24, Modifier.padding(start = 40.dp, top = 20.dp, bottom = 8.dp), weight = FontWeight.SemiBold, color = c.muted)
-        LazyColumn(Modifier.fillMaxSize().onFocusChanged { focus.hasFocus = it.hasFocus }.focusRequester(focus.column).focusRestorer()) {
+        LazyColumn(Modifier.fillMaxSize().onFocusChanged { focus.hasFocus = it.hasFocus }.focusRequester(focus.column).focusRestorer(), state = state) {
             itemsIndexed(shown, key = { _, g -> g.group.key }) { i, entry ->
                 val requester = remember { FocusRequester() }
                 LaunchedEffect(focus.tick) { if (focus.targetKey == entry.group.key) requester.requestFocusWhenReady() }
@@ -455,4 +464,17 @@ internal fun NumberJump(channels: List<Channel>, onJump: (Channel) -> Unit) {
             SText(typed, 72, Modifier.background(c.bg).padding(horizontal = 32.dp, vertical = 16.dp), weight = FontWeight.ExtraBold)
         }
     }
+}
+
+/**
+ * A group's channels, or null until that group's list has loaded. Right after the group changes,
+ * the old list is still in state for a composition; returning it would let effects keyed on the list
+ * act on the previous group's rows, so each list carries the group it belongs to.
+ */
+@Composable
+internal fun channelsOf(app: AppController, group: ChannelGroup?): List<Channel>? {
+    val loaded by produceState<Pair<ChannelGroup, List<Channel>>?>(null, group) {
+        group?.let { g -> app.channels.channels(g).collect { value = g to it } }
+    }
+    return loaded?.takeIf { it.first == group }?.second
 }

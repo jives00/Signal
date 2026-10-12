@@ -302,7 +302,7 @@ private fun ChannelListOverlay(onClose: () -> Unit, onTuned: () -> Unit) {
     val current by app.playback.current.collectAsState()
     val groups by app.groups.collectAsState()
     var shownGroup by remember { mutableStateOf(app.playback.currentGroup) }
-    val channels by remember(shownGroup) { app.channels.channels(shownGroup) }.collectAsState(null)
+    val channels = channelsOf(app, shownGroup)
     val channelFocus = remember { ListFocus() }
     val groupFocus = remember { ListFocus() }
     val channelState = rememberLazyListState()
@@ -314,7 +314,7 @@ private fun ChannelListOverlay(onClose: () -> Unit, onTuned: () -> Unit) {
         val list = channels ?: return@LaunchedEffect
         val i = list.indexOfFirst { it.stream.id == current?.stream?.id }.coerceAtLeast(0)
         if (list.isNotEmpty()) {
-            channelState.scrollToItem(i)
+            channelState.requestScrollToItem(i)
             channelFocus.focus(list[i].key)
         }
     }
@@ -329,7 +329,7 @@ private fun ChannelListOverlay(onClose: () -> Unit, onTuned: () -> Unit) {
             RemoteAction.Left -> if (channelFocus.hasFocus) {
                 scope.launch {
                     val i = groups.indexOfFirst { it.group == shownGroup }.coerceAtLeast(0)
-                    groupState.scrollToItem(i)
+                    groupState.requestScrollToItem(i)
                     groupFocus.focus(shownGroup.key)
                 }
                 true

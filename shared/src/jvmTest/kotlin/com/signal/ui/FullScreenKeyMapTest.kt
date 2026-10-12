@@ -136,6 +136,23 @@ class FullScreenKeyMapTest {
         eventually("closed") { !shows("Groups") }
     }
 
+    /** Seen on the Shield: after picking a group, nothing had focus. */
+    @Test fun channelListPickingAGroupFocusesItsChannels() = keyMapTest {
+        toFullScreen()
+        val start = current!!
+        press(RemoteAction.Left)
+        eventually("on the playing channel") { focusedText()?.contains(start.displayName) == true }
+        press(RemoteAction.Left)
+        focusedStartsWith(start.groupName)
+        press(RemoteAction.Down)
+        val next = focusedText()!!
+        val nextTitle = app.groups.value.map { it.group.title }.filter { next.startsWith(it) }.maxBy { it.length }
+        press(RemoteAction.Select)
+        eventually("the new group's first channel") { shows("$nextTitle · ") && focusedText()?.first()?.isDigit() == true }
+        press(RemoteAction.Down)
+        eventually("Down moves through it") { focusedText()?.first()?.isDigit() == true }
+    }
+
     @Test fun channelListBackClosesAndLongPressOpensTheMenu() = keyMapTest {
         toFullScreen()
         val start = current!!

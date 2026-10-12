@@ -6,7 +6,7 @@ import kotlin.test.assertNull
 
 class FrameRateMeterTest {
     /** Feeds frames at [fps] and returns the first non-null result. */
-    private fun measure(fps: Double, frames: Int = 100, startUs: Long = 1_000_000L, meter: FrameRateMeter = FrameRateMeter()): Float? =
+    private fun measure(fps: Double, frames: Int = 300, startUs: Long = 1_000_000L, meter: FrameRateMeter = FrameRateMeter()): Float? =
         (0 until frames).firstNotNullOfOrNull { i -> meter.add(startUs + (i * 1_000_000.0 / fps).toLong()) }
 
     @Test fun snapsNtscRates() {
@@ -23,6 +23,28 @@ class FrameRateMeterTest {
 
     @Test fun oddRateIsRoundedNotSnapped() {
         assertEquals(15f, measure(15.0))
+    }
+
+    /** Seen on the Shield: a restream with millisecond timestamps read as 58.82 by a median. */
+    @Test fun millisecondTimestampsStillGiveTheTrueRate() {
+        fun measureMs(fps: Double) = FrameRateMeter().let { m ->
+            (0 until 400).firstNotNullOfOrNull { i -> m.add((i * 1000.0 / fps).toLong() * 1000) }
+        }
+        assertEquals(59.94f, measureMs(60000.0 / 1001))
+        assertEquals(60f, measureMs(60.0))
+        assertEquals(29.97f, measureMs(30000.0 / 1001))
+        assertEquals(25f, measureMs(25.0))
+    }
+
+    @Test fun droppedFramesDontSkewTheRate() {
+        val meter = FrameRateMeter(samples = 100)
+        var t = 0L
+        var result: Float? = null
+        repeat(200) { i ->
+            t += if (i % 10 == 9) 33_367 else 16_683 // Every tenth frame dropped.
+            result = result ?: meter.add(t)
+        }
+        assertEquals(59.94f, result)
     }
 
     @Test fun ignoresDiscontinuities() {
