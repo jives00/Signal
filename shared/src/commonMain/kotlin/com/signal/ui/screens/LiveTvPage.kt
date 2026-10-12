@@ -295,7 +295,7 @@ private fun GroupColumn(
                             SText((if (moving) "↕ " else "") + entry.group.title, 26, weight = FontWeight.SemiBold, color = ink)
                             entry.sourceName?.let { SText(it, 20, color = if (focused || moving) c.onAccent else c.muted) }
                         }
-                        if (entry.count > 0) SText(entry.count.toString(), 22, color = if (focused || moving) c.onAccent else c.muted)
+                        if (entry.count > 0) SText(entry.count.toString(), 22, Modifier.padding(start = 16.dp), color = if (focused || moving) c.onAccent else c.muted)
                     }
                 }
             }
