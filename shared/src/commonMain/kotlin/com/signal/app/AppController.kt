@@ -14,6 +14,11 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.stateIn
 import com.signal.data.Settings
 import com.signal.data.SourceRepository
+import com.signal.guide.EpgRepository
+import com.signal.guide.GuideBuilder
+import com.signal.guide.GuideRepository
+import com.signal.guide.GuideStore
+import kotlinx.coroutines.withContext
 import com.signal.db.user.UserDatabase
 import com.signal.input.RemoteDispatcher
 import com.signal.model.Source
@@ -37,6 +42,14 @@ class AppController(val platform: Platform, val log: Log) {
     val sources = SourceRepository(db, http, platform.secretBox, platform.io, log)
     val channels = ChannelRepository(db, settings, platform.io)
     val playback = PlaybackController(platform.player, channels, sources, settings, scope, log)
+
+    // The guide (PLAN §6). It reads and writes only guide.db, so it gets its own IO threads: on the
+    // desktop user.db runs one thread at a time, and a guide build must never queue behind or block it.
+    private val guideIo = Dispatchers.IO
+    val guideStore = GuideStore(platform, guideIo, scope, log)
+    val epg = EpgRepository(db, settings, platform.io)
+    val guide = GuideRepository(guideStore, epg, settings, guideIo, scope)
+    private val guideBuilder = GuideBuilder(http, sources, guideIo, log)
     val dispatcher = RemoteDispatcher()
     val navigator = Navigator(Route.Home)
     val panel = SidePanelState()
@@ -67,11 +80,19 @@ class AppController(val platform: Platform, val log: Log) {
     var refreshing by mutableStateOf<String?>(null)
         private set
 
+    /** True while the guide builds on this device. */
+    var guideBuilding by mutableStateOf(false)
+        private set
+
     init {
         scope.launch {
+            withContext(guideIo) { guideStore.open() }
             if (sources.count() == 0L) navigator.resetTo(Route.Setup)
             ready = true
             refreshStaleSources()
+            // Sources from before milestone 2 get their guides here too.
+            sources.all().forEach { epg.ensureForSource(it) }
+            if (guideIsStale()) rebuildGuide()
         }
         scope.launch { platform.updater?.check() }
     }
@@ -81,6 +102,40 @@ class AppController(val platform: Platform, val log: Log) {
         val day = 24 * 60 * 60_000L
         val now = Clock.System.now().toEpochMilliseconds()
         sources.all().filter { it.enabled && now - it.lastRefreshedAt > day }.forEach { refresh(it.id) }
+    }
+
+    /** No guide yet, or one more than 24 hours old (PLAN §6: "the app refreshes from the sources itself"). */
+    private fun guideIsStale(): Boolean {
+        val built = guideStore.builtAt() ?: return true
+        return Clock.System.now().toEpochMilliseconds() - built > 24 * 60 * 60_000L
+    }
+
+    /**
+     * Builds the guide on this device from every enabled EPG source, and swaps it in (PLAN §6). The
+     * NAS build arrives in milestone 3. Returns false when nothing could be built and the old guide stays.
+     */
+    suspend fun rebuildGuide(): Boolean {
+        if (guideBuilding) return false
+        val epgSources = epg.all().filter { it.enabled }
+        if (epgSources.isEmpty()) return false
+        guideBuilding = true
+        return try {
+            val now = Clock.System.now().toEpochMilliseconds()
+            var outcomes: Map<String, GuideBuilder.Outcome> = emptyMap()
+            val swapped = guideStore.build(now) { fresh, previous ->
+                outcomes = guideBuilder.build(epgSources, fresh, previous, now)
+                outcomes.values.any { it.programs > 0 }
+            }
+            withContext(platform.io) {
+                outcomes.forEach { (id, o) -> if (o.error == null) epg.markBuilt(id, now) else epg.markFailed(id, o.error) }
+            }
+            swapped
+        } catch (e: Throwable) {
+            log.error("Guide build failed", e)
+            false
+        } finally {
+            guideBuilding = false
+        }
     }
 
     suspend fun refresh(sourceId: String): Result<Int> {
@@ -95,6 +150,9 @@ class AppController(val platform: Platform, val log: Log) {
         if (result.isFailure && sources.byId(source.id)?.lastRefreshedAt == 0L) {
             // Never loaded at all: don't leave a dead source behind on first run.
             sources.delete(source.id)
+        } else if (result.isSuccess && sources.byId(source.id)?.let { epg.ensureForSource(it) } == true) {
+            // An Xtream or Demo source brings its own guide: build it now, in the background.
+            scope.launch { rebuildGuide() }
         }
         return result
     }
@@ -104,6 +162,7 @@ class AppController(val platform: Platform, val log: Log) {
 
     suspend fun removeSource(id: String) {
         sources.delete(id)
+        epg.removeForSource(id)
         // With every source removed, the app returns to setup (PLAN §4.3.1 → First run).
         if (sources.count() == 0L) {
             playback.stop()

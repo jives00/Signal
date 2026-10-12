@@ -34,6 +34,9 @@ class Settings(private val db: UserDatabase, private val io: CoroutineDispatcher
         SHOW_LOGOS(Scope.PROFILE, "show_logos"),
         SHOW_NAMES(Scope.PROFILE, "show_names"),
         REMOVE_EMOJI(Scope.PROFILE, "remove_emoji"),
+        DEFAULT_EPG_SOURCE(Scope.HOUSEHOLD, "default_epg_source"),
+        REMINDER_LEAD_MINUTES(Scope.PROFILE, "reminder_lead_minutes"),
+        REMINDER_AUTO_SWITCH(Scope.PROFILE, "reminder_auto_switch"),
     }
 
     private fun owner(key: Key): String = when (key.scope) {

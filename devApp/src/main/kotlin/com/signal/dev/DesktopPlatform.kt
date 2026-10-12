@@ -2,6 +2,7 @@ package com.signal.dev
 
 import app.cash.sqldelight.db.SqlDriver
 import app.cash.sqldelight.driver.jdbc.sqlite.JdbcSqliteDriver
+import com.signal.db.guide.GuideDatabase
 import com.signal.db.user.UserDatabase
 import com.signal.platform.AppInfo
 import com.signal.platform.Platform
@@ -44,6 +45,11 @@ class DesktopPlatform(override val player: VideoPlayer) : Platform {
 
     override fun createUserDatabaseDriver(): SqlDriver =
         JdbcSqliteDriver("jdbc:sqlite:${File(dir, "user.db").absolutePath}", Properties(), UserDatabase.Schema)
+
+    override val guideDirectory: String = File(dir, "guide").apply { mkdirs() }.absolutePath
+
+    override fun createGuideDatabaseDriver(path: String): SqlDriver =
+        JdbcSqliteDriver("jdbc:sqlite:$path", Properties(), GuideDatabase.Schema)
 
     override fun createHttpClient() = HttpClient(CIO) {
         install(HttpTimeout) {

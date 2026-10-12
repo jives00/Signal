@@ -19,6 +19,12 @@ interface Platform {
     val io: CoroutineDispatcher
 
     fun createUserDatabaseDriver(): SqlDriver
+
+    /** A directory for guide.db files: each build is a new file there, swapped in when complete (PLAN §6). */
+    val guideDirectory: String
+
+    /** Opens (creating if needed) the guide database at [path]. */
+    fun createGuideDatabaseDriver(path: String): SqlDriver
     fun createHttpClient(): HttpClient
 
     /** The device's own 12/24-hour preference, the default until the user picks one (PLAN §4.3.15). */

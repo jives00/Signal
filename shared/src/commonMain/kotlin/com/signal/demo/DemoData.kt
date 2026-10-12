@@ -54,7 +54,8 @@ object DemoData {
         { n: String -> n },
     )
 
-    data class DemoChannel(val name: String, val group: String, val number: Int, val tvgId: String, val url: String)
+    /** [name] is decorated like a provider's; [baseName] is the clean name, which the Demo guide uses. */
+    data class DemoChannel(val name: String, val group: String, val number: Int, val tvgId: String, val url: String, val baseName: String)
 
     fun channels(): List<DemoChannel> {
         val rnd = Random(SEED)
@@ -69,7 +70,7 @@ object DemoData {
                     val name = if (round == 0) base else "$base ${round + 1}"
                     val decorated = decorations[rnd.nextInt(decorations.size)](name)
                     val tvgId = name.lowercase().replace(Regex("[^a-z0-9]+"), ".") + ".demo"
-                    out += DemoChannel(decorated, if (round == 0) group else "$group ${'A' + (round - 1) % 26}", out.size + 1, tvgId, testStreams[out.size % testStreams.size])
+                    out += DemoChannel(decorated, if (round == 0) group else "$group ${'A' + (round - 1) % 26}", out.size + 1, tvgId, testStreams[out.size % testStreams.size], name)
                     n++
                 }
             }
@@ -93,30 +94,59 @@ object DemoData {
         )
     }
 
-    data class DemoProgram(val title: String, val startMs: Long, val endMs: Long, val description: String, val episode: String?)
-
-    private val titles = listOf(
-        "Morning Report", "Live: Championship Final", "The Late Show", "Nature's Edge", "Kitchen Masters",
-        "Breaking Point", "Highlights Tonight", "Science Uncovered", "Classic Movie", "Weekend Preview",
-        "Market Watch", "Road Trip", "Inside the Game", "Mystery Hour", "Cartoon Marathon",
+    data class DemoProgram(
+        val title: String,
+        val startMs: Long,
+        val endMs: Long,
+        val description: String,
+        val category: String,
+        val season: Int? = null,
+        val episode: Int? = null,
+        val episodeTitle: String? = null,
+        val isNew: Boolean = false,
+        val isLive: Boolean = false,
     )
 
+    private class Show(val title: String, val category: String, val series: Boolean = false, val live: Boolean = false)
+
+    private val shows = listOf(
+        Show("Morning Report", "News", live = true), Show("Championship Final", "Sports", live = true), Show("The Late Show", "Talk"),
+        Show("Nature's Edge", "Documentary", series = true), Show("Kitchen Masters", "Cooking", series = true),
+        Show("Breaking Point", "Drama", series = true), Show("Highlights Tonight", "Sports"), Show("Science Uncovered", "Documentary", series = true),
+        Show("The Long Road Home", "Movie"), Show("Weekend Preview", "Sports"), Show("Market Watch", "News", live = true),
+        Show("Road Trip", "Reality", series = true), Show("Inside the Game", "Sports"), Show("Mystery Hour", "Drama", series = true),
+        Show("Cartoon Marathon", "Kids"),
+    )
+
+    private val episodeTitles = listOf("The Beginning", "Crossroads", "Out of Time", "Homecoming", "The Storm", "Second Chances", "Finale")
+
     /**
-     * A deterministic schedule for one channel: programs of 15 minutes to 3 hours, aligned to
-     * quarter hours, covering [fromMs] to [fromMs] + [days]. The same input always gives the same
-     * schedule, so the guide spike and the milestone 2 guide share one dataset (PLAN §7.4).
+     * A deterministic schedule for one channel: programs of 15 minutes to 3 hours, aligned to quarter
+     * hours, from [fromMs] to [days] later. It's anchored to the UTC day before [fromMs], so a channel
+     * shows the same programs whenever it's built that day. The guide spike and the Demo guide share it (PLAN §7.4).
      */
     fun programs(channelIndex: Int, fromMs: Long, days: Int = 7): List<DemoProgram> {
         val quarter = 15 * 60_000L
+        val day = 24 * 60 * 60_000L
         val rnd = Random(SEED + channelIndex)
-        val endMs = fromMs + days * 24 * 60 * 60_000L
-        var t = fromMs - fromMs % quarter - rnd.nextInt(8) * quarter
+        val endMs = fromMs + days * day
+        var t = fromMs - fromMs % day - day + rnd.nextInt(8) * quarter
         val out = ArrayList<DemoProgram>()
         while (t < endMs) {
             val length = quarter * listOf(1, 2, 2, 4, 4, 4, 6, 8, 12)[rnd.nextInt(9)]
-            val title = titles[rnd.nextInt(titles.size)]
-            val episode = if (rnd.nextInt(3) == 0) "S${rnd.nextInt(1, 9)} E${rnd.nextInt(1, 24)}" else null
-            out += DemoProgram(title, t, t + length, "A synthetic program from the Demo source, for development only.", episode)
+            val show = shows[rnd.nextInt(shows.size)]
+            val episode = if (show.series) rnd.nextInt(1, 24) else null
+            val p = DemoProgram(
+                title = show.title, startMs = t, endMs = t + length,
+                description = "A synthetic program from the Demo source, for development only. It stands in for a real guide's synopsis, which often runs to two or three lines.",
+                category = show.category,
+                season = if (show.series) rnd.nextInt(1, 9) else null,
+                episode = episode,
+                episodeTitle = episode?.let { episodeTitles[it % episodeTitles.size] },
+                isNew = show.series && rnd.nextInt(4) == 0,
+                isLive = show.live,
+            )
+            if (p.endMs > fromMs) out += p
             t += length
         }
         return out

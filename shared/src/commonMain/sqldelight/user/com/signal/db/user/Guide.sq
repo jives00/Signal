@@ -1,0 +1,64 @@
+-- EPG sources and guide mappings (PLAN §6, §5.4): household scope. The guide itself is in guide.db.
+
+-- kind: 'xmltv' (a URL), 'xtream' (the source's own xmltv.php; credentials come from the source,
+-- never stored here) or 'demo'. position orders the fallback list.
+CREATE TABLE epg_source (
+    id TEXT NOT NULL PRIMARY KEY,
+    name TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    url TEXT NOT NULL DEFAULT '',
+    source_id TEXT,
+    enabled INTEGER NOT NULL DEFAULT 1,
+    time_shift_minutes INTEGER NOT NULL DEFAULT 0,
+    position TEXT NOT NULL,
+    last_built_at INTEGER NOT NULL DEFAULT 0,
+    last_error TEXT,
+    created_at INTEGER NOT NULL
+);
+
+-- A user channel's guide: an EPG source override, and optionally a manual guide channel in it.
+CREATE TABLE guide_mapping (
+    user_channel_id TEXT NOT NULL PRIMARY KEY,
+    epg_source_id TEXT NOT NULL,
+    guide_channel_id TEXT
+);
+
+allEpgSources:
+SELECT * FROM epg_source ORDER BY position;
+
+epgSourceById:
+SELECT * FROM epg_source WHERE id = ?;
+
+epgSourceForSource:
+SELECT * FROM epg_source WHERE source_id = ?;
+
+upsertEpgSource:
+INSERT OR REPLACE INTO epg_source(id, name, kind, url, source_id, enabled, time_shift_minutes, position, last_built_at, last_error, created_at)
+VALUES ?;
+
+markEpgBuilt:
+UPDATE epg_source SET last_built_at = ?, last_error = NULL WHERE id = ?;
+
+markEpgFailed:
+UPDATE epg_source SET last_error = ? WHERE id = ?;
+
+setEpgPosition:
+UPDATE epg_source SET position = ? WHERE id = ?;
+
+deleteEpgSource:
+DELETE FROM epg_source WHERE id = ?;
+
+deleteEpgSourceForSource:
+DELETE FROM epg_source WHERE source_id = ?;
+
+allMappings:
+SELECT * FROM guide_mapping;
+
+setMapping:
+INSERT OR REPLACE INTO guide_mapping(user_channel_id, epg_source_id, guide_channel_id) VALUES (?, ?, ?);
+
+removeMapping:
+DELETE FROM guide_mapping WHERE user_channel_id = ?;
+
+removeMappingsForEpgSource:
+DELETE FROM guide_mapping WHERE epg_source_id = ?;

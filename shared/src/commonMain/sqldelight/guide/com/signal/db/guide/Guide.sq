@@ -1,0 +1,94 @@
+-- guide.db (PLAN §5.1, §6): programs keyed by EPG source and the guide's own channel IDs, never
+-- by provider streams. Built whole beside the live file and swapped in; never migrated. Times are
+-- UTC epoch milliseconds as the guide gives them; time shift is applied when read.
+
+CREATE TABLE program (
+    -- The rowid: program search's docid, and how program details refers to one.
+    id INTEGER NOT NULL PRIMARY KEY,
+    epg_source_id TEXT NOT NULL,
+    guide_channel_id TEXT NOT NULL,
+    start INTEGER NOT NULL,
+    stop INTEGER NOT NULL,
+    title TEXT NOT NULL,
+    sub_title TEXT,
+    description TEXT,
+    categories TEXT,
+    season INTEGER,
+    episode INTEGER,
+    episode_label TEXT,
+    icon TEXT,
+    rating TEXT,
+    year INTEGER,
+    -- 1 = new, 2 = live, 4 = previously shown.
+    flags INTEGER NOT NULL DEFAULT 0,
+    credits TEXT
+);
+
+CREATE INDEX program_channel ON program(epg_source_id, guide_channel_id, start);
+
+CREATE TABLE guide_channel (
+    epg_source_id TEXT NOT NULL,
+    id TEXT NOT NULL,
+    display_name TEXT NOT NULL,
+    -- GuideNames.normalize, for mapping by name (PLAN §6 → Channel ↔ guide mapping, step 3).
+    normalized_name TEXT NOT NULL,
+    icon TEXT,
+    PRIMARY KEY (epg_source_id, id)
+);
+
+-- Program search (PLAN §4.3.14): the docid is the program's id.
+CREATE VIRTUAL TABLE program_fts USING fts4(title, sub_title);
+
+CREATE TABLE meta (
+    key TEXT NOT NULL PRIMARY KEY,
+    value TEXT NOT NULL
+);
+
+insertProgram:
+INSERT INTO program(epg_source_id, guide_channel_id, start, stop, title, sub_title, description, categories, season, episode, episode_label, icon, rating, year, flags, credits)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+
+insertChannel:
+INSERT OR REPLACE INTO guide_channel(epg_source_id, id, display_name, normalized_name, icon) VALUES (?, ?, ?, ?, ?);
+
+indexAllForSearch:
+INSERT INTO program_fts(docid, title, sub_title) SELECT id, title, coalesce(sub_title, '') FROM program;
+
+putMeta:
+INSERT OR REPLACE INTO meta(key, value) VALUES (?, ?);
+
+meta:
+SELECT value FROM meta WHERE key = ?;
+
+-- Programs on one guide channel overlapping [from, to), in guide time (unshifted).
+programsBetween:
+SELECT * FROM program
+WHERE epg_source_id = ? AND guide_channel_id = ? AND stop > ? AND start < ?
+ORDER BY start;
+
+programById:
+SELECT * FROM program WHERE id = ?;
+
+channelsForSource:
+SELECT id, normalized_name FROM guide_channel WHERE epg_source_id = ?;
+
+-- Guide channels with at least one program, per source: a channel with no programs counts as no data.
+channelsWithPrograms:
+SELECT DISTINCT guide_channel_id FROM program WHERE epg_source_id = ?;
+
+countsBySource:
+SELECT epg_source_id, count(DISTINCT guide_channel_id) AS channels, count(*) AS programs FROM program GROUP BY epg_source_id;
+
+searchPrograms:
+SELECT p.* FROM program_fts f
+JOIN program p ON p.id = f.docid
+WHERE program_fts MATCH ? AND p.stop > ?
+ORDER BY p.start
+LIMIT ?;
+
+-- A build carries over the previous guide's data for an EPG source that failed to download.
+programsForSource:
+SELECT * FROM program WHERE epg_source_id = ? AND stop > ?;
+
+guideChannelsForSource:
+SELECT * FROM guide_channel WHERE epg_source_id = ?;

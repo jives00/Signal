@@ -9,6 +9,7 @@ import android.text.format.DateFormat
 import android.util.Base64
 import app.cash.sqldelight.db.SqlDriver
 import app.cash.sqldelight.driver.android.AndroidSqliteDriver
+import com.signal.db.guide.GuideDatabase
 import com.signal.db.user.UserDatabase
 import com.signal.platform.AppInfo
 import com.signal.platform.Platform
@@ -46,6 +47,12 @@ class AndroidPlatform(private val context: Context) : Platform {
     }
 
     override fun createUserDatabaseDriver(): SqlDriver = AndroidSqliteDriver(UserDatabase.Schema, context, "user.db")
+
+    // Not backed up: the guide is rebuilt from its sources whenever it's missing.
+    override val guideDirectory: String = java.io.File(context.noBackupFilesDir, "guide").apply { mkdirs() }.absolutePath
+
+    // An absolute path, which SQLiteOpenHelper accepts in place of a name.
+    override fun createGuideDatabaseDriver(path: String): SqlDriver = AndroidSqliteDriver(GuideDatabase.Schema, context, path)
 
     override fun createHttpClient() = HttpClient(OkHttp) {
         install(HttpTimeout) {

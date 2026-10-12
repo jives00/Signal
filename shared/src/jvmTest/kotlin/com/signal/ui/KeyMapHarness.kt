@@ -82,6 +82,8 @@ class TestPlatform : Platform {
     // A file, not IN_MEMORY: the in-memory driver shares one connection, so transactions on two threads collide.
     private val dbFile = java.io.File.createTempFile("signal-test", ".db").apply { delete(); deleteOnExit() }
     override fun createUserDatabaseDriver() = JdbcSqliteDriver("jdbc:sqlite:${dbFile.absolutePath}", java.util.Properties(), UserDatabase.Schema)
+    override val guideDirectory: String = java.nio.file.Files.createTempDirectory("signal-guide").toFile().apply { deleteOnExit() }.absolutePath
+    override fun createGuideDatabaseDriver(path: String) = JdbcSqliteDriver("jdbc:sqlite:$path", java.util.Properties(), com.signal.db.guide.GuideDatabase.Schema)
     override fun createHttpClient() = HttpClient(MockEngine { respondError(HttpStatusCode.NotFound) })
     override fun systemUses24HourClock() = true
     override fun exitApp() { exits++ }

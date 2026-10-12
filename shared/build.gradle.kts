@@ -101,5 +101,10 @@ sqldelight {
             packageName.set("com.signal.db.user")
             srcDirs("src/commonMain/sqldelight/user")
         }
+        // guide.db: the guide, built whole and swapped in; never migrated, only rebuilt (PLAN §5.1, §6).
+        create("GuideDatabase") {
+            packageName.set("com.signal.db.guide")
+            srcDirs("src/commonMain/sqldelight/guide")
+        }
     }
 }
