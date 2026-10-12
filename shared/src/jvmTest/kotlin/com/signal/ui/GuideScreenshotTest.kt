@@ -35,3 +35,17 @@ class GuideElsewhereScreenshotTest {
         screenshot("info-bar")
     }
 }
+
+class ReminderScreenshotTest {
+    @Test fun promptAndRow() = keyMapTest {
+        guideReady()
+        val ch = kotlinx.coroutines.runBlocking { app.channels.channelsNow(app.channels.groupsNow().first { it.group is com.signal.model.ChannelGroup.Provider }.group) }
+        val now = kotlin.time.Clock.System.now().toEpochMilliseconds()
+        val later = kotlinx.coroutines.runBlocking { app.guide.programs(ch[1], now + 3_600_000, now + 86_400_000) }.first { it.start > now + 3_600_000 }
+        app.reminders.add(ch[1], later)
+        app.reminders.add(ch[0], com.signal.model.Program(0, "", "", now + 30_000, now + 1_800_000, "Championship Final"))
+        heroFocused()
+        eventually("prompt and row") { shows("Starting now") && shows("Reminders") }
+        screenshot("reminders")
+    }
+}

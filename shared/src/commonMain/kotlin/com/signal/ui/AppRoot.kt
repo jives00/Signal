@@ -20,6 +20,7 @@ import com.signal.ui.components.LocalVideoLayer
 import com.signal.ui.components.VideoLayer
 import com.signal.ui.components.VideoLayerHost
 import com.signal.ui.panel.SidePanelHost
+import com.signal.ui.components.ReminderPrompt
 import com.signal.ui.screens.FullScreenPlayback
 import com.signal.ui.screens.HomePage
 import com.signal.ui.screens.LiveTvPage
@@ -62,6 +63,7 @@ fun SignalApp(app: AppController) {
                             is Route.FullScreen -> FullScreenPlayback(route)
                         }
                         SidePanelHost(app.panel)
+                        ReminderPrompt()
                     }
                 }
             }

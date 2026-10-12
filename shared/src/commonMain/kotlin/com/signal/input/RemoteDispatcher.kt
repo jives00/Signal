@@ -2,6 +2,7 @@ package com.signal.input
 
 /**
  * Routes an action to whoever should handle it (PLAN §12.3):
+ * 0. A prompt (priority [Priority.PROMPT]) sees every action first, OK included.
  * 1. The focused item gets [RemoteAction.Select] and [RemoteAction.Options] first.
  * 2. Then the handler stack, topmost first: an open side panel, an overlay, then the screen.
  * 3. Then the default: directions move focus, Back goes up a level.
@@ -69,13 +70,20 @@ class RemoteDispatcher {
     }
 
     fun dispatch(action: RemoteAction): Boolean {
+        // A prompt (the reminder's) gets every key first, OK included, without taking focus (PLAN §12.2).
+        val ordered = handlers.toList().asReversed()
+        for (entry in ordered) {
+            if (entry.priority < Priority.PROMPT) break
+            if (entry.handler.handle(action)) return true
+        }
         val item = focusedItem
         when (action) {
             RemoteAction.Select -> item?.onSelect?.let { it(); return true }
             RemoteAction.Options -> item?.onOptions?.let { it(); return true }
             else -> {}
         }
-        for (entry in handlers.toList().asReversed()) {
+        for (entry in ordered) {
+            if (entry.priority >= Priority.PROMPT) continue
             if (entry.handler.handle(action)) return true
         }
         return onDefault(action)

@@ -13,6 +13,9 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -29,6 +32,7 @@ import com.signal.ui.components.SText
 import com.signal.ui.components.requestFocusWhenReady
 import com.signal.ui.panel.PanelPage
 import com.signal.ui.theme.SignalTheme
+import kotlinx.coroutines.launch
 
 /**
  * Program details (PLAN §4.3.4): a side panel with everything the guide has about one program, in
@@ -42,6 +46,10 @@ private fun ProgramDetailsContent(app: AppController, ch: Channel, p: Program, n
     val c = SignalTheme.colors
     val first = remember { FocusRequester() }
     val onNow = p.isOn(now)
+    val reminders by app.reminderList.collectAsState()
+    // Looked up fresh: setting the first reminder creates the user channel this [ch] predates.
+    val userChannelId by produceState(ch.userChannelId, reminders) { value = app.channels.userChannelIdFor(ch) }
+    val reminder = app.reminders.find(reminders, userChannelId, p)
     val actions = buildList<Pair<String, () -> Unit>> {
         if (onNow) add("Watch" to {
             app.panel.close()
@@ -49,7 +57,11 @@ private fun ProgramDetailsContent(app: AppController, ch: Channel, p: Program, n
             app.playback.tune(ch, fullScreen = true, group = group)
             app.navigator.go(Route.FullScreen(group))
         })
-        addAll(reminderActions(app, ch, p, now))
+        // Remind me / Remove reminder, only for a future program (PLAN §4.3.4).
+        if (p.start > now) {
+            if (reminder != null) add("Remove reminder" to { app.scope.launch { app.reminders.remove(reminder.id) } })
+            else add("Remind me" to { app.scope.launch { app.reminders.add(ch, p) } })
+        }
     }
     LazyColumn(Modifier.fillMaxSize().padding(horizontal = 40.dp)) {
         item {
@@ -78,6 +90,8 @@ private fun ProgramDetailsContent(app: AppController, ch: Channel, p: Program, n
                     Spacer(Modifier.width(16.dp))
                 }
             }
+            // A platform limit, said plainly (PLAN §4.3.4): Android TV can't show reminders while the app is closed.
+            if (reminder != null) SText("You'll be reminded while the app is open.", 22, Modifier.padding(top = 16.dp), color = c.muted)
         }
         item {
             // The full description, never truncated (PLAN §4.3.4).
@@ -88,7 +102,3 @@ private fun ProgramDetailsContent(app: AppController, ch: Channel, p: Program, n
     }
     LaunchedEffect(Unit) { if (actions.isNotEmpty()) first.requestFocusWhenReady() }
 }
-
-/** Remind me / Remove reminder for a future program (PLAN §4.3.4 → Reminders). Reminders arrive with the next change. */
-@Suppress("UNUSED_PARAMETER")
-internal fun reminderActions(app: AppController, ch: Channel, p: Program, now: Long): List<Pair<String, () -> Unit>> = emptyList()

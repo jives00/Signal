@@ -51,6 +51,8 @@ import com.signal.model.ChannelGroup
 import com.signal.model.Program
 import com.signal.ui.LocalApp
 import com.signal.ui.components.HDivider
+import com.signal.ui.components.Icon
+import com.signal.ui.components.SignalIcons
 import com.signal.ui.components.LogoTile
 import com.signal.ui.components.PageChrome
 import com.signal.ui.components.SText
@@ -107,6 +109,8 @@ fun LiveTvPage() {
     var gridHasFocus by remember { mutableStateOf(false) }
     val list = rememberLazyListState()
     val rows = remember(guideState) { GuideRows(app, scope) }
+    val reminderList by app.reminderList.collectAsState()
+    val reminderKeys = remember(reminderList) { reminderList.mapTo(HashSet()) { "${it.userChannelId}|${it.title}|${it.start}" } }
 
     // The clock the grid runs on: ended programs drop off and the now line moves.
     var now by remember { mutableLongStateOf(Clock.System.now().toEpochMilliseconds()) }
@@ -348,6 +352,7 @@ fun LiveTvPage() {
                                 focusTime = focusTime,
                                 playing = current?.stream?.id == ch.stream.id,
                                 moving = move.movingKey == ch.key,
+                                hasReminder = { p -> ch.userChannelId != null && "${ch.userChannelId}|${p.title}|${p.start}" in reminderKeys },
                             )
                             HDivider()
                         }
@@ -461,6 +466,7 @@ private fun GuideRow(
     focusTime: Long,
     playing: Boolean,
     moving: Boolean,
+    hasReminder: (Program) -> Boolean,
 ) {
     val c = SignalTheme.colors
     val windowEnd = windowStart + GuideGeometry.windowMs
@@ -494,14 +500,14 @@ private fun GuideRow(
                     if (programs != null) SText("No information", 24, weight = FontWeight.SemiBold, color = if (focused) c.onAccent else c.muted)
                 }
             } else {
-                for (p in visible) ProgramCell(p, windowStart, windowEnd, now, focused = rowFocused && !channelFocused && focusTime in p.start until p.stop)
+                for (p in visible) ProgramCell(p, windowStart, windowEnd, now, focused = rowFocused && !channelFocused && focusTime in p.start until p.stop, reminder = hasReminder(p))
             }
         }
     }
 }
 
 @Composable
-private fun ProgramCell(p: Program, windowStart: Long, windowEnd: Long, now: Long, focused: Boolean) {
+private fun ProgramCell(p: Program, windowStart: Long, windowEnd: Long, now: Long, focused: Boolean, reminder: Boolean) {
     val c = SignalTheme.colors
     val app = LocalApp.current
     val from = maxOf(p.start, windowStart, now)
@@ -516,7 +522,11 @@ private fun ProgramCell(p: Program, windowStart: Long, windowEnd: Long, now: Lon
                 .background(if (focused) c.accent else if (p.isOn(now)) c.surface else Color.Transparent)
                 .padding(horizontal = 16.dp, vertical = 14.dp),
         ) {
-            SText(p.title, 24, weight = FontWeight.SemiBold, color = if (focused) c.onAccent else c.text)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                // A bell marks a program with a reminder (PLAN §4.3.4).
+                if (reminder) Icon(SignalIcons.bell, 20, if (focused) c.onAccent else c.accentText, Modifier.padding(end = 8.dp))
+                SText(p.title, 24, weight = FontWeight.SemiBold, color = if (focused) c.onAccent else c.text)
+            }
             // The time range only on cells of 30 minutes or more (handoff screen 2).
             if (to - from >= HALF_HOUR) {
                 SText(programTime(app, p, now), 20, color = if (focused) c.onAccent else c.muted)

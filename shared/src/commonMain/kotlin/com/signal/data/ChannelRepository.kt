@@ -164,6 +164,10 @@ class ChannelRepository(
 
     // ---- User channels --------------------------------------------------------------------
 
+    /** The channel's user channel ID if it has one, looked up fresh (a [Channel] can predate it). */
+    suspend fun userChannelIdFor(channel: Channel): String? = channel.userChannelId
+        ?: withContext(io) { db.userChannelQueries.userChannelForStream(channel.stream.id).executeAsOneOrNull() }
+
     /** Returns the channel's user channel ID, creating it (and its profile row) if needed. */
     suspend fun ensureUserChannel(channel: Channel): String = withContext(io) {
         channel.userChannelId?.let { return@withContext it.also { ensureProfileRow(it) } }

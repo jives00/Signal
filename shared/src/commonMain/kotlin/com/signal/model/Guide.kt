@@ -57,3 +57,13 @@ data class Program(
 
 /** Where a channel's guide comes from, once mapping and fallback are applied (PLAN §6). */
 data class GuideRef(val epgSourceId: String, val guideChannelId: String, val timeShiftMs: Long, val isFallback: Boolean)
+
+/** A reminder (PLAN §4.3.4 → Reminders): a user channel plus the program's title and start. */
+data class Reminder(
+    val id: String,
+    val userChannelId: String,
+    val title: String,
+    val start: Long,
+    val stop: Long,
+    val fired: Boolean,
+)

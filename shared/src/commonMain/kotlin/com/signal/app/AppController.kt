@@ -18,6 +18,11 @@ import com.signal.guide.EpgRepository
 import com.signal.guide.GuideBuilder
 import com.signal.guide.GuideRepository
 import com.signal.guide.GuideStore
+import com.signal.guide.ReminderRepository
+import com.signal.model.Channel
+import com.signal.model.Reminder
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import com.signal.db.user.UserDatabase
 import com.signal.input.RemoteDispatcher
@@ -50,6 +55,8 @@ class AppController(val platform: Platform, val log: Log) {
     val epg = EpgRepository(db, settings, platform.io)
     val guide = GuideRepository(guideStore, epg, settings, guideIo, scope)
     private val guideBuilder = GuideBuilder(http, sources, guideIo, log)
+    val reminders = ReminderRepository(db, settings, channels, platform.io)
+    val reminderList: StateFlow<List<Reminder>> = reminders.reminders().stateIn(scope, SharingStarted.Eagerly, emptyList())
     val dispatcher = RemoteDispatcher()
     val navigator = Navigator(Route.Home)
     val panel = SidePanelState()
@@ -80,6 +87,12 @@ class AppController(val platform: Platform, val log: Log) {
     var refreshing by mutableStateOf<String?>(null)
         private set
 
+    /** The reminder prompt showing now, if any (PLAN §4.3.4 → Reminders). */
+    var activeReminder by mutableStateOf<ActiveReminder?>(null)
+        private set
+
+    data class ActiveReminder(val reminder: Reminder, val channel: Channel)
+
     /** True while the guide builds on this device. */
     var guideBuilding by mutableStateOf(false)
         private set
@@ -94,6 +107,9 @@ class AppController(val platform: Platform, val log: Log) {
             sources.all().forEach { epg.ensureForSource(it) }
             if (guideIsStale()) rebuildGuide()
         }
+        scope.launch { runReminders() }
+        // A new guide can move a program: its reminder follows (PLAN §4.3.4 → Guide changes).
+        scope.launch { guideStore.version.collect { if (it > 0) followMovedPrograms() } }
         scope.launch { platform.updater?.check() }
     }
 
@@ -170,6 +186,78 @@ class AppController(val platform: Platform, val log: Log) {
         }
     }
 
+    // ---- Reminders (PLAN §4.3.4 → Reminders) ----------------------------------------------
+
+    private fun reminderLeadMs(): Long = (settings.raw(Settings.Key.REMINDER_LEAD_MINUTES)?.toLongOrNull() ?: 1L) * 60_000L
+
+    private suspend fun runReminders() {
+        // Due while the app was closed: they show as "On now" on Home, never as a late prompt.
+        catchUpReminders()
+        // Also on every change, so a reminder set just before its program fires at once.
+        scope.launch { reminderList.collect { checkReminders() } }
+        while (true) {
+            checkReminders()
+            delay(15_000)
+        }
+    }
+
+    private val reminderCheck = kotlinx.coroutines.sync.Mutex()
+
+    private suspend fun checkReminders() = reminderCheck.withLock {
+        val now = Clock.System.now().toEpochMilliseconds()
+        reminders.removeEnded(now)
+        val due = reminders.all().firstOrNull { !it.fired && it.start - reminderLeadMs() <= now && now < it.stop }
+        if (due != null) fireReminder(due)
+    }
+
+    private suspend fun catchUpReminders() {
+        val now = Clock.System.now().toEpochMilliseconds()
+        reminders.all().filter { !it.fired && it.start - reminderLeadMs() <= now }.forEach { reminders.markFired(it.id) }
+    }
+
+    private suspend fun fireReminder(r: Reminder) {
+        reminders.markFired(r.id)
+        val channel = channels.channelByKey(r.userChannelId) ?: return
+        if (settings.bool(Settings.Key.REMINDER_AUTO_SWITCH, false)) {
+            watchReminder(ActiveReminder(r, channel))
+            return
+        }
+        val shown = ActiveReminder(r, channel)
+        activeReminder = shown
+        // It auto-dismisses after 15 seconds and never switches on its own.
+        scope.launch {
+            delay(15_000)
+            if (activeReminder == shown) activeReminder = null
+        }
+    }
+
+    /** The prompt's Watch: the channel full screen, in its own group. */
+    fun watchReminder(active: ActiveReminder) {
+        activeReminder = null
+        val ch = active.channel
+        val group = if (ch.isFavorite) ChannelGroup.Favorites else ChannelGroup.Provider(ch.stream.sourceId, ch.stream.groupName, ch.stream.groupName)
+        panel.close()
+        playback.tune(ch, fullScreen = true, group = group)
+        navigator.go(Route.FullScreen(group))
+    }
+
+    fun dismissReminder() {
+        activeReminder = null
+    }
+
+    /** Within ±2 hours, the same title on the same channel is the same program, moved. */
+    private suspend fun followMovedPrograms() {
+        val now = Clock.System.now().toEpochMilliseconds()
+        for (r in reminders.all().filter { !it.fired && it.start > now }) {
+            val channel = channels.channelByKey(r.userChannelId) ?: continue
+            val window = 2 * 60 * 60_000L
+            val match = guide.programs(channel, r.start - window, r.start + window)
+                .filter { it.title == r.title }
+                .minByOrNull { kotlin.math.abs(it.start - r.start) } ?: continue
+            if (match.start != r.start || match.stop != r.stop) reminders.move(r.id, match.start, match.stop)
+        }
+    }
+
     // ---- Lifecycle (PLAN §4.2 → Sleep, the Home button and interruptions) ---------------------
 
     fun onBackground() {
@@ -180,6 +268,7 @@ class AppController(val platform: Platform, val log: Log) {
     fun onForeground() {
         val away = settings.raw(Settings.Key.BACKGROUNDED_AT)?.toLongOrNull()?.let { Clock.System.now().toEpochMilliseconds() - it }
         settings.put(Settings.Key.BACKGROUNDED_AT, null)
+        scope.launch { catchUpReminders() }
         if (away != null && away > AWAY_RESETS_TO_HOME_MS && navigator.current != Route.Setup) {
             navigator.resetTo(Route.Home)
         } else if (away != null && navigator.current.showsVideo) {
