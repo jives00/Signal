@@ -19,21 +19,36 @@ class RemoteDispatcher {
         val isTextInput: Boolean = false,
     )
 
-    private val handlers = ArrayList<Pair<Any, Handler>>()
+    /** Layers, lowest first. Within a layer, the most recently registered handler wins. */
+    object Priority {
+        const val SCREEN = 0
+        const val OVERLAY = 10
+        const val PANEL = 20
+        const val PROMPT = 30
+    }
+
+    private class Entry(val owner: Any, val priority: Int, val seq: Long, val handler: Handler)
+
+    private val handlers = ArrayList<Entry>()
+    private var seq = 0L
     var focusedItem: FocusedItem? = null
         private set
     private var focusedOwner: Any? = null
 
     var onDefault: (RemoteAction) -> Boolean = { false }
 
-    fun push(owner: Any, handler: Handler) {
-        handlers.removeAll { it.first === owner }
-        handlers += owner to handler
+    fun push(owner: Any, priority: Int = Priority.SCREEN, handler: Handler) {
+        handlers.removeAll { it.owner === owner }
+        handlers += Entry(owner, priority, seq++, handler)
+        handlers.sortWith(compareBy<Entry>({ it.priority }, { it.seq }))
     }
 
     fun remove(owner: Any) {
-        handlers.removeAll { it.first === owner }
+        handlers.removeAll { it.owner === owner }
     }
+
+    /** True while any handler at [priority] or above is registered, e.g. a side panel is open. */
+    fun hasLayer(priority: Int): Boolean = handlers.any { it.priority >= priority }
 
     fun setFocused(owner: Any, item: FocusedItem) {
         focusedOwner = owner
@@ -54,8 +69,8 @@ class RemoteDispatcher {
             RemoteAction.Options -> item?.onOptions?.let { it(); return true }
             else -> {}
         }
-        for (i in handlers.indices.reversed()) {
-            if (handlers[i].second.handle(action)) return true
+        for (entry in handlers.toList().asReversed()) {
+            if (entry.handler.handle(action)) return true
         }
         return onDefault(action)
     }

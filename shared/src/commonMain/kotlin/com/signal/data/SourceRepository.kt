@@ -21,7 +21,7 @@ import io.ktor.client.statement.HttpResponse
 import io.ktor.client.statement.bodyAsChannel
 import io.ktor.client.statement.bodyAsText
 import io.ktor.http.isSuccess
-import io.ktor.utils.io.readUTF8Line
+import io.ktor.utils.io.readLine
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
@@ -125,7 +125,7 @@ class SourceRepository(
         val parser = M3uParser(source)
         val channel = response.bodyAsChannel()
         while (true) {
-            val line = channel.readUTF8Line() ?: break
+            val line = channel.readLine() ?: break
             parser.line(line)
         }
         return parser.result()

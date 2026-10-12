@@ -14,6 +14,7 @@ kotlin {
         namespace = "com.signal.shared"
         compileSdk = libs.versions.android.compileSdk.get().toInt()
         minSdk = libs.versions.android.minSdk.get().toInt()
+        androidResources.enable = true // Compose resources (the Archivo font) on Android
         withHostTest {}
 
         compilerOptions {
@@ -52,6 +53,9 @@ kotlin {
             implementation(libs.compose.runtime)
             implementation(libs.compose.foundation)
             implementation(libs.compose.ui)
+            implementation(libs.compose.components.resources)
+            implementation(libs.coil.compose)
+            implementation(libs.coil.network.ktor3)
             api(libs.kotlinx.coroutines.core)
             implementation(libs.kotlinx.datetime)
             implementation(libs.kotlinx.serialization.json)
@@ -77,6 +81,11 @@ kotlin {
             implementation(libs.sqldelight.sqlite.driver)
         }
     }
+}
+
+compose.resources {
+    packageOfResClass = "com.signal.resources"
+    publicResClass = false
 }
 
 sqldelight {

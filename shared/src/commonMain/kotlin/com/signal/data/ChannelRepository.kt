@@ -13,6 +13,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.merge
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlin.time.Clock
@@ -47,7 +48,8 @@ class ChannelRepository(
         db.listsQueries.groupOverrides(profile).asFlow().mapToList(io),
         db.listsQueries.playlists(profile).asFlow().mapToList(io),
         db.sourceQueries.all().asFlow().mapToList(io),
-        settings.changes(),
+        // Settings and favorites only trigger a rebuild; one input keeps this within combine's five.
+        merge(settings.changes().map { }, db.listsQueries.favoriteKeys(profile).asFlow().map { }),
     ) { groups, overrides, playlists, sources, _ ->
         val overrideByKey = overrides.associateBy { it.source_id to it.group_name }
         val enabledSources = sources.filter { it.enabled == 1L }
@@ -83,6 +85,8 @@ class ChannelRepository(
             addAll(sorted)
         }
     }
+
+    suspend fun groupsNow(includeHidden: Boolean = false): List<GroupEntry> = groups(includeHidden).first()
 
     private fun favoriteCount(): Int = db.listsQueries.favoriteKeys(profile).executeAsList().size
 

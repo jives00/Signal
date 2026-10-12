@@ -1,14 +1,21 @@
 package com.signal.input
 
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEvent
@@ -32,9 +39,26 @@ fun RemoteInput(dispatcher: RemoteDispatcher, content: @Composable () -> Unit) {
     val interpreter = remember { KeyInterpreter() }
     val scope = rememberCoroutineScope()
     val longPressJob = remember { arrayOfNulls<Job>(1) }
+    val rootFocus = remember { FocusRequester() }
+    var anyFocus by remember { mutableStateOf(false) }
+
+    // Compose only delivers keys along the path to a focused element. Screens with nothing
+    // focusable (full-screen video) would drop every key, so the root takes focus whenever
+    // nothing else holds it.
+    LaunchedEffect(anyFocus) {
+        if (!anyFocus) {
+            delay(50)
+            runCatching { rootFocus.requestFocus() }
+        }
+    }
 
     Box(
-        Modifier.fillMaxSize().onPreviewKeyEvent { event ->
+        Modifier
+            .fillMaxSize()
+            .onFocusChanged { anyFocus = it.hasFocus }
+            .focusRequester(rootFocus)
+            .focusable()
+            .onPreviewKeyEvent { event ->
             val key = RemoteKeyMap.map(event, textInputFocused = dispatcher.focusedItem?.isTextInput == true)
                 ?: return@onPreviewKeyEvent false
             val repeat = event.isRepeat() // Called for downs and ups: the desktop tracker needs both.
@@ -101,12 +125,16 @@ expect fun KeyEvent.isRepeat(): Boolean
 
 /** Registers a screen or overlay handler for as long as it's in composition. Topmost wins. */
 @Composable
-fun RemoteHandler(enabled: Boolean = true, handler: (RemoteAction) -> Boolean) {
+fun RemoteHandler(
+    enabled: Boolean = true,
+    priority: Int = RemoteDispatcher.Priority.SCREEN,
+    handler: (RemoteAction) -> Boolean,
+) {
     val dispatcher = LocalRemoteDispatcher.current
     val current = rememberUpdatedState(handler)
     val owner = remember { Any() }
-    DisposableEffect(dispatcher, enabled) {
-        if (enabled) dispatcher.push(owner) { current.value(it) }
+    DisposableEffect(dispatcher, enabled, priority) {
+        if (enabled) dispatcher.push(owner, priority) { current.value(it) }
         onDispose { dispatcher.remove(owner) }
     }
 }

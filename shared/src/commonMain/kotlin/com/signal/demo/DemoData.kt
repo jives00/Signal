@@ -16,9 +16,8 @@ object DemoData {
     const val SEED = 20261011
     const val CHANNEL_COUNT = 2000
 
-    /** Public test streams, cycled across the channels. Two are live, the rest loop VOD as "live". */
+    /** Public test streams, cycled across the channels. One is live, the rest are VOD standing in for live. */
     val testStreams = listOf(
-        "https://cph-p2p-msl.akamaized.net/hls/live/2000341/test/master.m3u8",
         "https://demo.unified-streaming.com/k8s/live/stable/live.isml/.m3u8",
         "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8",
         "https://devstreaming-cdn.apple.com/videos/streaming/examples/img_bipbop_adv_example_fmp4/master.m3u8",
