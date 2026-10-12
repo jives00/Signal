@@ -51,6 +51,7 @@ import com.signal.ui.components.SText
 import com.signal.ui.components.TopLevelPage
 import com.signal.ui.components.VDivider
 import com.signal.ui.components.VideoBox
+import com.signal.ui.components.requestFocusWhenReady
 import com.signal.ui.theme.SignalSizes
 import com.signal.ui.theme.SignalTheme
 import kotlinx.coroutines.delay
@@ -148,7 +149,7 @@ fun LiveTvPage() {
                     }
                 }
                 VDivider()
-                ChannelColumn(app, group, channels, current, channelList, channelCol, move)
+                ChannelColumn(app, group, channels, current, channelList, channelCol, move, chrome.contentFocus)
             }
         }
     }
@@ -268,7 +269,7 @@ private fun GroupColumn(
         LazyColumn(Modifier.fillMaxSize().onFocusChanged { focus.hasFocus = it.hasFocus }.focusRequester(focus.column).focusRestorer()) {
             itemsIndexed(shown, key = { _, g -> g.group.key }) { i, entry ->
                 val requester = remember { FocusRequester() }
-                LaunchedEffect(focus.tick) { if (focus.targetKey == entry.group.key) runCatching { requester.requestFocus() } }
+                LaunchedEffect(focus.tick) { if (focus.targetKey == entry.group.key) requester.requestFocusWhenReady() }
                 val moving = move.movingKey == entry.group.key
                 Focusable(
                     Modifier.fillMaxWidth(),
@@ -345,6 +346,8 @@ private fun ChannelColumn(
     state: LazyListState,
     focus: ListFocus,
     move: MoveState,
+    // Down from the nav bar lands here, on the last focused row.
+    navTarget: FocusRequester,
 ) {
     val c = SignalTheme.colors
     val shown = move.arrange(MoveState.Kind.CHANNEL, channels.orEmpty()) { it.key }
@@ -364,10 +367,10 @@ private fun ChannelColumn(
                 24, Modifier.padding(40.dp), color = c.muted, maxLines = 2,
             )
         }
-        LazyColumn(Modifier.fillMaxSize().onFocusChanged { focus.hasFocus = it.hasFocus }.focusRequester(focus.column).focusRestorer(), state = state) {
+        LazyColumn(Modifier.fillMaxSize().onFocusChanged { focus.hasFocus = it.hasFocus }.focusRequester(focus.column).focusRequester(navTarget).focusRestorer(), state = state) {
             itemsIndexed(shown, key = { _, ch -> ch.key }) { i, ch ->
                 val requester = remember { FocusRequester() }
-                LaunchedEffect(focus.tick) { if (focus.targetKey == ch.key) runCatching { requester.requestFocus() } }
+                LaunchedEffect(focus.tick) { if (focus.targetKey == ch.key) requester.requestFocusWhenReady() }
                 val playing = current?.stream?.id == ch.stream.id
                 val moving = move.movingKey == ch.key
                 Focusable(

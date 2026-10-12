@@ -46,6 +46,23 @@ class PlaybackController(
 
     val playerState get() = player.state
 
+    init {
+        // Disabling or removing a source stops its channel wherever it's playing; otherwise a page
+        // re-entering its preview would tune it again.
+        scope.launch {
+            sources.sources().collect { all ->
+                val enabled = all.filter { it.enabled }.map { it.id }.toSet()
+                if (previous?.stream?.sourceId !in enabled) previous = null
+                val playing = _current.value ?: return@collect
+                if (playing.stream.sourceId !in enabled) {
+                    log.info("Source of ${playing.displayName} is off: stopping")
+                    _current.value = null
+                    player.stop()
+                }
+            }
+        }
+    }
+
     /** Tunes a channel in whichever surface is showing. Full screen also makes it the last played channel. */
     fun tune(channel: Channel, fullScreen: Boolean, group: ChannelGroup? = null) {
         if (group != null) currentGroup = group

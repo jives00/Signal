@@ -25,10 +25,12 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.focusRestorer
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
@@ -51,6 +53,7 @@ import com.signal.ui.components.VDivider
 import com.signal.ui.components.VideoBox
 import com.signal.ui.panel.PanelAction
 import com.signal.ui.panel.PanelPage
+import com.signal.ui.components.requestFocusWhenReady
 import com.signal.ui.theme.SignalSizes
 import com.signal.ui.theme.SignalTheme
 import kotlinx.coroutines.delay
@@ -182,6 +185,7 @@ private fun InfoBar(
     val app = LocalApp.current
     val c = SignalTheme.colors
     val firstOption = remember { FocusRequester() }
+    val focusManager = LocalFocusManager.current
     val optionsRow = remember { FocusRequester() }
 
     LaunchedEffect(lastInput, app.panel.isOpen) {
@@ -190,8 +194,8 @@ private fun InfoBar(
         delay(5000)
         onClose()
     }
-    LaunchedEffect(Unit) { runCatching { firstOption.requestFocus() } }
-    LaunchedEffect(focusOptions) { if (focusOptions) runCatching { optionsRow.requestFocus() } }
+    LaunchedEffect(Unit) { firstOption.requestFocusWhenReady() }
+    LaunchedEffect(focusOptions) { if (focusOptions) optionsRow.requestFocusWhenReady() }
 
     RemoteHandler(priority = RemoteDispatcher.Priority.OVERLAY) { action ->
         when (action) {
@@ -200,6 +204,9 @@ private fun InfoBar(
             RemoteAction.Up, RemoteAction.ChannelUp -> { onZap(-1); true }
             RemoteAction.Down, RemoteAction.ChannelDown -> { onZap(1); true }
             RemoteAction.PlayPause -> { onRecall(); true }
+            // Left/Right move between options (PLAN §12.1); otherwise full screen would take them.
+            RemoteAction.Left -> { focusManager.moveFocus(FocusDirection.Left); true }
+            RemoteAction.Right -> { focusManager.moveFocus(FocusDirection.Right); true }
             else -> false
         }
     }
@@ -301,6 +308,7 @@ private fun ChannelListOverlay(onClose: () -> Unit, onTuned: () -> Unit) {
     val channelState = rememberLazyListState()
     val groupState = rememberLazyListState()
     val scope = rememberCoroutineScope()
+    val focusManager = LocalFocusManager.current
 
     LaunchedEffect(channels != null, shownGroup) {
         val list = channels ?: return@LaunchedEffect
@@ -314,6 +322,9 @@ private fun ChannelListOverlay(onClose: () -> Unit, onTuned: () -> Unit) {
     RemoteHandler(priority = RemoteDispatcher.Priority.OVERLAY) { action ->
         when (action) {
             RemoteAction.Back -> { onClose(); true }
+            // Up/Down move without tuning (PLAN §12.1): handled here, or full screen's handler would zap.
+            RemoteAction.Up -> { focusManager.moveFocus(FocusDirection.Up); true }
+            RemoteAction.Down -> { focusManager.moveFocus(FocusDirection.Down); true }
             RemoteAction.Right -> if (groupFocus.hasFocus) { runCatching { channelFocus.column.requestFocus() }; true } else { onClose(); true }
             RemoteAction.Left -> if (channelFocus.hasFocus) {
                 scope.launch {
@@ -334,7 +345,7 @@ private fun ChannelListOverlay(onClose: () -> Unit, onTuned: () -> Unit) {
             LazyColumn(Modifier.fillMaxSize().onFocusChanged { groupFocus.hasFocus = it.hasFocus }.focusRequester(groupFocus.column).focusRestorer(), state = groupState) {
                 itemsIndexed(groups, key = { _, g -> g.group.key }) { _, entry ->
                     val requester = remember { FocusRequester() }
-                    LaunchedEffect(groupFocus.tick) { if (groupFocus.targetKey == entry.group.key) runCatching { requester.requestFocus() } }
+                    LaunchedEffect(groupFocus.tick) { if (groupFocus.targetKey == entry.group.key) requester.requestFocusWhenReady() }
                     com.signal.ui.components.ListRow(
                         text = entry.group.title,
                         detail = entry.count.takeIf { it > 0 }?.toString(),
@@ -354,7 +365,7 @@ private fun ChannelListOverlay(onClose: () -> Unit, onTuned: () -> Unit) {
             LazyColumn(Modifier.fillMaxSize().onFocusChanged { channelFocus.hasFocus = it.hasFocus }.focusRequester(channelFocus.column).focusRestorer(), state = channelState) {
                 itemsIndexed(channels.orEmpty(), key = { _, ch -> ch.key }) { _, ch ->
                     val requester = remember { FocusRequester() }
-                    LaunchedEffect(channelFocus.tick) { if (channelFocus.targetKey == ch.key) runCatching { requester.requestFocus() } }
+                    LaunchedEffect(channelFocus.tick) { if (channelFocus.targetKey == ch.key) requester.requestFocusWhenReady() }
                     val playing = ch.stream.id == current?.stream?.id
                     Focusable(
                         Modifier.fillMaxWidth(),

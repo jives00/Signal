@@ -22,6 +22,7 @@ import com.signal.ui.LocalApp
 import com.signal.ui.components.ListRow
 import com.signal.ui.components.SText
 import com.signal.ui.components.Wordmark
+import com.signal.ui.components.requestFocusWhenReady
 import com.signal.ui.theme.SignalSizes
 import com.signal.ui.theme.SignalTheme
 import kotlinx.coroutines.launch
@@ -71,5 +72,5 @@ fun SetupScreen() {
         }
         status?.let { SText(it, 24, Modifier.padding(top = 32.dp), color = c.secondaryText) }
     }
-    LaunchedEffect(addingSource) { if (!addingSource) runCatching { first.requestFocus() } }
+    LaunchedEffect(addingSource) { if (!addingSource) first.requestFocusWhenReady() }
 }

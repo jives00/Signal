@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -207,5 +208,16 @@ fun SectionTitle(text: String, modifier: Modifier = Modifier) {
 fun Centered(modifier: Modifier = Modifier, content: @Composable () -> Unit) {
     Column(modifier.fillMaxSize(), verticalArrangement = androidx.compose.foundation.layout.Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
         content()
+    }
+}
+
+/**
+ * Requests focus once the target exists. A lazy list composes its items during layout, after the
+ * effect that asks, so the first try can miss; retry for a few frames.
+ */
+suspend fun FocusRequester.requestFocusWhenReady(frames: Int = 5) {
+    repeat(frames) {
+        if (runCatching { requestFocus() }.getOrDefault(false)) return
+        withFrameNanos { }
     }
 }

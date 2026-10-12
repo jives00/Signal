@@ -48,7 +48,8 @@ fun RemoteInput(dispatcher: RemoteDispatcher, content: @Composable () -> Unit) {
     LaunchedEffect(anyFocus) {
         if (!anyFocus) {
             delay(50)
-            runCatching { rootFocus.requestFocus() }
+            // Check again: an element that took focus meanwhile would lose it to the root.
+            if (!anyFocus) runCatching { rootFocus.requestFocus() }
         }
     }
 

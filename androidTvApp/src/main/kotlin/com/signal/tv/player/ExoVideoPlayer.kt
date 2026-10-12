@@ -35,6 +35,7 @@ import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import com.signal.player.AspectMode
+import com.signal.player.FrameRateMeter
 import com.signal.player.PlayRequest
 import com.signal.player.PlaybackError
 import com.signal.player.PlaybackState
@@ -60,6 +61,10 @@ class ExoVideoPlayer(context: Context) : VideoPlayer {
     private var request: PlayRequest? = null
     private var autoRetried = false
 
+    /** Measures the frame rate when the stream doesn't declare one; null once measured, or while nothing plays. */
+    @Volatile private var fpsMeter: FrameRateMeter? = null
+    private var measuredFps: Float? = null
+
     private val exo: ExoPlayer = ExoPlayer.Builder(context)
         // FFmpeg (the LGPL build, PLAN §5.3) only after the platform: AC3/E-AC3/DTS pass through to a
         // receiver when the HDMI chain supports it, and FFmpeg decodes them only when it doesn't (PLAN §5.6).
@@ -78,11 +83,27 @@ class ExoVideoPlayer(context: Context) : VideoPlayer {
             )
             setHandleAudioBecomingNoisy(true)
             addListener(Listener())
+            // Many TS streams don't declare a frame rate, so measure it from the frames (on the
+            // playback thread) for the info bar.
+            setVideoFrameMetadataListener { presentationTimeUs, _, format, _ ->
+                val meter = fpsMeter
+                if (format.frameRate > 0 || meter == null) return@setVideoFrameMetadataListener
+                meter.add(presentationTimeUs)?.let { fps ->
+                    main.post {
+                        if (fpsMeter !== meter) return@post
+                        fpsMeter = null
+                        measuredFps = fps
+                        _state.update { it.copy(video = videoInfo()) }
+                    }
+                }
+            }
         }
 
     override fun play(request: PlayRequest) {
         this.request = request
         autoRetried = false
+        fpsMeter = FrameRateMeter()
+        measuredFps = null
         val http = DefaultHttpDataSource.Factory()
             .setAllowCrossProtocolRedirects(true)
             .setConnectTimeoutMs(20_000)
@@ -106,6 +127,8 @@ class ExoVideoPlayer(context: Context) : VideoPlayer {
     override fun stop() {
         exo.stop()
         exo.clearMediaItems()
+        fpsMeter = null
+        measuredFps = null
         _state.value = PlaybackState()
     }
 
@@ -238,7 +261,7 @@ class ExoVideoPlayer(context: Context) : VideoPlayer {
         return VideoInfo(
             width = v.width,
             height = v.height,
-            frameRate = v.frameRate.takeIf { it > 0 },
+            frameRate = v.frameRate.takeIf { it > 0 } ?: measuredFps,
             videoCodec = codecName(v.sampleMimeType),
             audioCodec = a?.let { codecName(it.sampleMimeType) },
             audioChannels = a?.channelCount?.takeIf { it > 0 },

@@ -48,6 +48,7 @@ kotlin {
             dependsOn(commonTest.get())
         }
         jvmTest.get().dependsOn(jvmCommonTest)
+        jvmTest.get().languageSettings.optIn("androidx.compose.ui.test.ExperimentalTestApi")
 
         commonMain.dependencies {
             implementation(libs.compose.runtime)
@@ -79,6 +80,11 @@ kotlin {
         }
         jvmTest.dependencies {
             implementation(libs.sqldelight.sqlite.driver)
+            // The per-screen key-map UI tests (PLAN §12.3) run the real app on the desktop.
+            @OptIn(org.jetbrains.compose.ExperimentalComposeLibrary::class)
+            implementation(compose.uiTest)
+            implementation(compose.desktop.currentOs)
+            implementation(libs.kotlinx.coroutines.swing)
         }
     }
 }

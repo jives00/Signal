@@ -20,10 +20,18 @@ dependencies {
     implementation(libs.vlcj)
 }
 
+// -Psignal.player=fake uses the fake player instead of VLC (PLAN §7.1).
+val playerArg = "-Dsignal.player=${providers.gradleProperty("signal.player").getOrElse("vlc")}"
+
 compose.desktop {
     application {
         mainClass = "com.signal.dev.MainKt"
-        // -Psignal.player=fake uses the fake player instead of VLC (PLAN §7.1).
-        jvmArgs += "-Dsignal.player=${providers.gradleProperty("signal.player").getOrElse("vlc")}"
+        jvmArgs += playerArg
     }
+}
+
+// `hotRun` is the everyday loop: `./gradlew reload` swaps in edited code without a restart, and
+// `hotRun --auto` reloads on every save. It takes the main class from above but not the JVM args.
+tasks.withType<org.jetbrains.compose.reload.gradle.ComposeHotRun>().configureEach {
+    jvmArgs(playerArg)
 }

@@ -57,9 +57,10 @@ fun HomePage() {
     val favorites by remember { app.channels.channels(ChannelGroup.Favorites) }.collectAsState(null)
 
     LaunchedEffect(app.navigator.generation) {
-        // The hero autoplays as soon as Home opens, and has focus (PLAN §4.3.1 → Focus).
-        app.playback.startingChannel()?.let { app.playback.tune(it, fullScreen = false, group = groupFor(it)) }
+        // The hero has focus and autoplays as soon as Home opens (PLAN §4.3.1 → Focus). Focus first:
+        // finding the channel reads the database.
         chrome.focusContent()
+        app.playback.startingChannel()?.let { app.playback.tune(it, fullScreen = false, group = groupFor(it)) }
     }
     DisposableEffect(Unit) {
         // Leaving Home stops the preview, except into full screen, which carries the player over.
@@ -87,7 +88,7 @@ fun HomePage() {
                 HeroDetails(current)
             }
             HDivider()
-            FavoritesRow(favorites, chrome)
+            FavoritesRow(favorites)
         }
     }
 }
@@ -116,7 +117,7 @@ private fun HeroDetails(channel: Channel?) {
 }
 
 @Composable
-private fun FavoritesRow(favorites: List<Channel>?, chrome: PageChrome) {
+private fun FavoritesRow(favorites: List<Channel>?) {
     val app = LocalApp.current
     val c = SignalTheme.colors
     val tileWidth = 268 // Six tiles across the 1920 canvas inside the 96 margins, 24 apart.
@@ -141,11 +142,13 @@ private fun FavoritesRow(favorites: List<Channel>?, chrome: PageChrome) {
                 }
             }
             itemsIndexed(favorites, key = { _, ch -> ch.key }) { i, ch ->
+                val own = remember { FocusRequester() }
+                val tile = if (i == 0) firstTile else own
                 Focusable(
                     Modifier.width(tileWidth.dp),
-                    focusRequester = if (i == 0) firstTile else null,
+                    focusRequester = tile,
                     onSelect = { app.playback.tune(ch, fullScreen = true, group = ChannelGroup.Favorites); app.navigator.go(Route.FullScreen(ChannelGroup.Favorites)) },
-                    onOptions = { app.panel.open(app.menus.channelMenu(ch, ChannelGroup.Favorites, null), chrome.contentFocus) },
+                    onOptions = { app.panel.open(app.menus.channelMenu(ch, ChannelGroup.Favorites, null), tile) },
                 ) { focused ->
                     Column(Modifier.fillMaxWidth().background(if (focused) c.accent else c.surface).padding(16.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {

@@ -50,6 +50,9 @@ class AppController(val platform: Platform, val log: Log) {
     /** Live TV's group list, kept live for menus and screens. */
     val groups: StateFlow<List<GroupEntry>> = channels.groups().stateIn(scope, SharingStarted.Eagerly, emptyList())
 
+    /** The sources, kept live, so Settings never shows an empty list while it reloads. */
+    val sourceList: StateFlow<List<Source>> = sources.sources().stateIn(scope, SharingStarted.Eagerly, emptyList())
+
     /** Live TV opens on this group; full screen's Back sets it to the current group (PLAN §4.3.3). */
     var liveTvGroup by mutableStateOf<ChannelGroup?>(null)
 

@@ -26,6 +26,7 @@ import com.signal.ui.LocalApp
 import com.signal.ui.components.SButton
 import com.signal.ui.components.SField
 import com.signal.ui.components.SText
+import com.signal.ui.components.requestFocusWhenReady
 import com.signal.ui.theme.SignalTheme
 import kotlinx.coroutines.launch
 
@@ -63,7 +64,7 @@ fun SourceForm(existing: Source?, onDone: () -> Unit, onCancel: () -> Unit) {
         connectionLimit = existing?.connectionLimit ?: 2,
     )
 
-    LaunchedEffect(Unit) { runCatching { first.requestFocus() } }
+    LaunchedEffect(Unit) { first.requestFocusWhenReady() }
 
     Column(Modifier.width(1100.dp).verticalScroll(rememberScrollState())) {
         Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {

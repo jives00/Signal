@@ -42,6 +42,7 @@ import com.signal.ui.components.ListRow
 import com.signal.ui.components.SButton
 import com.signal.ui.components.SText
 import com.signal.ui.components.VDivider
+import com.signal.ui.components.requestFocusWhenReady
 import com.signal.ui.theme.SignalTheme
 
 /** One page of the side panel. Pages stack: Back pops one, and at the first page closes the panel. */
@@ -160,7 +161,7 @@ private fun ActionsPage(state: SidePanelState, page: PanelPage.Actions) {
             )
         }
     }
-    LaunchedEffect(page) { runCatching { first.requestFocus() } }
+    LaunchedEffect(page) { first.requestFocusWhenReady() }
 }
 
 @Composable
@@ -202,7 +203,7 @@ private fun TextInputPage(state: SidePanelState, page: PanelPage.TextInput) {
             }, primary = true)
         }
     }
-    LaunchedEffect(page) { runCatching { field.requestFocus() } }
+    LaunchedEffect(page) { field.requestFocusWhenReady() }
 }
 
 @Composable
@@ -220,5 +221,5 @@ private fun ConfirmPage(state: SidePanelState, page: PanelPage.Confirm) {
             })
         }
     }
-    LaunchedEffect(page) { runCatching { cancel.requestFocus() } }
+    LaunchedEffect(page) { cancel.requestFocusWhenReady() }
 }

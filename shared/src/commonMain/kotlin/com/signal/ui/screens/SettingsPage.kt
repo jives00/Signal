@@ -16,16 +16,20 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.focusRestorer
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.signal.app.AppController
 import com.signal.app.Route
 import com.signal.data.Settings
+import com.signal.input.RemoteAction
+import com.signal.input.RemoteHandler
 import com.signal.model.ChannelGroup
 import com.signal.model.ChannelSort
 import com.signal.model.GroupSort
@@ -39,6 +43,7 @@ import com.signal.ui.components.SectionTitle
 import com.signal.ui.components.TopLevelPage
 import com.signal.ui.components.VDivider
 import com.signal.ui.components.formatTime
+import com.signal.ui.components.requestFocusWhenReady
 import com.signal.ui.panel.PanelAction
 import com.signal.ui.panel.PanelPage
 import com.signal.ui.theme.SignalTheme
@@ -68,19 +73,25 @@ fun SettingsPage() {
     var editing by remember { mutableStateOf<Source?>(null) }
     var adding by remember { mutableStateOf(false) }
     val contentFocus = remember { FocusRequester() }
+    val firstSection = remember { FocusRequester() }
+    var contentHasFocus by remember { mutableStateOf(false) }
+    var sectionsHaveFocus by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+    // The section's rows may still be composing when focus moves in.
+    fun focusSection() { scope.launch { contentFocus.requestFocusWhenReady() } }
 
     LaunchedEffect(Unit) { chrome.focusContent() }
 
     TopLevelPage(Route.Settings, chrome) {
         Row(Modifier.fillMaxSize()) {
-            Column(Modifier.width(400.dp).fillMaxHeight().focusRequester(chrome.contentFocus).focusRestorer()) {
+            Column(Modifier.width(400.dp).fillMaxHeight().onFocusChanged { sectionsHaveFocus = it.hasFocus }.focusRequester(chrome.contentFocus).focusRestorer(firstSection)) {
                 Box(Modifier.padding(top = 24.dp))
                 Section.entries.forEach { s ->
-                    ListRow(s.title, selected = s == section, onSelect = { section = s; adding = false; editing = null; runCatching { contentFocus.requestFocus() } }, onFocused = { section = s; adding = false; editing = null })
+                    ListRow(s.title, selected = s == section, onSelect = { section = s; adding = false; editing = null; focusSection() }, onFocused = { section = s; adding = false; editing = null }, focusRequester = if (s == Section.entries.first()) firstSection else null)
                 }
             }
             VDivider()
-            Box(Modifier.fillMaxSize().padding(start = 48.dp, top = 24.dp).focusRequester(contentFocus).focusRestorer()) {
+            Box(Modifier.fillMaxSize().padding(start = 48.dp, top = 24.dp).onFocusChanged { contentHasFocus = it.hasFocus }.focusRequester(contentFocus).focusRestorer()) {
                 when {
                     adding || editing != null -> SourceForm(editing, onDone = { adding = false; editing = null }, onCancel = { adding = false; editing = null })
                     section == Section.SOURCES -> SourcesSection(app, onAdd = { adding = true }, onEdit = { editing = it }, returnTo = contentFocus)
@@ -91,11 +102,29 @@ fun SettingsPage() {
             }
         }
     }
+
+    // Sections ↔ content, and Back goes up a level before the nav bar (PLAN §12.1). Registered after
+    // TopLevelPage's handler, so it's asked first.
+    val inForm = adding || editing != null
+    RemoteHandler { action ->
+        when {
+            action == RemoteAction.Right && sectionsHaveFocus -> { focusSection(); true }
+            action == RemoteAction.Left && contentHasFocus && !inForm -> { chrome.focusContent(); true }
+            action == RemoteAction.Back && inForm -> {
+                adding = false
+                editing = null
+                focusSection()
+                true
+            }
+            action == RemoteAction.Back && contentHasFocus -> { chrome.focusContent(); true }
+            else -> false
+        }
+    }
 }
 
 @Composable
 private fun SourcesSection(app: AppController, onAdd: () -> Unit, onEdit: (Source) -> Unit, returnTo: FocusRequester) {
-    val sources by app.sources.sources().collectAsState(emptyList())
+    val sources by app.sourceList.collectAsState()
     val c = SignalTheme.colors
     LazyColumn(Modifier.width(1100.dp)) {
         item { SectionTitle("Sources") }
