@@ -46,8 +46,9 @@ class AndroidUpdater(
         if (_state.value is UpdateState.Downloading) return
         runCatching {
             val response = withContext(Dispatchers.IO) { http.get(GitHubReleases.LATEST_URL) }
-            if (!response.status.isSuccess()) return
+            if (!response.status.isSuccess()) { android.util.Log.w("Signal", "Update check: HTTP ${response.status.value}"); return }
             val latest = GitHubReleases.parseLatest(response.bodyAsText()) ?: return
+            android.util.Log.i("Signal", "Update check: running $currentTag, latest ${latest.tag}")
             release = latest
             val dismissed = prefs.getString(KEY_DISMISSED, null)
             _state.value = if (GitHubReleases.isNewer(currentTag, latest.tag) && latest.tag != dismissed) {
