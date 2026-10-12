@@ -30,10 +30,10 @@ class ReminderKeyMapTest {
         ui.runOnIdle { app.navigator.go(Route.LiveTv) }
         liveTvReady()
         eventually("programs loaded") { focusedText()?.endsWith("No information") == false }
-        val live = focusedText()!!.substringAfter(" · ")
+        val live = focusedText()
         press(RemoteAction.Right)
-        eventually("a future program") { focusedText()!!.substringAfter(" · ") != live }
-        val future = focusedText()!!.substringAfter(" · ")
+        eventually("a future program") { focusedText() != live }
+        val future = focusedText()!!.split(" · ")[1]
         press(RemoteAction.Select)
         focusedStartsWith("Remind me")
         press(RemoteAction.Select)

@@ -336,6 +336,8 @@ fun LiveTvPage() {
                                 append(focusedChannel?.displayName ?: "No channels")
                                 append(" · ")
                                 append(if (onChannelColumn) "channel" else focused?.title ?: "No information")
+                                // The start tells two programs with the same title apart.
+                                if (!onChannelColumn) focused?.let { append(" · ").append(it.start) }
                             }
                         },
                 ) {

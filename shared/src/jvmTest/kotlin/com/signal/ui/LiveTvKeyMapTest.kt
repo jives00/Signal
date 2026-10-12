@@ -20,7 +20,7 @@ class LiveTvKeyMapTest {
     }
 
     private fun KeyMapScope.focusedChannel() = focusedText()!!.substringBefore(" · ")
-    private fun KeyMapScope.focusedProgram() = focusedText()!!.substringAfter(" · ")
+    private fun KeyMapScope.focusedProgram() = focusedText()!!.split(" · ")[1]
 
     @Test fun okOnALiveProgramPreviewsThenGoesFullScreen() = keyMapTest {
         guide()
@@ -36,9 +36,9 @@ class LiveTvKeyMapTest {
 
     @Test fun okOnAFutureProgramOpensDetails() = keyMapTest {
         guide()
-        val live = focusedProgram()
+        val live = focusedText()
         press(RemoteAction.Right)
-        eventually("a later program") { focusedProgram() != live }
+        eventually("a later program") { focusedText() != live }
         val future = focusedProgram()
         press(RemoteAction.Select)
         eventually("program details") { panelTitle == future }

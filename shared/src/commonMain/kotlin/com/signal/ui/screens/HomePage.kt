@@ -228,7 +228,8 @@ private fun RemindersRow() {
                 // The channel, and the program as the guide has it now; null when a new guide dropped it.
                 val channel by produceState<Channel?>(null, r.userChannelId) { value = app.channels.channelByKey(r.userChannelId) }
                 val program by produceState<Program?>(null, channel, r.start) {
-                    value = channel?.let { ch -> app.guide.programs(ch, r.start - 60_000, r.stop).firstOrNull { it.title == r.title } }
+                    // The window also catches the program before, which can share the title (a series back to back).
+                    value = channel?.let { ch -> app.guide.programs(ch, r.start - 60_000, r.stop).filter { it.title == r.title }.minByOrNull { kotlin.math.abs(it.start - r.start) } }
                 }
                 val onNow = r.start <= now
                 fun details() {
