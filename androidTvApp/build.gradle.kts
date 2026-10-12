@@ -84,6 +84,13 @@ dependencies {
     implementation(libs.androidx.media3.exoplayer)
     implementation(libs.androidx.media3.exoplayer.hls)
     implementation(libs.androidx.media3.ui)
+    // Media3's FFmpeg extension, built LGPL-only by the "FFmpeg (LGPL)" workflow (PLAN §5.3) and
+    // committed here. Without it, AC3/E-AC3/DTS still pass through to a receiver.
+    val ffmpeg = file("libs/media3-decoder-ffmpeg-${libs.versions.androidx.media3.get()}.aar")
+    if (ffmpeg.exists()) {
+        implementation(files(ffmpeg))
+        implementation(libs.androidx.media3.decoder)
+    }
     implementation(libs.sqldelight.android.driver)
     implementation(libs.ktor.client.okhttp)
     implementation(libs.kotlinx.coroutines.android)

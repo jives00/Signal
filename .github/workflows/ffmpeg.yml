@@ -1,0 +1,86 @@
+name: FFmpeg (LGPL)
+
+# Builds Media3's FFmpeg audio extension against an LGPL-only FFmpeg (PLAN §5.3). It runs only when
+# ffmpeg/config.env changes or by hand: the result is committed to androidTvApp/libs/, so ordinary
+# builds never compile FFmpeg.
+on:
+  workflow_dispatch:
+  push:
+    paths: ["ffmpeg/config.env", ".github/workflows/ffmpeg.yml"]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Read the configuration
+        run: cat ffmpeg/config.env | grep -v '^#' | grep '=' >> "$GITHUB_ENV"
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Install the NDK
+        run: |
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "ndk;${NDK_VERSION}" > /dev/null
+          echo "NDK_PATH=$ANDROID_HOME/ndk/${NDK_VERSION}" >> "$GITHUB_ENV"
+
+      - name: Fetch Media3 and FFmpeg
+        run: |
+          git clone --depth 1 --branch "${MEDIA3_VERSION}" https://github.com/androidx/media.git media
+          git clone --depth 1 --branch "${FFMPEG_BRANCH}" https://git.ffmpeg.org/ffmpeg.git media/libraries/decoder_ffmpeg/src/main/jni/ffmpeg
+          echo "FFMPEG_COMMIT=$(git -C media/libraries/decoder_ffmpeg/src/main/jni/ffmpeg rev-parse HEAD)" >> "$GITHUB_ENV"
+
+      - name: Build FFmpeg
+        run: |
+          MODULE="$PWD/media/libraries/decoder_ffmpeg/src/main"
+          cd "$MODULE/jni"
+          # shellcheck disable=SC2086
+          ./build_ffmpeg.sh "$MODULE" "$NDK_PATH" linux-x86_64 "$ANDROID_ABI" $ENABLED_DECODERS
+
+      - name: Check the build is LGPL only
+        run: |
+          CONFIG=media/libraries/decoder_ffmpeg/src/main/jni/ffmpeg/config.h
+          grep -E '#define (CONFIG_GPL|CONFIG_NONFREE|CONFIG_VERSION3|FFMPEG_LICENSE)' "$CONFIG"
+          if ! grep -q '#define CONFIG_GPL 0' "$CONFIG" || ! grep -q '#define CONFIG_NONFREE 0' "$CONFIG"; then
+            echo "::error::FFmpeg was configured with GPL or nonfree components. Signal can't ship that (PLAN §1)."
+            exit 1
+          fi
+
+      - name: Build the extension AAR
+        working-directory: media
+        run: ./gradlew --no-daemon :lib-decoder-ffmpeg:assembleRelease
+
+      - name: Collect the AAR and its build record
+        run: |
+          mkdir -p out
+          cp media/libraries/decoder_ffmpeg/buildout/outputs/aar/lib-decoder-ffmpeg-release.aar "out/media3-decoder-ffmpeg-${MEDIA3_VERSION}.aar"
+          {
+            echo "# FFmpeg build record"
+            echo
+            echo "The FFmpeg in \`androidTvApp/libs/media3-decoder-ffmpeg-${MEDIA3_VERSION}.aar\` is licensed under the"
+            echo "GNU LGPL 2.1 or later. To rebuild it, run the \"FFmpeg (LGPL)\" workflow, or follow these steps."
+            echo
+            echo "- Media3: https://github.com/androidx/media tag \`${MEDIA3_VERSION}\` (Apache 2.0), module \`libraries/decoder_ffmpeg\`"
+            echo "- FFmpeg: https://git.ffmpeg.org/ffmpeg.git branch \`${FFMPEG_BRANCH}\`, commit \`${FFMPEG_COMMIT}\`"
+            echo "- NDK \`${NDK_VERSION}\`, ANDROID_ABI \`${ANDROID_ABI}\`"
+            echo "- Script: Media3's \`build_ffmpeg.sh\`, unmodified, with the decoders: \`${ENABLED_DECODERS}\`"
+            echo
+            echo "Configure result:"
+            echo
+            echo '```'
+            grep -E '#define (CONFIG_GPL|CONFIG_NONFREE|CONFIG_VERSION3|FFMPEG_LICENSE)' media/libraries/decoder_ffmpeg/src/main/jni/ffmpeg/config.h
+            echo '```'
+          } > out/BUILD-INFO.md
+          cat out/BUILD-INFO.md
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: media3-decoder-ffmpeg
+          path: out/
