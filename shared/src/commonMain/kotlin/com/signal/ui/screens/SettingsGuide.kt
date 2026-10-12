@@ -134,7 +134,8 @@ internal fun GuideDataSection(app: AppController) {
     LazyColumn(Modifier.width(1100.dp)) {
         item { SectionTitle("Guide data") }
         item {
-            val age = built?.let { "Built on this device, ${refreshedLabel(app, it).removePrefix("refreshed ")}" } ?: "No guide yet"
+            val from = if (app.guideStore.origin() == com.signal.guide.GuideStore.ORIGIN_NAS) "From the NAS" else "Built on this device"
+            val age = built?.let { "$from, ${refreshedLabel(app, it).removePrefix("refreshed ")}" } ?: "No guide yet"
             ListRow("Guide", detail = age, onSelect = null)
         }
         item {
@@ -143,10 +144,13 @@ internal fun GuideDataSection(app: AppController) {
         item {
             ListRow(
                 "Update EPG now",
-                detail = if (app.guideBuilding) "Updating…" else "Rebuilds the guide from every enabled EPG source",
-                onSelect = { if (!app.guideBuilding) app.scope.launch { app.rebuildGuide() } },
+                detail = if (app.guideBuilding) "Updating…" else if (app.nas.isPaired) "Gets the NAS's latest build, or builds here if the NAS has none" else "Rebuilds the guide from every enabled EPG source",
+                onSelect = { if (!app.guideBuilding) app.scope.launch { app.refreshGuide() } },
             )
         }
-        item { SText("The NAS builds the guide nightly once the companion is set up (milestone 3).", 22, Modifier.padding(40.dp), color = SignalTheme.colors.muted, maxLines = 2) }
+        if (app.nas.isPaired) item {
+            ListRow("Rebuild on this device", detail = "For troubleshooting: skips the NAS", onSelect = { if (!app.guideBuilding) app.scope.launch { app.rebuildGuide() } })
+        }
+        item { SText(if (app.nas.isPaired) "The NAS builds the guide nightly, and Signal checks for a new build every 30 minutes." else "Pair with the NAS (NAS & sync) to get its nightly guide build instead of building here.", 22, Modifier.padding(40.dp), color = SignalTheme.colors.muted, maxLines = 2) }
     }
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ago, cleanCode, health } from "./api";
+import { ago, cleanCode, health, size } from "./api";
 
 describe("health", () => {
   it("is ok only with the database and the secret key", () => {
@@ -24,5 +24,13 @@ describe("ago", () => {
     expect(ago(now - 10_000, now)).toBe("just now");
     expect(ago(now - 5 * 60_000, now)).toBe("5 min ago");
     expect(ago(now - 3 * 3_600_000, now)).toBe("3 h ago");
+  });
+});
+
+describe("size", () => {
+  it("picks KB or MB", () => {
+    expect(size(830 * 1024)).toBe("830 KB");
+    expect(size(14.2 * 1024 * 1024)).toBe("14.2 MB");
+    expect(size(10)).toBe("1 KB");
   });
 });

@@ -22,3 +22,9 @@ internal expect suspend fun <T> readXmltv(
     headers: Map<String, String>,
     block: (XmltvParser.CharSource) -> T,
 ): T
+
+/**
+ * Downloads a gzipped guide.db to [outPath], unpacking it as it arrives, and checks the .gz bytes
+ * against [sha256] (hex). Throws on any failure; the caller deletes [outPath].
+ */
+internal expect suspend fun downloadGunzipped(http: HttpClient, url: String, headers: Map<String, String>, outPath: String, sha256: String)

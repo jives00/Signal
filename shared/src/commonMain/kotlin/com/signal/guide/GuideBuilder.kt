@@ -1,7 +1,7 @@
 package com.signal.guide
 
 import com.signal.data.Log
-import com.signal.data.SourceRepository
+import com.signal.model.Source
 import com.signal.db.guide.GuideDatabase
 import com.signal.demo.DemoData
 import com.signal.match.GuideNames
@@ -25,7 +25,8 @@ import kotlinx.coroutines.withContext
  */
 class GuideBuilder(
     private val http: HttpClient,
-    private val sources: SourceRepository,
+    // The IPTV source an Xtream guide belongs to: user.db on the device, the pushed inputs on the NAS.
+    private val sourceById: suspend (String) -> Source?,
     private val io: CoroutineDispatcher,
     private val log: Log,
 ) {
@@ -55,7 +56,7 @@ class GuideBuilder(
             EpgKind.DEMO -> demo(writer, now)
             EpgKind.XMLTV -> readXmltv(http, epg.url, emptyMap()) { XmltvParser(writer::channel, writer::program).parse(it) }
             EpgKind.XTREAM -> {
-                val source = epg.sourceId?.let { sources.byId(it) } ?: error("Its source was removed")
+                val source = epg.sourceId?.let { sourceById(it) } ?: error("Its source was removed")
                 val url = source.url.trimEnd('/') + "/xmltv.php?username=" + source.username.encodeURLParameter() +
                     "&password=" + source.password.encodeURLParameter()
                 runCatching {

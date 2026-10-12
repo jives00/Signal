@@ -121,3 +121,8 @@ input:focus { outline: none; border-color: var(--accent); }
 .table td { padding: 12px; border-bottom: 2px solid var(--divider); }
 .table .actions { text-align: right; white-space: nowrap; }
 .table .actions button + button { margin-left: 8px; }
+
+.section { margin-top: 32px; }
+.section-title { font-weight: 800; font-size: 20px; margin: 0 0 14px; }
+.schedule { margin-top: 16px; flex-wrap: wrap; }
+.schedule input[type="time"] { width: 130px; }

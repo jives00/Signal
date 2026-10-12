@@ -34,7 +34,8 @@ export interface Device {
 async function send<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, { ...init, headers: { "Content-Type": "application/json", ...init?.headers } });
   if (!response.ok) throw new Error((await response.text()) || `HTTP ${response.status}`);
-  return (response.status === 204 ? undefined : await response.json()) as T;
+  if (response.status === 202 || response.status === 204) return undefined as T;
+  return (await response.json()) as T;
 }
 
 export const getDevices = () => send<Device[]>("/api/devices");
@@ -54,4 +55,50 @@ export function ago(at: number, now: number = Date.now()): string {
   if (minutes < 60) return `${minutes} min ago`;
   if (minutes < 24 * 60) return `${Math.floor(minutes / 60)} h ago`;
   return new Date(at).toLocaleDateString();
+}
+
+/** The NAS guide build (PLAN §5.2 → Jobs). Times are epoch milliseconds. */
+export interface GuideMeta {
+  builtAt: number;
+  schema: number;
+  sizeBytes: number;
+  sha256: string;
+  channels: number;
+  programs: number;
+  outcomes: Record<string, { channels: number; programs: number; error?: string | null; carriedOver?: boolean }>;
+}
+
+export interface JobRun {
+  id: number;
+  job: string;
+  startedAt: number;
+  finishedAt: number | null;
+  result: string | null;
+  detail: string | null;
+}
+
+export interface GuideSchedule {
+  time: string;
+  timeZone: string;
+}
+
+export interface GuideStatus {
+  meta: GuideMeta | null;
+  running: boolean;
+  lastRun: JobRun | null;
+  schedule: GuideSchedule;
+  nextRunAt: number | null;
+  epgSources: string[];
+  inputsFrom: string | null;
+  inputsAt: number | null;
+}
+
+export const getGuide = () => send<GuideStatus>("/api/guide");
+export const buildGuide = () => send<void>("/api/guide/build", { method: "POST" });
+export const setGuideSchedule = (schedule: GuideSchedule) => send<void>("/api/guide/schedule", { method: "PUT", body: JSON.stringify(schedule) });
+
+/** 14.2 MB, 830 KB. */
+export function size(bytes: number): string {
+  if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  return `${Math.max(1, Math.round(bytes / 1024))} KB`;
 }

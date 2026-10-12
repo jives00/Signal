@@ -1,4 +1,5 @@
 import type { Status } from "../api";
+import GuideCard from "./GuideCard";
 
 /**
  * The landing page (PLAN §4.3.18 → Dashboard). For now: the companion itself. The guide, sources,
@@ -25,6 +26,7 @@ export default function Dashboard({ status, failed }: { status: Status | null; f
           <div className="detail">SIGNAL_SECRET_KEY, for provider credentials at rest</div>
         </div>
       </div>
+      <GuideCard />
     </div>
   );
 }

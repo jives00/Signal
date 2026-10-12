@@ -22,6 +22,10 @@ dependencies {
     implementation(libs.ktor.server.call.logging)
     implementation(libs.ktor.server.status.pages)
     implementation(libs.ktor.serialization.kotlinx.json)
+    // The nightly guide build (PLAN §5.2): downloads EPG sources and writes guide.db with the same
+    // SQLDelight schema as the app.
+    implementation(libs.ktor.client.cio)
+    implementation(libs.sqldelight.sqlite.driver)
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.flyway.core)
     implementation(libs.flyway.mysql)

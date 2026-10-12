@@ -9,6 +9,7 @@ import io.ktor.client.request.HttpRequestBuilder
 import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.request.post
+import io.ktor.client.request.put
 import io.ktor.client.request.setBody
 import io.ktor.client.statement.HttpResponse
 import io.ktor.client.statement.bodyAsText
@@ -27,6 +28,7 @@ import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.Json
 
@@ -196,6 +198,49 @@ class NasConnection(
         }
     }
 
+    // ---- Guide (PLAN §6: the NAS build first, the device's own build as the fallback) ----------
+
+    /** Sends what the NAS builds the guide from. False when not paired or not reachable. */
+    suspend fun pushGuideInputs(inputs: GuideInputs): Boolean {
+        if (!isPaired) return false
+        val response = call { base ->
+            http.put(base + NasGuidePaths.INPUTS) {
+                asDevice()
+                contentType(ContentType.Application.Json)
+                setBody(json.encodeToString(GuideInputs.serializer(), inputs))
+            }
+        }
+        if (response?.status == HttpStatusCode.Unauthorized) check()
+        return response?.status?.isSuccess() == true
+    }
+
+    /** The NAS's latest guide build, or null when there's none, or no NAS to ask. */
+    suspend fun guideMeta(): NasGuideMeta? {
+        if (!isPaired) return null
+        val response = call { base -> http.get(base + NasGuidePaths.META) { asDevice() } } ?: return null
+        if (!response.status.isSuccess()) return null
+        return runCatching { json.decodeFromString<NasGuideMeta>(response.bodyAsText()) }.getOrNull()
+    }
+
+    /** Downloads the build [meta] describes into [outPath], unpacked and checked. False on any failure. */
+    suspend fun downloadGuide(meta: NasGuideMeta, outPath: String): Boolean {
+        val key = apiKey ?: return false
+        val headers = mapOf(DEVICE_KEY_HEADER to bearer(key), APP_VERSION_HEADER to appInfo.versionName)
+        repeat(2) {
+            val base = active?.second ?: findAddress()?.second ?: return false
+            val ok = runCatching {
+                withTimeout(DOWNLOAD_TIMEOUT_MS) {
+                    // Blocking file I/O, so off the caller's thread.
+                    withContext(kotlinx.coroutines.Dispatchers.IO) { com.signal.guide.downloadGunzipped(http, base + NasGuidePaths.FILE, headers, outPath, meta.sha256) }
+                }
+            }.onFailure { if (it is CancellationException && it !is kotlinx.coroutines.TimeoutCancellationException) throw it }
+                .onFailure { log.warn("NAS guide download failed: ${it.message}") }.isSuccess
+            if (ok) return true
+            active = null
+        }
+        return false
+    }
+
     /** Forgets the key on this device only. The web admin still lists it until forgotten there too. */
     fun unpair() {
         settings.put(Settings.Key.NAS_API_KEY, null)
@@ -210,6 +255,7 @@ class NasConnection(
         const val PROBE_TIMEOUT_MS = 3_000L
         const val REQUEST_TIMEOUT_MS = 10_000L
         const val POLL_MS = 2_000L
+        const val DOWNLOAD_TIMEOUT_MS = 10 * 60_000L
 
         /** "192.168.0.105:3013" → "http://192.168.0.105:3013"; a scheme the user typed is kept. */
         fun baseUrl(address: String): String {

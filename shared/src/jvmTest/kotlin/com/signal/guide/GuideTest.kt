@@ -5,6 +5,7 @@ import com.signal.data.ChannelRepository
 import com.signal.data.Log
 import com.signal.data.Settings
 import com.signal.data.SourceRepository
+import com.signal.db.guide.GuideDatabase
 import com.signal.db.user.UserDatabase
 import com.signal.model.Channel
 import com.signal.model.ChannelGroup
@@ -30,6 +31,7 @@ import java.util.zip.GZIPOutputStream
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFails
 import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
@@ -59,7 +61,7 @@ class GuideTest {
     private val epg = EpgRepository(db, settings, platform.io)
     private val store = GuideStore(platform, Dispatchers.IO, scope, log)
     private val guide = GuideRepository(store, epg, settings, Dispatchers.IO, scope)
-    private val builder = GuideBuilder(http, sources, Dispatchers.IO, log)
+    private val builder = GuideBuilder(http, { sources.byId(it) }, Dispatchers.IO, log)
 
     @AfterTest fun tearDown() = scope.cancel()
 
@@ -229,6 +231,37 @@ class GuideTest {
         store.db!!.guideQueries.putMeta(GuideStore.META_SCHEMA, "1")
         val reopened = GuideStore(platform, Dispatchers.IO, scope, log).apply { open() }
         assertNull(reopened.db, "an older guide is deleted, so a fresh one builds")
+    }
+
+    @Test fun aGuideFromTheNasDownloadsChecksAndInstalls() = runBlocking<Unit> {
+        sources.save(Source(id = "demo", name = "Demo", kind = SourceKind.DEMO, url = "demo:"))
+        sources.refresh("demo").getOrThrow()
+        epg.ensureForSource(sources.byId("demo")!!)
+        assertTrue(build())
+        // Stand in for the NAS: serve a gzipped copy of the guide just built.
+        val built = java.io.File(platform.guideDirectory).listFiles()!!.single { it.name.matches(Regex("""guide-\d+\.db""")) }
+        val gz = gzip(built.readBytes())
+        val sha = java.security.MessageDigest.getInstance("SHA-256").digest(gz).joinToString("") { "%02x".format(it) }
+        served["http://nas/device/guide/file"] = gz
+        val versionBefore = store.version.value
+
+        val bad = java.io.File(platform.guideDirectory, "bad.db.part").path
+        assertFails { downloadGunzipped(http, "http://nas/device/guide/file", emptyMap(), bad, "00") }
+
+        val part = java.io.File(platform.guideDirectory, "nas.db.part").path
+        downloadGunzipped(http, "http://nas/device/guide/file", emptyMap(), part, sha)
+        assertTrue(store.install(part))
+        assertEquals(versionBefore + 1, store.version.value)
+        assertEquals(now, store.builtAt())
+        assertFalse(java.io.File(part).exists(), "moved into place")
+    }
+
+    @Test fun aGuideFromAnotherSchemaIsNotInstalled() = runBlocking<Unit> {
+        val part = java.io.File(platform.guideDirectory, "old.db.part").path
+        platform.createGuideDatabaseDriver(part).use { GuideDatabase(it).guideQueries.putMeta(GuideStore.META_SCHEMA, "1") }
+        assertFalse(store.install(part))
+        assertNull(store.db)
+        assertFalse(java.io.File(part).exists(), "deleted")
     }
 
     @Test fun epgSourcesMoveInTheFallbackOrder() = runBlocking<Unit> {

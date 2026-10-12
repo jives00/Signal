@@ -17,6 +17,7 @@ fun main() {
     // Serve straight away, even before the database answers, so /health can say what's wrong
     // instead of the container restarting in a loop.
     config.db?.let { db -> connectInBackground(companion, db) }
+    companion.guideJob.start()
     log.info("Signal companion ${companion.version} on port ${config.port}")
     embeddedServer(Netty, port = config.port) { signalModule(companion) }.start(wait = true)
 }

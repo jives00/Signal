@@ -40,3 +40,19 @@ internal actual suspend fun <T> readXmltv(
     val input = if (gzip) GZIPInputStream(raw, 64 * 1024) else raw
     InputStreamReader(input, Charsets.UTF_8).use { reader -> block(XmltvParser.CharSource { buf -> reader.read(buf) }) }
 }
+
+internal actual suspend fun downloadGunzipped(http: HttpClient, url: String, headers: Map<String, String>, outPath: String, sha256: String) {
+    val digest = java.security.MessageDigest.getInstance("SHA-256")
+    http.prepareGet(url) { headers.forEach { (k, v) -> header(k, v) } }.execute { response ->
+        if (!response.status.isSuccess()) error("HTTP ${response.status.value}")
+        val raw = java.security.DigestInputStream(BufferedInputStream(response.bodyAsChannel().toInputStream(), 64 * 1024), digest)
+        raw.use {
+            val input = GZIPInputStream(raw, 64 * 1024)
+            File(outPath).outputStream().use { input.copyTo(it, 64 * 1024) }
+            // Whatever gzip didn't need (it can stop before the last bytes) still counts toward the checksum.
+            raw.readBytes()
+        }
+    }
+    val actual = digest.digest().joinToString("") { "%02x".format(it) }
+    if (!actual.equals(sha256, ignoreCase = true)) error("Checksum mismatch")
+}

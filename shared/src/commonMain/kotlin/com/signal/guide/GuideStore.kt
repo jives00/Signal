@@ -63,6 +63,9 @@ class GuideStore(
     /** The guide's build time, or null when there's none. */
     fun builtAt(): Long? = db?.guideQueries?.meta(META_BUILT_AT)?.executeAsOneOrNull()?.toLongOrNull()
 
+    /** Where the live guide came from: [ORIGIN_NAS] or [ORIGIN_DEVICE] (older files have none). */
+    fun origin(): String? = db?.guideQueries?.meta(META_ORIGIN)?.executeAsOneOrNull()
+
     /**
      * Writes a new guide with [write] and swaps it in. If [write] throws, or returns false (nothing
      * worth keeping), the new file is deleted and the live guide stays. Builds never overlap.
@@ -83,6 +86,7 @@ class GuideStore(
                     if (keep) GuideDatabase(driver).guideQueries.run {
                         putMeta(META_BUILT_AT, now.toString())
                         putMeta(META_SCHEMA, SCHEMA.toString())
+                        putMeta(META_ORIGIN, ORIGIN_DEVICE)
                     }
                 }
             } finally {
@@ -96,6 +100,35 @@ class GuideStore(
             GuideFiles.delete(partPath)
             return false
         }
+        swapIn(finalPath)
+        return true
+    }
+
+    /**
+     * Swaps in a complete guide.db built elsewhere (the NAS, PLAN §6), after checking it opens and has
+     * this app's schema. The file at [path] is moved into the guide directory, or deleted if it fails.
+     */
+    suspend fun install(path: String): Boolean = buildLock.withLock {
+        withContext(io) {
+            val ok = runCatching {
+                val driver = platform.createGuideDatabaseDriver(path)
+                try {
+                    GuideDatabase(driver).guideQueries.meta(META_SCHEMA).executeAsOneOrNull() == SCHEMA.toString()
+                } finally {
+                    driver.close()
+                }
+            }.getOrDefault(false)
+            val finalPath = GuideFiles.join(platform.guideDirectory, "guide-${kotlin.time.Clock.System.now().toEpochMilliseconds()}.db")
+            if (!ok || !GuideFiles.rename(path, finalPath)) {
+                GuideFiles.delete(path)
+                return@withContext false
+            }
+            swapIn(finalPath)
+            true
+        }
+    }
+
+    private fun swapIn(finalPath: String) {
         val old = live
         live = openFile(finalPath)
         _version.value++
@@ -104,7 +137,6 @@ class GuideStore(
             runCatching { old.driver.close() }
             GuideFiles.delete(old.path)
         }
-        return true
     }
 
     private fun openFile(path: String): Opened {
@@ -115,6 +147,9 @@ class GuideStore(
     companion object {
         const val META_BUILT_AT = "built_at"
         const val META_SCHEMA = "schema"
+        const val META_ORIGIN = "origin"
+        const val ORIGIN_DEVICE = "device"
+        const val ORIGIN_NAS = "nas"
         /** Bumped whenever Guide.sq changes: older files are deleted rather than migrated. 2: guide_channel_name. */
         const val SCHEMA = 2
         private val NAME = Regex("""guide-\d+\.db""")

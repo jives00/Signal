@@ -48,3 +48,38 @@ fun bearer(key: String) = "Bearer $key"
 
 /** Sent by the app on every request, so the web admin's Devices page shows each device's version. */
 const val APP_VERSION_HEADER = "X-Signal-Version"
+
+/** Guide endpoints (PLAN §5.2 → Endpoints → Guide). All need the device's key. */
+object NasGuidePaths {
+    /** PUT [GuideInputs]: what the NAS builds the guide from, until settings sync owns it. */
+    const val INPUTS = "/device/guide/inputs"
+    /** GET → [NasGuideMeta]; 404 when the NAS hasn't built one yet. */
+    const val META = "/device/guide"
+    /** GET → the gzipped guide.db that [META] describes. */
+    const val FILE = "/device/guide/file"
+}
+
+/**
+ * The device's EPG sources, and the IPTV sources their Xtream guides need, sent to the NAS so it can
+ * build the same guide.db the device would, with the same EPG source IDs (the guide's mappings point
+ * at them). Interim: settings sync replaces this with the shared bundle.
+ */
+@Serializable
+data class GuideInputs(val sources: List<com.signal.model.Source>, val epgSources: List<com.signal.model.EpgSource>)
+
+@Serializable
+data class NasGuideMeta(
+    val builtAt: Long,
+    /** GuideStore.SCHEMA of the build; the app only installs its own. */
+    val schema: Int,
+    val sizeBytes: Long,
+    /** SHA-256 of the .gz file, hex. */
+    val sha256: String,
+    val channels: Int,
+    val programs: Int,
+    /** By EPG source ID, so the app can show each source's state as if it had built it. */
+    val outcomes: Map<String, NasGuideOutcome> = emptyMap(),
+)
+
+@Serializable
+data class NasGuideOutcome(val channels: Int, val programs: Int, val error: String? = null, val carriedOver: Boolean = false)

@@ -1,6 +1,12 @@
 package com.signal.server
 
+import io.ktor.client.HttpClient
+import io.ktor.client.engine.cio.CIO
+import io.ktor.client.plugins.HttpTimeout
 import io.ktor.http.ContentType
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import io.ktor.http.HttpStatusCode
 import io.ktor.serialization.kotlinx.json.json
 import io.ktor.server.application.Application
@@ -32,13 +38,33 @@ data class Health(val status: String, val version: String, val database: String)
 data class Status(val version: String, val database: String, val secretKey: Boolean)
 
 /** Everything the routes need, so tests can build the app without a database. */
-class Companion(val config: Config, database: Database? = null, private val deviceStore: DeviceStore? = null) {
+class Companion(
+    val config: Config,
+    database: Database? = null,
+    private val deviceStore: DeviceStore? = null,
+    private val companionStore: CompanionStore? = null,
+) {
     /** Set once the database connects; it may not be there yet at start-up (see Main). */
     @Volatile var database: Database? = database
     val pairings = Pairings()
 
     /** Null until the database connects. */
     val devices: DeviceStore? get() = deviceStore ?: database?.devices
+    val store: CompanionStore? get() = companionStore ?: database?.store
+    val cipher: SecretCipher? = config.secretKey?.let(::SecretCipher)
+
+    val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    // For the guide build's downloads: EPG sources can be large and slow, like on the device.
+    private val http by lazy {
+        HttpClient(CIO) {
+            install(HttpTimeout) {
+                connectTimeoutMillis = 20_000
+                requestTimeoutMillis = 15 * 60_000
+            }
+        }
+    }
+    val guide by lazy { GuideBuilds(File(config.dataDir, "guide"), http) }
+    val guideJob = GuideJob(this, scope)
     val version: String =
         Companion::class.java.getResourceAsStream("/signal-version.txt")?.bufferedReader()?.readText()?.trim()?.takeIf { it.isNotEmpty() && !it.startsWith("$") } ?: "dev"
 
@@ -75,9 +101,11 @@ fun Application.signalModule(companion: Companion) {
         // API stops there; device endpoints also need the device's own key (Pairing.kt).
         trusted {
             deviceRoutes(companion)
+            guideDeviceRoutes(companion)
             route("/api") {
                 get("/status") { call.respond(Status(companion.version, companion.databaseState(), companion.config.secretKey != null)) }
                 deviceAdminRoutes(companion)
+                guideAdminRoutes(companion)
             }
             webAdmin(File(companion.config.webDir))
         }

@@ -1,6 +1,7 @@
 package com.signal.model
 
 /** One EPG source (PLAN §2.2 "Guide source"): an XMLTV URL, an Xtream source's own guide, or the Demo guide. */
+@kotlinx.serialization.Serializable
 data class EpgSource(
     val id: String,
     val name: String,
@@ -20,6 +21,7 @@ data class EpgSource(
     val timeShiftMs: Long get() = timeShiftMinutes * 60_000L
 }
 
+@kotlinx.serialization.Serializable
 enum class EpgKind { XMLTV, XTREAM, DEMO }
 
 /** One scheduled airing (PLAN §2.2 "Program"). Times are epoch milliseconds with the EPG source's time shift applied. */

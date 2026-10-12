@@ -29,6 +29,8 @@ import com.signal.db.user.UserDatabase
 import com.signal.input.RemoteDispatcher
 import com.signal.model.Source
 import com.signal.model.SourceKind
+import com.signal.nas.GuideInputs
+import kotlinx.coroutines.flow.debounce
 import com.signal.platform.Platform
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -57,7 +59,7 @@ class AppController(val platform: Platform, val log: Log) {
     val guideStore = GuideStore(platform, guideIo, scope, log)
     val epg = EpgRepository(db, settings, platform.io)
     val guide = GuideRepository(guideStore, epg, settings, guideIo, scope)
-    private val guideBuilder = GuideBuilder(http, sources, guideIo, log)
+    private val guideBuilder = GuideBuilder(http, { sources.byId(it) }, guideIo, log)
     val reminders = ReminderRepository(db, settings, channels, platform.io)
     val search = SearchRepository(db, settings, channels, guide, platform.io, scope)
     val reminderList: StateFlow<List<Reminder>> = reminders.reminders().stateIn(scope, SharingStarted.Eagerly, emptyList())
@@ -109,12 +111,28 @@ class AppController(val platform: Platform, val log: Log) {
             refreshStaleSources()
             // Sources from before milestone 2 get their guides here too.
             sources.all().forEach { epg.ensureForSource(it) }
-            if (guideIsStale()) rebuildGuide()
+            // The NAS build first when paired; the device builds its own only when that gives nothing (PLAN §6).
+            if (installNasGuide() == null && guideIsStale()) rebuildGuide()
         }
         scope.launch { runReminders() }
         // A new guide can move a program: its reminder follows (PLAN §4.3.4 → Guide changes).
         scope.launch { guideStore.version.collect { if (it > 0) followMovedPrograms() } }
         scope.launch { nas.check() }
+        // Once connected (at launch or just paired), the NAS learns what to build the guide from...
+        scope.launch { nas.status.collect { if (it is com.signal.nas.NasConnection.Status.Connected) pushGuideInputs() } }
+        // ...and again whenever the sources or EPG sources change.
+        scope.launch {
+            kotlinx.coroutines.flow.combine(sources.sources(), epg.epgSources()) { _, _ -> }
+                .debounce(3_000)
+                .collect { if (nas.status.value is com.signal.nas.NasConnection.Status.Connected) pushGuideInputs() }
+        }
+        // A NAS build that lands while the app is open (the nightly run, or new inputs) is picked up.
+        scope.launch {
+            while (true) {
+                delay(NAS_GUIDE_CHECK_MS)
+                if (nas.isPaired && !guideBuilding) installNasGuide()
+            }
+        }
         scope.launch { platform.updater?.check() }
     }
 
@@ -155,6 +173,64 @@ class AppController(val platform: Platform, val log: Log) {
         } catch (e: Throwable) {
             log.error("Guide build failed", e)
             false
+        } finally {
+            guideBuilding = false
+        }
+    }
+
+    // ---- The NAS guide (PLAN §5.2, §6) ---------------------------------------------------------
+
+    /** The last inputs sent, so an unchanged list isn't sent again. */
+    private var pushedInputs: GuideInputs? = null
+
+    /**
+     * Tells the NAS what to build the guide from: every EPG source, and the sources their Xtream
+     * guides need. Fields that change on every refresh are left out, so a refresh alone sends nothing.
+     */
+    private suspend fun pushGuideInputs() {
+        val epgSources = epg.all().map { it.copy(lastBuiltAt = 0, lastError = null) }
+        val needed = epgSources.mapNotNull { it.sourceId }.toSet()
+        val inputs = GuideInputs(
+            sources.all().filter { it.id in needed && it.kind == SourceKind.XTREAM }.map { it.copy(lastRefreshedAt = 0, lastError = null) },
+            epgSources,
+        )
+        if (inputs == pushedInputs) return
+        if (nas.pushGuideInputs(inputs)) {
+            pushedInputs = inputs
+            log.info("NAS: guide inputs sent (${epgSources.size} EPG sources)")
+        }
+    }
+
+    /** Update EPG now (PLAN §4.3.15 → Guide data): the NAS build when there is one, else a build on this device. */
+    suspend fun refreshGuide(): Boolean = installNasGuide() ?: rebuildGuide()
+
+    /**
+     * Installs the NAS's guide when it's newer than the live one. True when the guide is now the
+     * NAS's (or something fresher), false when the download failed, and null when the NAS has nothing
+     * usable: not paired, unreachable, no build yet, a build too old or from another schema.
+     */
+    private suspend fun installNasGuide(): Boolean? {
+        val meta = nas.guideMeta() ?: return null
+        val now = Clock.System.now().toEpochMilliseconds()
+        if (meta.schema != GuideStore.SCHEMA || now - meta.builtAt > NAS_GUIDE_MAX_AGE_MS) return null
+        val liveBuiltAt = guideStore.builtAt() ?: 0
+        // Already this build, or a newer one made here (EPG sources edited since the NAS ran).
+        if (liveBuiltAt >= meta.builtAt) return true
+        if (guideBuilding) return false
+        guideBuilding = true
+        return try {
+            val part = com.signal.guide.GuideFiles.join(platform.guideDirectory, "nas-${meta.builtAt}.db.part")
+            val ok = nas.downloadGuide(meta, part) && guideStore.install(part)
+            if (ok) {
+                log.info("Guide from the NAS: ${meta.programs} programs, built ${meta.builtAt}")
+                withContext(platform.io) {
+                    meta.outcomes.forEach { (id, o) -> if (o.error == null) epg.markBuilt(id, meta.builtAt) else epg.markFailed(id, o.error) }
+                }
+                scope.launch { logGuideCoverage() }
+            } else {
+                com.signal.guide.GuideFiles.delete(part)
+            }
+            ok
         } finally {
             guideBuilding = false
         }
@@ -290,12 +366,18 @@ class AppController(val platform: Platform, val log: Log) {
         } else if (away != null && navigator.current.showsVideo) {
             playback.resume()
         }
-        scope.launch { nas.check() }
+        scope.launch {
+            nas.check()
+            if (nas.isPaired && !guideBuilding) installNasGuide()
+        }
         scope.launch { platform.updater?.check() }
     }
 
     companion object {
         /** Away longer than this, the app opens on Home instead of resuming (PLAN §4.2). */
         const val AWAY_RESETS_TO_HOME_MS = 4 * 60 * 60_000L
+        /** A NAS guide older than this is ignored, and the device builds its own: the nightly run must have stopped. */
+        const val NAS_GUIDE_MAX_AGE_MS = 36 * 60 * 60_000L
+        const val NAS_GUIDE_CHECK_MS = 30 * 60_000L
     }
 }
