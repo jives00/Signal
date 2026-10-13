@@ -57,6 +57,12 @@ class SwitchRepositoryTest {
         val newStream = linked.getValue(uc).first { it.sourceName == "new" }
         channels.choosePreferred(uc, newStream.streamId)
         assertEquals(newStream.streamId, channels.channelByUserChannel(uc)?.stream?.id)
+        // Favorites show the preferred stream too, not whichever link SQLite happens to group on.
+        assertEquals(newStream.streamId, channels.channelsNow(ChannelGroup.Favorites).first { it.userChannelId == uc }.stream.id)
+        val oldStream = linked.getValue(uc).first { it.sourceName == "old" }
+        channels.choosePreferred(uc, oldStream.streamId)
+        assertEquals(oldStream.streamId, channels.channelsNow(ChannelGroup.Favorites).first { it.userChannelId == uc }.stream.id)
+        channels.choosePreferred(uc, newStream.streamId)
 
         // The old source goes: favorites stay, playing from the new source.
         sources.save(sources.byId("old")!!.copy(enabled = false))

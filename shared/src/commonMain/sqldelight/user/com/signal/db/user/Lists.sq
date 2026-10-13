@@ -38,7 +38,9 @@ CREATE TABLE group_override (
 
 favoriteChannels:
 SELECT s.*, f.user_channel_id AS fav_user_channel_id,
-       cp.custom_name, cp.custom_logo, cp.custom_number, coalesce(cp.hidden, 0) AS hidden, f.sort_key
+       cp.custom_name, cp.custom_logo, cp.custom_number, coalesce(cp.hidden, 0) AS hidden, f.sort_key,
+       -- The one max() makes SQLite take the other columns from the preferred link's row (PLAN §4.5).
+       max(cl.preferred) AS link_rank
 FROM favorite f
 JOIN channel_link cl ON cl.user_channel_id = f.user_channel_id
 JOIN stream s ON s.id = cl.stream_id
@@ -89,7 +91,8 @@ SELECT max(sort_key) FROM playlist WHERE profile_id = ?;
 playlistChannels:
 SELECT s.*, pi.user_channel_id AS item_user_channel_id,
        cp.custom_name, cp.custom_logo, cp.custom_number, coalesce(cp.hidden, 0) AS hidden,
-       (f.user_channel_id IS NOT NULL) AS is_favorite, pi.sort_key
+       (f.user_channel_id IS NOT NULL) AS is_favorite, pi.sort_key,
+       max(cl.preferred) AS link_rank
 FROM playlist_item pi
 JOIN playlist p ON p.id = pi.playlist_id
 JOIN channel_link cl ON cl.user_channel_id = pi.user_channel_id
