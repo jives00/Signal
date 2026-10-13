@@ -81,7 +81,7 @@ class GuideJob(private val companion: Companion, private val scope: CoroutineSco
         val store = companion.store ?: return
         store.putSetting(INPUTS_FROM, from)
         store.putSetting(INPUTS_AT, System.currentTimeMillis().toString())
-        if (inputs != null && inputs.epgSources.any { it.enabled }) {
+        if (inputs != null && inputs.epgSources.any { it.enabled } && companion.buildGuideOnChange) {
             log.info("Guide inputs changed (${inputs.epgSources.size} EPG sources, from $from): building")
             runInBackground("sources changed")
         }

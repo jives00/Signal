@@ -35,6 +35,7 @@ class AdminTest {
         deviceStore = MemoryDeviceStore(),
         companionStore = MemoryCompanionStore(),
         syncStoreOverride = syncStore,
+        buildGuideOnChange = false,
     )
 
     private suspend fun HttpClient.send(method: String, path: String, body: String? = null): String {

@@ -45,6 +45,8 @@ class Companion(
     private val deviceStore: DeviceStore? = null,
     private val companionStore: CompanionStore? = null,
     private val syncStoreOverride: SyncStore? = null,
+    /** Tests that add sources without wanting a 2-minute guide build each turn this off. */
+    val buildGuideOnChange: Boolean = true,
 ) {
     /** Set once the database connects; it may not be there yet at start-up (see Main). */
     @Volatile var database: Database? = database
