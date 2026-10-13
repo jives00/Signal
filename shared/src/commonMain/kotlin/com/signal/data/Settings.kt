@@ -50,6 +50,8 @@ class Settings(private val db: UserDatabase, private val io: CoroutineDispatcher
         NAS_TAILSCALE_ADDRESS(Scope.DEVICE, "nas_tailscale_address"),
         NAS_API_KEY(Scope.DEVICE, "nas_api_key"),
         NAS_DEVICE_NAME(Scope.DEVICE, "nas_device_name"),
+        /** The companion VOD index version this device has (PLAN §4.3.12). */
+        VOD_INDEX_VERSION(Scope.DEVICE, "vod_index_version"),
         ;
 
         companion object {
@@ -57,7 +59,7 @@ class Settings(private val db: UserDatabase, private val io: CoroutineDispatcher
              * Never synced (PLAN §5.7, §9): the NAS connection and its key, the device's identity and
              * profile (the companion owns those), and passing state.
              */
-            val notSynced: Set<String> = setOf(PROFILE_ID, DEVICE_ID, BACKGROUNDED_AT, NAS_HOME_ADDRESS, NAS_TAILSCALE_ADDRESS, NAS_API_KEY, NAS_DEVICE_NAME)
+            val notSynced: Set<String> = setOf(PROFILE_ID, DEVICE_ID, BACKGROUNDED_AT, NAS_HOME_ADDRESS, NAS_TAILSCALE_ADDRESS, NAS_API_KEY, NAS_DEVICE_NAME, VOD_INDEX_VERSION)
                 .mapTo(HashSet()) { it.id }
         }
     }

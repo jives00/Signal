@@ -1,0 +1,18 @@
+{
+    "keySet": true,
+    "titles": 1200,
+    "matched": 1000,
+    "manual": 3,
+    "unmatched": 150,
+    "running": true,
+    "progress": "Matching 12 of 47",
+    "lastRun": {
+        "id": 1,
+        "job": "vod_enrich",
+        "startedAt": 1791828000000,
+        "finishedAt": 1791828160000,
+        "result": "ok",
+        "detail": "nightly: 283302 programs"
+    },
+    "imageCacheBytes": 1500000000
+}

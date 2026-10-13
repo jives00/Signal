@@ -150,6 +150,9 @@ export const CompanionSettingsView = z.object({
   snapshotsToKeep: z.number(),
   tombstoneDays: z.number(),
   newDeviceProfile: z.enum(["main", "own"]),
+  tmdbKeySet: z.boolean().default(false),
+  tmdbKey: z.string().nullable().default(null),
+  imageCacheGb: z.number().default(20),
 });
 export const SettingsView = z.object({
   household: z.record(z.string()),
@@ -244,3 +247,40 @@ export type ProposalView = z.infer<typeof ProposalView>;
 
 export const LinkView = z.object({ streamId: z.string(), name: z.string(), group: z.string(), sourceName: z.string(), preferred: z.boolean(), playable: z.boolean() });
 export type LinkView = z.infer<typeof LinkView>;
+
+/** server/VodRoutes.kt (PLAN §4.3.12): Movies & Series enrichment. */
+export const VodStatus = z.object({
+  keySet: z.boolean(),
+  titles: z.number(),
+  matched: z.number(),
+  manual: z.number(),
+  unmatched: z.number(),
+  running: z.boolean(),
+  progress: z.string().nullable(),
+  lastRun: JobRun.nullable(),
+  imageCacheBytes: z.number(),
+});
+export const VodRow = z.object({
+  itemId: z.string(),
+  sourceId: z.string(),
+  kind: z.enum(["MOVIE", "SERIES"]),
+  name: z.string(),
+  year: z.number().nullable(),
+  status: z.enum(["matched", "manual", "unmatched", "pending"]),
+  tmdbId: z.number().nullable(),
+  tmdbTitle: z.string().nullable(),
+  tmdbYear: z.number().nullable(),
+});
+export const VodRows = z.object({ rows: z.array(VodRow), total: z.number() });
+export const TmdbCandidate = z.object({
+  id: z.number(),
+  title: z.string(),
+  originalTitle: z.string().nullable(),
+  year: z.number().nullable(),
+  poster: z.string().nullable(),
+  overview: z.string().nullable(),
+});
+export type VodStatus = z.infer<typeof VodStatus>;
+export type VodRow = z.infer<typeof VodRow>;
+export type VodRows = z.infer<typeof VodRows>;
+export type TmdbCandidate = z.infer<typeof TmdbCandidate>;

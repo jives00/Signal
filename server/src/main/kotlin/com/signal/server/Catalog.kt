@@ -48,6 +48,7 @@ class Catalog(dir: File, http: HttpClient, cipher: SecretCipher?) {
     private val lock = Mutex()
     private val db: UserDatabase
     private val repo: SourceRepository
+    private val vod: com.signal.data.VodRepository
 
     init {
         dir.mkdirs()
@@ -59,6 +60,7 @@ class Catalog(dir: File, http: HttpClient, cipher: SecretCipher?) {
             override fun decrypt(cipher0: String) = cipher?.decrypt(cipher0) ?: cipher0
         }
         repo = SourceRepository(db, http, box, io, Log { level, message -> if (level == "I") log.info(message) else log.warn(message) })
+        vod = com.signal.data.VodRepository(db, io)
     }
 
     @Volatile var streams: List<CatalogStream> = emptyList()
@@ -122,6 +124,18 @@ class Catalog(dir: File, http: HttpClient, cipher: SecretCipher?) {
             refreshing = null
         }
     }
+
+    @Volatile private var vodCache: Pair<Int, List<com.signal.model.VodItem>>? = null
+
+    /** Every movie and series of the enabled sources, for enrichment (PLAN §4.3.12). Demo titles are made up, so they're left out. */
+    suspend fun vodItems(): List<com.signal.model.VodItem> {
+        val v = version
+        vodCache?.takeIf { it.first == v }?.let { return it.second }
+        val demo = withContext(io) { repo.all() }.filter { it.kind == com.signal.model.SourceKind.DEMO }.map { it.id }.toSet()
+        return vod.all().filter { it.sourceId !in demo }.also { vodCache = v to it }
+    }
+
+    suspend fun vodItem(id: String): com.signal.model.VodItem? = vod.item(id)
 
     /** Settings → Sources → Test connection, without saving anything. */
     suspend fun test(source: Source): Result<String> = repo.test(source)

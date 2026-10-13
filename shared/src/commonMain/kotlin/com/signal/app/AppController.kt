@@ -55,13 +55,18 @@ class AppController(val platform: Platform, val log: Log) {
     val sources = SourceRepository(db, http, platform.secretBox, platform.io, log)
     val channels = ChannelRepository(db, settings, platform.io)
     val switches = com.signal.data.SwitchRepository(db, settings, platform.io)
-    val vod = com.signal.data.VodRepository(db, platform.io)
+    // Posters the companion matched come from its image cache, or TMDB's CDN when it's out of reach (PLAN §4.3.12).
+    val vod = com.signal.data.VodRepository(db, platform.io) { path -> nas.imageUrl(com.signal.nas.TmdbImages.POSTER, path) }
     val vodDetails = com.signal.data.VodDetailRepository(db, sources, platform.io, log)
     val watch = com.signal.data.WatchRepository(db, settings, platform.io)
     val vodPlayback = VodPlayback(platform.player, sources, vodDetails, watch, scope, log)
     val playback = PlaybackController(platform.player, channels, sources, settings, scope, log)
     // The NAS companion (PLAN §5.7): optional; the app works the same without it.
     val nas = com.signal.nas.NasConnection(settings, http, platform.secretBox, platform.appInfo, log)
+    // VOD enrichment from the companion (PLAN §4.3.12): lists, genres, posters and metadata.
+    val vodEnrichment = com.signal.data.VodEnrichment(db, settings, vod, { nas }, platform.io, log)
+    /** Bumped when a new VOD index lands, so the browse pages reload their posters and shelves. */
+    val vodVersion = kotlinx.coroutines.flow.MutableStateFlow(0)
     // Settings sync through the companion (PLAN §9).
     val sync = com.signal.sync.SyncEngine(db, settings, com.signal.sync.SyncTables(db, settings, platform.secretBox), platform.io, log)
 
@@ -251,7 +256,16 @@ class AppController(val platform: Platform, val log: Log) {
         if (report.epgChanged || report.sourcesToRefresh.isNotEmpty()) scope.launch {
             if (installNasGuide() == null && guideIsStale()) rebuildGuide()
         }
+        // Connected, so the VOD index too (PLAN §4.3.12); an unchanged one costs a few bytes.
+        scope.launch { syncVod() }
         return true
+    }
+
+    /** Fetches the companion's VOD index if it changed. */
+    suspend fun syncVod() {
+        runCatching { vodEnrichment.sync() }
+            .onSuccess { if (it) vodVersion.value++ }
+            .onFailure { if (it is kotlinx.coroutines.CancellationException) throw it; log.warn("VOD index failed: ${it.message}") }
     }
 
     /**
@@ -273,6 +287,7 @@ class AppController(val platform: Platform, val log: Log) {
                         com.signal.sync.SyncEvent.HELLO -> if (event.rev != sync.state.value.rev) syncNow()
                         com.signal.sync.SyncEvent.SETTINGS -> if (event.rev != sync.state.value.rev) syncNow()
                         com.signal.sync.SyncEvent.GUIDE -> if (!guideBuilding) installNasGuide()
+                        com.signal.sync.SyncEvent.VOD -> syncVod()
                     }
                 }
             }.onFailure { if (it is kotlinx.coroutines.CancellationException) throw it }

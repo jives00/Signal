@@ -35,6 +35,7 @@ dependencies {
 
     testImplementation(libs.kotlin.test)
     testImplementation(libs.ktor.server.test.host)
+    testImplementation(libs.ktor.client.mock)
 }
 
 // The version the app and the web admin show (signal.versionName in gradle.properties).

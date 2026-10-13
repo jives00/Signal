@@ -114,3 +114,30 @@ deleteProfileWatch {
 watchTick:
 SELECT (SELECT count(*) FROM library_item) + (SELECT count(*) FROM resume_position) + (SELECT max(updated_at) FROM resume_position)
      + (SELECT count(*) FROM watched) + (SELECT count(*) FROM continue_hidden);
+
+-- A title the companion matched to TMDB: its rows move from the source's item ID to the TMDB key
+-- (PLAN §5.4), episodes keeping their ":s1e2" ending. INSERT OR REPLACE, so a row already under the
+-- new key (another source's copy) wins over nothing.
+rekeyLibrary {
+    INSERT OR REPLACE INTO library_item SELECT profile_id, :newKey, kind, vod_item_id, title, year, poster_url, added_at FROM library_item WHERE item_key = :oldKey;
+    DELETE FROM library_item WHERE item_key = :oldKey;
+    INSERT OR REPLACE INTO resume_position SELECT profile_id, :newKey || substr(item_key, length(:oldKey) + 1), kind, vod_item_id, episode_id,
+        CASE WHEN series_key = :oldKey THEN :newKey ELSE series_key END, season, episode, title, position_ms, duration_ms, updated_at
+        FROM resume_position WHERE item_key = :oldKey OR series_key = :oldKey;
+    DELETE FROM resume_position WHERE item_key = :oldKey OR series_key = :oldKey;
+    INSERT OR REPLACE INTO watched SELECT profile_id, :newKey || substr(item_key, length(:oldKey) + 1), kind, vod_item_id,
+        CASE WHEN series_key = :oldKey THEN :newKey ELSE series_key END, season, episode, watched_at
+        FROM watched WHERE item_key = :oldKey OR series_key = :oldKey;
+    DELETE FROM watched WHERE item_key = :oldKey OR series_key = :oldKey;
+    INSERT OR REPLACE INTO continue_hidden SELECT profile_id, :newKey, hidden_at FROM continue_hidden WHERE series_key = :oldKey;
+    DELETE FROM continue_hidden WHERE series_key = :oldKey;
+}
+
+-- Keys that are still a source's item ID, for rekeying.
+itemKeyed:
+SELECT item_key FROM library_item WHERE item_key = vod_item_id
+UNION SELECT item_key FROM resume_position WHERE item_key = vod_item_id
+UNION SELECT series_key FROM resume_position WHERE series_key = vod_item_id
+UNION SELECT item_key FROM watched WHERE item_key = vod_item_id
+UNION SELECT series_key FROM watched WHERE series_key = vod_item_id
+UNION SELECT series_key FROM continue_hidden;

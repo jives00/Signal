@@ -91,7 +91,10 @@ fun SeriesPage(route: Route.SeriesDetail) {
     val app = LocalApp.current
     val c = SignalTheme.colors
     val item by produceState<VodItem?>(null, route.itemId) { value = app.vod.item(route.itemId) }
-    val detail by produceState<SeriesDetail?>(null, item) { item?.let { value = app.vodDetails.series(it) } }
+    val provided by produceState<SeriesDetail?>(null, item) { item?.let { value = app.vodDetails.series(it) } }
+    // The companion's TMDB metadata on top: episode titles, overviews and stills (PLAN §4.3.12).
+    val meta by produceState<com.signal.nas.VodMeta?>(null, item) { item?.let { value = app.vodEnrichment.meta(it) } }
+    val detail = remember(provided, meta) { com.signal.data.VodEnrichment.merge(provided, meta, app.nas::imageUrl) }
     val state by app.watchState.collectAsState()
     var season by remember(route.itemId) { mutableStateOf<Int?>(null) }
     val primary = remember { FocusRequester() }
@@ -171,7 +174,7 @@ fun SeriesPage(route: Route.SeriesDetail) {
                 Column {
                     HDivider()
                     SText(
-                        metaLine(it.year, null, d?.rating ?: it.rating, emptyList()) + (d?.seasons?.size?.let { n -> "  ·  $n season${if (n == 1) "" else "s"}" } ?: ""),
+                        metaLine(it.year, null, d?.rating ?: it.rating, d?.genres.orEmpty(), d?.contentRating) + (d?.seasons?.size?.let { n -> "  ·  $n season${if (n == 1) "" else "s"}" } ?: ""),
                         24, Modifier.padding(vertical = 14.dp), weight = FontWeight.SemiBold,
                     )
                     HDivider()

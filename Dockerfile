@@ -14,7 +14,7 @@ ENV PORT=3013 \
     DATA_DIR=/data \
     WEB_DIR=/app/web \
     TZ=America/Chicago \
-    JAVA_OPTS="-XX:MaxRAMPercentage=50"
+    JAVA_OPTS="-XX:MaxRAMPercentage=50 -Djava.awt.headless=true"
 
 VOLUME /data
 EXPOSE 3013

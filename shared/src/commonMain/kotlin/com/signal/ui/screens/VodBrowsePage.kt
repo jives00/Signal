@@ -66,12 +66,17 @@ private sealed interface Shelf {
     data object Library : Shelf { override val key = "library" }
     data object Recent : Shelf { override val key = "recent" }
     data class Category(val entry: VodRepository.CategoryEntry) : Shelf { override val key = "${entry.sourceId}|${entry.categoryId}" }
+    /** A TMDB list or genre from the companion (PLAN §4.3.12): "list:trending", "genre:Action". */
+    data class Tmdb(val shelf: String, val label: String) : Shelf {
+        override val key = shelf
+        val isList get() = shelf.startsWith(com.signal.data.VodEnrichment.LIST)
+    }
 }
 
 /**
  * Movies and Series (PLAN §4.3.6–4.3.7, handoff screen 5): the category column on the left and a
- * 6-column poster grid. Library and the TMDB lists and genres join with later slices; the provider
- * categories and Recently added work without the NAS.
+ * 6-column poster grid. The TMDB lists and genres come from the companion; without it, Library,
+ * Recently added and the provider categories still work.
  */
 @Composable
 fun VodBrowsePage(kind: VodKind) {
@@ -80,6 +85,15 @@ fun VodBrowsePage(kind: VodKind) {
     val chrome = remember(kind) { PageChrome() }
     val route = if (kind == VodKind.MOVIE) Route.Movies else Route.Series
     val categories by remember(kind) { app.vod.categories(kind) }.collectAsState(emptyList())
+    val shelves by remember(kind) { app.vod.shelves(kind) }.collectAsState(emptyList())
+    val shelfCounts = shelves.associate { it.shelf to it.count }
+    val lists = com.signal.data.VodEnrichment.lists(kind).mapNotNull { (id, label) ->
+        val shelf = com.signal.data.VodEnrichment.LIST + id
+        shelfCounts[shelf]?.let { Shelf.Tmdb(shelf, label) to it }
+    }
+    val genres = shelves.filter { it.shelf.startsWith(com.signal.data.VodEnrichment.GENRE) }
+        .map { Shelf.Tmdb(it.shelf, it.shelf.removePrefix(com.signal.data.VodEnrichment.GENRE)) to it.count }.sortedBy { it.first.label }
+    val vodVersion by app.vodVersion.collectAsState()
     var shelf by remember(kind) { mutableStateOf<Shelf>(Shelf.Recent) }
     // Sort per category for this visit; TMDB lists will keep their own order (PLAN §4.3.6 → Poster grid).
     val sorts = remember(kind) { mutableStateMapOf<String, VodSort>() }
@@ -88,11 +102,13 @@ fun VodBrowsePage(kind: VodKind) {
     var libraryFilter by remember(kind) { mutableStateOf(LibraryFilter.ALL) }
     var librarySort by remember(kind) { mutableStateOf(LibrarySort.ADDED) }
     val libraryEntries = watch.library.filter { it.kind == kind }
-    val items by produceState(emptyList<VodItem>(), kind, shelf, sort, watch, libraryFilter, librarySort) {
+    val items by produceState(emptyList<VodItem>(), kind, shelf, sort, watch, libraryFilter, librarySort, vodVersion) {
         value = when (val s = shelf) {
             Shelf.Library -> libraryItems(app, libraryEntries, watch, libraryFilter, librarySort)
             Shelf.Recent -> VodRepository.sorted(app.vod.recentlyAdded(kind), sort)
             is Shelf.Category -> app.vod.items(kind, s.entry.sourceId, s.entry.categoryId, sort)
+            // Lists keep TMDB's order; genres sort like categories (PLAN §4.3.6 → Poster grid).
+            is Shelf.Tmdb -> app.vod.shelfItems(kind, s.shelf).let { if (s.isList) it else VodRepository.sorted(it, sort) }
         }
     }
     val multiSource = categories.map { it.sourceId }.distinct().size > 1
@@ -159,6 +175,20 @@ fun VodBrowsePage(kind: VodKind) {
                         onOptions = { app.panel.open(sortPage(), returnTo) },
                     )
                 }
+                items(lists, key = { it.first.key }) { (s, count) ->
+                    ListRow(
+                        s.label, detail = count.toString(), selected = shelf.key == s.key,
+                        onFocused = { shelf = s }, onSelect = { shelf = s; focusGrid() },
+                    )
+                }
+                if (genres.isNotEmpty()) item { SText("Genres", 22, Modifier.padding(start = 40.dp, top = 24.dp, bottom = 8.dp), color = c.muted, weight = FontWeight.SemiBold) }
+                items(genres, key = { it.first.key }) { (s, count) ->
+                    ListRow(
+                        s.label, detail = count.toString(), selected = shelf.key == s.key,
+                        onFocused = { shelf = s }, onSelect = { shelf = s; focusGrid() },
+                        onOptions = { app.panel.open(sortPage(), returnTo) },
+                    )
+                }
                 if (categories.isNotEmpty()) item { SText("Categories", 22, Modifier.padding(start = 40.dp, top = 24.dp, bottom = 8.dp), color = c.muted, weight = FontWeight.SemiBold) }
                 items(categories, key = { "${it.sourceId}|${it.categoryId}" }) { cat ->
                     val s = Shelf.Category(cat)
@@ -178,9 +208,14 @@ fun VodBrowsePage(kind: VodKind) {
                     Shelf.Library -> "Library"
                     Shelf.Recent -> "Recently added"
                     is Shelf.Category -> s.entry.name
+                    is Shelf.Tmdb -> s.label
                 }
                 SText(title, 48, weight = FontWeight.ExtraBold, maxLines = 1)
-                val line = if (shelf == Shelf.Library) "${items.size} titles · ${libraryFilter.label} · Sort: ${librarySort.label}" else "${items.size} titles · Sort: ${sort.label}"
+                val line = when {
+                    shelf == Shelf.Library -> "${items.size} titles · ${libraryFilter.label} · Sort: ${librarySort.label}"
+                    (shelf as? Shelf.Tmdb)?.isList == true -> "${items.size} titles · from TMDB"
+                    else -> "${items.size} titles · Sort: ${sort.label}"
+                }
                 SText(line, 24, Modifier.padding(top = 8.dp, bottom = 28.dp), color = c.muted)
                 if (items.isEmpty()) {
                     val empty = when {
@@ -248,7 +283,12 @@ fun PosterTile(item: VodItem, focusRequester: FocusRequester?, onSelect: () -> U
                             contentScale = ContentScale.Crop,
                             modifier = Modifier.fillMaxSize(),
                             loading = { placeholder() },
-                            error = { placeholder() },
+                            // The companion's copy failed (it's out of reach): the provider's own poster.
+                            error = {
+                                val fallback = item.fallbackPosterUrl
+                                if (fallback.isNullOrBlank()) placeholder()
+                                else SubcomposeAsyncImage(model = fallback, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize(), error = { placeholder() })
+                            },
                         )
                     }
                     if (progress != null && progress > 0f) {

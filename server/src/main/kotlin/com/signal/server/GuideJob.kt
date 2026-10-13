@@ -148,6 +148,8 @@ class GuideJob(private val companion: Companion, private val scope: CoroutineSco
                 // Source refresh first, so the guide build and the web admin see fresh streams (PLAN §5.8).
                 refreshSources("nightly")
                 run("nightly")
+                // VOD enrichment after the guide (PLAN §4.3.13).
+                runCatching { companion.runVod("nightly") }.onFailure { log.error("VOD enrichment failed: ${it.message}") }
                 // Then the settings backup (PLAN §5.8: guide build → … → backup snapshot).
                 runCatching { companion.sync.nightly() }.onFailure { log.error("Nightly snapshot failed: ${it.message}") }
             }

@@ -230,6 +230,44 @@ class NasConnection(
         return false
     }
 
+    // ---- VOD enrichment (PLAN §4.3.12) ----------------------------------------------------------
+
+    sealed interface IndexResult {
+        data class Fresh(val index: VodIndex) : IndexResult
+        data object Unchanged : IndexResult
+        data object Failed : IndexResult
+    }
+
+    /** The companion's VOD index, unless it's still version [have]. */
+    suspend fun vodIndex(have: Long?): IndexResult {
+        if (!isPaired) return IndexResult.Failed
+        val response = call(SYNC_TIMEOUT_MS) { base ->
+            http.get(base + NasVodPaths.INDEX) {
+                asDevice()
+                have?.let { url.parameters.append("have", it.toString()) }
+            }
+        } ?: return IndexResult.Failed
+        return when {
+            response.status == HttpStatusCode.NotModified -> IndexResult.Unchanged
+            response.status.isSuccess() -> runCatching { IndexResult.Fresh(json.decodeFromString<VodIndex>(response.bodyAsText())) }.getOrDefault(IndexResult.Failed)
+            else -> IndexResult.Failed
+        }
+    }
+
+    /** One title's enriched metadata; null when it isn't matched or the NAS is out of reach. */
+    suspend fun vodMeta(itemId: String): VodMeta? {
+        if (!isPaired) return null
+        val response = call { base -> http.get(base + NasVodPaths.meta(itemId)) { asDevice() } } ?: return null
+        if (!response.status.isSuccess()) return null
+        return runCatching { json.decodeFromString<VodMeta>(response.bodyAsText()) }.getOrNull()
+    }
+
+    /** Where images come from right now: the companion that answered last, or null to use TMDB's CDN. */
+    fun imageUrl(size: String, path: String): String {
+        val base = active?.second?.takeIf { isPaired && _status.value is Status.Connected }
+        return if (base != null) "$base${NasVodPaths.IMAGES}/$size$path" else TmdbImages.direct(size, path)
+    }
+
     // ---- Settings sync (PLAN §5.5, §9.2) --------------------------------------------------------
 
     override suspend fun push(request: com.signal.sync.PushRequest): com.signal.sync.PushResult? {

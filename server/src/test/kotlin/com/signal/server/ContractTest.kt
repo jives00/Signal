@@ -58,7 +58,7 @@ class ContractTest {
             "queue", QueueView.serializer(),
             QueueView(12, row.copy(guide = null), listOf(GuideChannelInfo("epg:src", "Provider guide", "fs1.us", "Fox Sports 1", 0.95, null, null))),
         )
-        check("settings", SettingsView.serializer(), SettingsView(mapOf("default_epg_source" to "epg:src"), mapOf("clock_24h" to "true"), CompanionSettingsView("03:00", "America/Chicago", 30, 90, "main")))
+        check("settings", SettingsView.serializer(), SettingsView(mapOf("default_epg_source" to "epg:src"), mapOf("clock_24h" to "true"), CompanionSettingsView("03:00", "America/Chicago", 30, 90, "main", true, null, 20)))
         check(
             "overview", Overview.serializer(),
             Overview(listOf(source), Coverage(900, 1000), 2, 0, listOf(job), listOf(Device("d1", "Living room", "SHIELD", "0.3.0", 1, 2, "main", 3)), "0.3.0", 4),
@@ -72,6 +72,12 @@ class ContractTest {
                 listOf(GroupProposalView("src", "Provider", "US Sports", "Sports")),
             ),
         )
+        check("vod-status", VodStatus.serializer(), VodStatus(true, 1200, 1000, 3, 150, true, "Matching 12 of 47", job.copy(job = "vod_enrich"), 1_500_000_000))
+        check(
+            "vod-rows", VodRows.serializer(),
+            VodRows(listOf(VodRow("src:v:603", "src", "MOVIE", "The Matrix", 1999, "matched", 603, "The Matrix", 1999), VodRow("src:s:9", "src", "SERIES", "Home Video", null, "pending", null, null, null)), 2),
+        )
+        check("tmdb-candidates", kotlinx.serialization.builtins.ListSerializer(TmdbCandidate.serializer()), listOf(TmdbCandidate(603, "The Matrix", null, 1999, "/matrix.jpg", "A hacker learns the truth.")))
         check("links", kotlinx.serialization.builtins.ListSerializer(LinkView.serializer()), listOf(LinkView("src:x:42", "FOX Sports 1", "US Sports", "Provider", true, true)))
     }
 }

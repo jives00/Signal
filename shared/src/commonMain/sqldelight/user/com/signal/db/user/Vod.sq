@@ -71,3 +71,54 @@ SELECT count(*) FROM vod_item i JOIN source src ON src.id = i.source_id AND src.
 
 itemById:
 SELECT * FROM vod_item WHERE id = ?;
+
+-- The companion's matcher (PLAN §4.3.12): every title of every enabled source.
+allItems:
+SELECT i.* FROM vod_item i JOIN source src ON src.id = i.source_id AND src.enabled = 1 ORDER BY i.source_id, i.kind, i.position;
+
+-- From the companion's VOD index (PLAN §4.3.12): each matched title's TMDB ID and poster, and the
+-- TMDB lists and genres as shelves ("list:trending", "genre:Action"). Replaced whole on each fetch.
+-- Device-local, not synced; without the NAS these stay empty and only provider data shows.
+CREATE TABLE vod_tmdb (
+    item_id TEXT NOT NULL PRIMARY KEY,
+    tmdb_id INTEGER NOT NULL,
+    poster TEXT
+);
+
+CREATE TABLE vod_shelf (
+    kind TEXT NOT NULL,
+    shelf TEXT NOT NULL,
+    position INTEGER NOT NULL,
+    item_id TEXT NOT NULL,
+    PRIMARY KEY (kind, shelf, position)
+);
+
+clearEnrichment {
+    DELETE FROM vod_tmdb;
+    DELETE FROM vod_shelf;
+}
+
+insertTmdb:
+INSERT OR REPLACE INTO vod_tmdb(item_id, tmdb_id, poster) VALUES (?, ?, ?);
+
+insertShelf:
+INSERT OR REPLACE INTO vod_shelf(kind, shelf, position, item_id) VALUES (?, ?, ?, ?);
+
+allTmdb:
+SELECT * FROM vod_tmdb;
+
+-- The Lists and Genres entries: shelves with at least one title of an enabled source.
+shelves:
+SELECT sh.shelf, count(DISTINCT sh.item_id) AS item_count
+FROM vod_shelf sh
+JOIN vod_item i ON i.id = sh.item_id
+JOIN source src ON src.id = i.source_id AND src.enabled = 1
+WHERE sh.kind = ?
+GROUP BY sh.shelf;
+
+itemsInShelf:
+SELECT i.* FROM vod_shelf sh
+JOIN vod_item i ON i.id = sh.item_id
+JOIN source src ON src.id = i.source_id AND src.enabled = 1
+WHERE sh.kind = ? AND sh.shelf = ?
+ORDER BY sh.position;

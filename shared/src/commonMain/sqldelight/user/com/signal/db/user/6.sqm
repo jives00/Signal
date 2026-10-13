@@ -1,0 +1,14 @@
+-- Milestone 4 (NAS enrichment): the companion's TMDB matches and its lists and genres.
+CREATE TABLE vod_tmdb (
+    item_id TEXT NOT NULL PRIMARY KEY,
+    tmdb_id INTEGER NOT NULL,
+    poster TEXT
+);
+
+CREATE TABLE vod_shelf (
+    kind TEXT NOT NULL,
+    shelf TEXT NOT NULL,
+    position INTEGER NOT NULL,
+    item_id TEXT NOT NULL,
+    PRIMARY KEY (kind, shelf, position)
+);

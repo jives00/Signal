@@ -15,6 +15,8 @@ data class MovieDetail(
     val trailerKey: String? = null,
     val tmdbId: Long? = null,
     val containerExt: String? = null,
+    /** "PG-13", from TMDB through the companion. */
+    val contentRating: String? = null,
 )
 
 /** One episode (PLAN §4.3.9). IDs are `<source>:e:<provider id>`. */
@@ -44,6 +46,7 @@ data class SeriesDetail(
     val backdropUrl: String? = null,
     val trailerKey: String? = null,
     val tmdbId: Long? = null,
+    val contentRating: String? = null,
     val episodes: List<Episode> = emptyList(),
 ) {
     val seasons: List<Int> get() = episodes.map { it.season }.distinct().sorted()

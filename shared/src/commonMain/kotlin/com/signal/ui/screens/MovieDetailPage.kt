@@ -48,8 +48,9 @@ import com.signal.ui.theme.SignalTheme
 import kotlinx.coroutines.launch
 
 /** The meta row's pieces: year, runtime, score, genres (PLAN §4.3.8 → Information). */
-internal fun metaLine(year: Int?, durationSec: Int?, rating: Double?, genres: List<String>): String = listOfNotNull(
+internal fun metaLine(year: Int?, durationSec: Int?, rating: Double?, genres: List<String>, contentRating: String? = null): String = listOfNotNull(
     year?.toString(),
+    contentRating,
     durationSec?.let { runtime(it) },
     rating?.let { "★ ${(kotlin.math.round(it * 10) / 10.0)}" },
     genres.take(3).joinToString(", ").ifEmpty { null },
@@ -78,7 +79,10 @@ fun MovieDetailPage(route: Route.MovieDetail) {
     val app = LocalApp.current
     val c = SignalTheme.colors
     val item by produceState<VodItem?>(null, route.itemId) { value = app.vod.item(route.itemId) }
-    val detail by produceState<MovieDetail?>(null, item) { item?.let { value = app.vodDetails.movie(it) } }
+    val provided by produceState<MovieDetail?>(null, item) { item?.let { value = app.vodDetails.movie(it) } }
+    // The companion's TMDB metadata on top, when it has the title (PLAN §4.3.12).
+    val meta by produceState<com.signal.nas.VodMeta?>(null, item) { item?.let { value = app.vodEnrichment.meta(it) } }
+    val detail = remember(provided, meta) { com.signal.data.VodEnrichment.merge(provided, meta, app.nas::imageUrl) }
     val state by app.watchState.collectAsState()
     val primary = remember { FocusRequester() }
     val returnTo = remember { FocusRequester() }
@@ -103,7 +107,7 @@ fun MovieDetailPage(route: Route.MovieDetail) {
             SText(VodRepository.displayName(it), if (VodRepository.displayName(it).length > 24) 72 else 96, weight = FontWeight.ExtraBold, maxLines = 2)
             Column {
                 HDivider()
-                SText(metaLine(it.year, detail?.durationSec, detail?.rating ?: it.rating, detail?.genres.orEmpty()), 26, Modifier.padding(vertical = 16.dp), weight = FontWeight.SemiBold)
+                SText(metaLine(it.year, detail?.durationSec, detail?.rating ?: it.rating, detail?.genres.orEmpty(), detail?.contentRating), 26, Modifier.padding(vertical = 16.dp), weight = FontWeight.SemiBold)
                 HDivider()
             }
             (detail?.plot ?: it.plot)?.let { plot -> SText(plot, 28, color = c.secondaryText, maxLines = 5) }

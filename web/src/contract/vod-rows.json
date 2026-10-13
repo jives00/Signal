@@ -1,0 +1,27 @@
+{
+    "rows": [
+        {
+            "itemId": "src:v:603",
+            "sourceId": "src",
+            "kind": "MOVIE",
+            "name": "The Matrix",
+            "year": 1999,
+            "status": "matched",
+            "tmdbId": 603,
+            "tmdbTitle": "The Matrix",
+            "tmdbYear": 1999
+        },
+        {
+            "itemId": "src:s:9",
+            "sourceId": "src",
+            "kind": "SERIES",
+            "name": "Home Video",
+            "year": null,
+            "status": "pending",
+            "tmdbId": null,
+            "tmdbTitle": null,
+            "tmdbYear": null
+        }
+    ],
+    "total": 2
+}

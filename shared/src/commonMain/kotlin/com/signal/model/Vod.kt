@@ -13,6 +13,8 @@ data class VodItem(
     val name: String,
     val categoryId: String,
     val posterUrl: String? = null,
+    /** The provider's poster, when [posterUrl] is the companion's: shown if that one fails to load. */
+    val fallbackPosterUrl: String? = null,
     val year: Int? = null,
     /** The provider's 0–10 rating. */
     val rating: Double? = null,

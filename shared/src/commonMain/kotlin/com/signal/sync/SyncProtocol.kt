@@ -111,6 +111,8 @@ data class SyncEvent(
         const val HELLO = "hello"
         const val SETTINGS = "settings"
         const val GUIDE = "guide"
+        /** VOD enrichment changed: matches, lists or metadata (PLAN §4.3.12). `rev` is the index version. */
+        const val VOD = "vod"
     }
 }
 

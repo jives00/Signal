@@ -152,3 +152,19 @@ export const rejectMatches = (userChannelId: string, streamIds: string[]) => pos
 export const carryGroup = (fromSource: string, fromGroup: string, toSource: string, toGroup: string) => post("/api/switch/groups", { fromSource, fromGroup, toSource, toGroup });
 export const getLinks = (uc: string) => read(S.LinkView.array(), `/api/links/${enc(uc)}`);
 export const preferStream = (uc: string, streamId: string) => post(`/api/links/${enc(uc)}/preferred`, { streamId });
+
+// ---- Movies & Series (PLAN §4.3.12) ----
+export interface VodQuery { q?: string; kind?: "" | "MOVIE" | "SERIES"; status?: "" | "matched" | "manual" | "unmatched" | "pending"; offset?: number; limit?: number }
+export const getVodStatus = () => read(S.VodStatus, "/api/vod");
+export function getVodItems(f: VodQuery) {
+  const p = new URLSearchParams();
+  for (const [k, v] of Object.entries(f)) if (v !== undefined && v !== "") p.set(k, String(v));
+  return read(S.VodRows, `/api/vod/items?${p}`);
+}
+export const searchTmdb = (kind: string, q: string, year?: number | null) =>
+  read(S.TmdbCandidate.array(), `/api/vod/search?kind=${kind}&q=${enc(q)}${year ? `&year=${year}` : ""}`);
+export const setVodMatch = (itemId: string, tmdbId: number | null) => send<void>(`/api/vod/items/${enc(itemId)}/match`, { method: "PUT", body: JSON.stringify({ tmdbId }) });
+export const clearVodMatch = (itemId: string) => send<void>(`/api/vod/items/${enc(itemId)}/match`, { method: "DELETE" });
+export const runVod = () => send<void>("/api/vod/run", { method: "POST" });
+/** The companion's cached copy of a TMDB image. */
+export const tmdbImage = (size: "w500" | "w780" | "backdrop", path: string | null) => (path ? `/images/tmdb/${size}${path}` : null);

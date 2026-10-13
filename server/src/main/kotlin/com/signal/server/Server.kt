@@ -47,6 +47,10 @@ class Companion(
     private val syncStoreOverride: SyncStore? = null,
     /** Tests that add sources without wanting a 2-minute guide build each turn this off. */
     val buildGuideOnChange: Boolean = true,
+    /** Tests: TMDB answered by a mock, and the store and titles without MySQL or a catalog. */
+    private val tmdbHttp: HttpClient? = null,
+    private val tmdbStoreOverride: TmdbStore? = null,
+    private val vodItemsOverride: (suspend () -> List<com.signal.model.VodItem>)? = null,
 ) {
     /** Set once the database connects; it may not be there yet at start-up (see Main). */
     @Volatile var database: Database? = database
@@ -75,6 +79,51 @@ class Companion(
     /** Every source's channel list, for the web admin (PLAN §5.2 → Source refresh). */
     val catalog by lazy { Catalog(File(config.dataDir, "catalog"), http, cipher) }
     val guideReader = GuideReader { guide.dbFile() }
+
+    val tmdbStore: TmdbStore? get() = tmdbStoreOverride ?: database?.tmdb
+    private val tmdbClient by lazy {
+        tmdbHttp ?: HttpClient(CIO) {
+            install(HttpTimeout) {
+                connectTimeoutMillis = 15_000
+                requestTimeoutMillis = 60_000
+            }
+        }
+    }
+    val tmdb by lazy { Tmdb(tmdbClient, { settings.tmdbKey }) }
+    /** VOD enrichment (PLAN §4.3.12). */
+    val vod by lazy {
+        VodEnricher(tmdb, { tmdbStore }, ::vodItems, { if (vodItemsOverride != null) 0 else catalog.version }, ::followedVod)
+    }
+    val images by lazy { ImageCache(File(config.dataDir, "images"), tmdbClient, { settings.imageCacheGb.toLong() shl 30 }) }
+
+    /** Titles in any profile's Library or Continue watching (PLAN §4.3.13). */
+    private fun followedVod(): Set<String> = runCatching {
+        sync.liveItems().filter { it.type == com.signal.sync.SyncType.LIBRARY_ITEM || it.type == com.signal.sync.SyncType.RESUME_POSITION }
+            .mapNotNull { (it.fields["vod_item_id"] as? kotlinx.serialization.json.JsonPrimitive)?.content }.toSet()
+    }.getOrDefault(emptySet())
+
+    /** An enrichment run, recorded in the job history; open TVs fetch the new index (PLAN §9.2). */
+    suspend fun runVod(trigger: String) {
+        val store = store ?: return
+        val id = store.startJob(VOD_JOB, System.currentTimeMillis())
+        val result = runCatching { vod.run(trigger) }
+        store.finishJob(id, System.currentTimeMillis(), if (result.isSuccess) "ok" else "failed", result.getOrElse { "$trigger: ${it.message}" })
+        runCatching { vod.index() }.onSuccess { events.tryEmit(com.signal.sync.SyncEvent(com.signal.sync.SyncEvent.VOD, rev = it.version)) }
+    }
+
+    suspend fun vodItems(): List<com.signal.model.VodItem> = vodItemsOverride?.invoke() ?: catalog.vodItems()
+    suspend fun catalogItem(id: String): com.signal.model.VodItem? = vodItems().firstOrNull { it.id == id }
+
+    /** A match was fixed in the web admin: open TVs fetch the new index. */
+    suspend fun vodChanged() {
+        runCatching { vod.index() }.onSuccess { events.tryEmit(com.signal.sync.SyncEvent(com.signal.sync.SyncEvent.VOD, rev = it.version)) }
+    }
+
+    fun runVodInBackground(trigger: String): Boolean {
+        if (vod.running) return false
+        scope.launch { runVod(trigger) }
+        return true
+    }
     private val sourcesChanged = kotlinx.coroutines.channels.Channel<Unit>(kotlinx.coroutines.channels.Channel.CONFLATED)
 
     /** The synced sources changed (or the database just connected): the catalog follows. */
@@ -96,6 +145,10 @@ class Companion(
     val events = kotlinx.coroutines.flow.MutableSharedFlow<com.signal.sync.SyncEvent>(extraBufferCapacity = 64)
     val version: String =
         Companion::class.java.getResourceAsStream("/signal-version.txt")?.bufferedReader()?.readText()?.trim()?.takeIf { it.isNotEmpty() && !it.startsWith("$") } ?: "dev"
+
+    companion object Jobs {
+        const val VOD_JOB = "vod_enrich"
+    }
 
     fun databaseState(): String = when {
         config.db == null -> "not configured"
@@ -132,12 +185,15 @@ fun Application.signalModule(companion: Companion) {
             deviceRoutes(companion)
             guideDeviceRoutes(companion)
             syncDeviceRoutes(companion)
+            vodDeviceRoutes(companion)
+            vodImageRoutes(companion)
             route("/api") {
                 get("/status") { call.respond(Status(companion.version, companion.databaseState(), companion.config.secretKey != null)) }
                 deviceAdminRoutes(companion)
                 guideAdminRoutes(companion)
                 syncAdminRoutes(companion)
                 adminPageRoutes(companion)
+                vodAdminRoutes(companion)
             }
             webAdmin(File(companion.config.webDir))
         }

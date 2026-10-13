@@ -10,6 +10,9 @@
         "timeZone": "America/Chicago",
         "snapshotsToKeep": 30,
         "tombstoneDays": 90,
-        "newDeviceProfile": "main"
+        "newDeviceProfile": "main",
+        "tmdbKeySet": true,
+        "tmdbKey": null,
+        "imageCacheGb": 20
     }
 }

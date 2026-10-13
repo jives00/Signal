@@ -14,6 +14,7 @@ import Reminders from "./pages/Reminders";
 import Settings from "./pages/Settings";
 import Sources from "./pages/Sources";
 import Switch from "./pages/Switch";
+import Vod from "./pages/Vod";
 
 /** The sidebar (PLAN §4.3.18). Name cleanup arrives with cleanup rules on the TV. */
 const pages: { path: string; title: string; ready: boolean; soon?: string }[] = [
@@ -25,6 +26,7 @@ const pages: { path: string; title: string; ready: boolean; soon?: string }[] = 
   { path: "/cleanup", title: "Name cleanup", ready: false, soon: "Arrives with name cleanup rules on the TV" },
   { path: "/mapping", title: "Guide mapping", ready: true },
   { path: "/switch", title: "Provider switch", ready: true },
+  { path: "/vod", title: "Movies & Series", ready: true },
   { path: "/reminders", title: "Reminders", ready: true },
   { path: "/settings", title: "Settings", ready: true },
   { path: "/devices", title: "Devices & profiles", ready: true },
@@ -107,6 +109,7 @@ function Shell() {
           <Route path="/groups" element={<Groups />} />
           <Route path="/mapping" element={<Mapping />} />
           <Route path="/switch" element={<Switch />} />
+          <Route path="/vod" element={<Vod />} />
           <Route path="/reminders" element={<Reminders />} />
           <Route path="/settings" element={<Settings />} />
           <Route path="/devices" element={<Devices />} />
