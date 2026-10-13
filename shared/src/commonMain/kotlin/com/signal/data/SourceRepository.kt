@@ -4,6 +4,10 @@ import app.cash.sqldelight.coroutines.asFlow
 import app.cash.sqldelight.coroutines.mapToList
 import com.signal.db.user.UserDatabase
 import com.signal.demo.DemoData
+import com.signal.demo.DemoVod
+import com.signal.model.VodCategory
+import com.signal.model.VodItem
+import com.signal.model.VodKind
 import com.signal.match.CharacterCleanup
 import com.signal.model.CredentialMasking
 import com.signal.model.LiveFormat
@@ -29,7 +33,7 @@ import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlin.time.Clock
 
-/** Sources and their cached channel lists (PLAN §6). Credentials are encrypted at rest (PLAN §5.7). */
+/** Sources and their cached channel lists (PLAN Â§6). Credentials are encrypted at rest (PLAN Â§5.7). */
 class SourceRepository(
     private val db: UserDatabase,
     private val http: HttpClient,
@@ -70,12 +74,13 @@ class SourceRepository(
 
     suspend fun delete(id: String) = withContext(io) {
         db.transaction {
+            db.vodQueries.deleteAllForSource(id)
             db.streamQueries.deleteForSource(id)
             db.sourceQueries.delete(id)
         }
     }
 
-    /** Re-downloads and re-parses a source's channel list (PLAN §2.1 "Source refresh"). */
+    /** Re-downloads and re-parses a source's channel list (PLAN Â§2.1 "Source refresh"). */
     suspend fun refresh(id: String): Result<Int> = withContext(io) {
         val source = byId(id) ?: return@withContext Result.failure(IllegalArgumentException("No source $id"))
         runCatching {
@@ -84,6 +89,11 @@ class SourceRepository(
                 db.streamQueries.deleteForSource(source.id)
                 val removeEmoji = true
                 loaded.streams.forEach { s -> db.streamQueries.insert(s.toRow(removeEmoji)) }
+                loaded.vod?.let { vod ->
+                    db.vodQueries.deleteAllForSource(source.id)
+                    vod.categories.forEach { db.vodQueries.insertCategory(it.toRow()) }
+                    vod.items.forEach { db.vodQueries.insertItem(it.toRow()) }
+                }
                 db.sourceQueries.markRefreshed(
                     Clock.System.now().toEpochMilliseconds(),
                     loaded.expiresAt,
@@ -91,7 +101,7 @@ class SourceRepository(
                     source.id,
                 )
             }
-            log.info("Refreshed ${source.name}: ${loaded.streams.size} streams")
+            log.info("Refreshed ${source.name}: ${loaded.streams.size} streams" + (loaded.vod?.let { v -> ", ${v.items.count { it.kind == VodKind.MOVIE }} movies, ${v.items.count { it.kind == VodKind.SERIES }} series" } ?: ""))
             loaded.streams.size
         }.onFailure { e ->
             log.warn("Refresh of ${source.name} failed: ${e.message}")
@@ -99,21 +109,35 @@ class SourceRepository(
         }
     }
 
-    /** Settings → Sources → Test connection: logs in or downloads, without saving anything. */
+    /** Settings â Sources â Test connection: logs in or downloads, without saving anything. */
     suspend fun test(source: Source): Result<String> = withContext(io) {
         runCatching {
             val loaded = load(source)
             buildString {
                 append("${loaded.streams.size} channels")
-                loaded.connectionLimit?.let { append(" · $it connections") }
+                loaded.connectionLimit?.let { append(" Â· $it connections") }
             }
         }
     }
 
-    private class Loaded(val streams: List<ProviderStream>, val expiresAt: Long? = null, val connectionLimit: Int? = null)
+    private class Loaded(
+        val streams: List<ProviderStream>,
+        val expiresAt: Long? = null,
+        val connectionLimit: Int? = null,
+        /** Movies and series (PLAN §4.3.6): null when the source has none or they failed, which keeps the old ones. */
+        val vod: Vod? = null,
+    )
+
+    private class Vod(val categories: List<VodCategory>, val items: List<VodItem>)
 
     private suspend fun load(source: Source): Loaded = when (source.kind) {
-        SourceKind.DEMO -> Loaded(DemoData.streams(source.id))
+        SourceKind.DEMO -> Loaded(
+            DemoData.streams(source.id),
+            vod = Vod(
+                DemoVod.categories(source.id, VodKind.MOVIE) + DemoVod.categories(source.id, VodKind.SERIES),
+                DemoVod.movies(source.id) + DemoVod.series(source.id),
+            ),
+        )
         SourceKind.M3U -> Loaded(loadM3u(source))
         SourceKind.XTREAM -> loadXtream(source)
     }
@@ -121,7 +145,7 @@ class SourceRepository(
     private suspend fun loadM3u(source: Source): List<ProviderStream> {
         val response = http.get(source.url) { source.headers.forEach { (k, v) -> header(k, v) } }
         response.ensureOk(source)
-        // Streamed line by line: a 50k-entry list is never held as one string (PLAN §6).
+        // Streamed line by line: a 50k-entry list is never held as one string (PLAN Â§6).
         val parser = M3uParser(source)
         val channel = response.bodyAsChannel()
         while (true) {
@@ -147,12 +171,22 @@ class SourceRepository(
         if (!account.authenticated) error("Login failed: check the username and password")
         val categories = XtreamParser.categories(call("get_live_categories"))
         val streams = XtreamParser.liveStreams(source, call("get_live_streams"), categories)
-        return Loaded(streams, account.expiresAt, account.maxConnections)
+        // Movies and series (PLAN §4.3.6–4.3.7). Not every provider has them, and a failure here
+        // mustn't fail the live channels: it keeps what was cached before.
+        val vod = runCatching {
+            val movieCats = XtreamParser.categories(call("get_vod_categories"))
+            val seriesCats = XtreamParser.categories(call("get_series_categories"))
+            val movies = XtreamParser.vodStreams(source, call("get_vod_streams"))
+            val series = XtreamParser.series(source, call("get_series"))
+            fun cats(m: Map<String, String>, kind: VodKind) = m.entries.mapIndexed { i, (id, name) -> VodCategory(source.id, kind, id, name, i) }
+            Vod(cats(movieCats, VodKind.MOVIE) + cats(seriesCats, VodKind.SERIES), movies + series)
+        }.onFailure { log.warn("Movies and series from ${source.name} failed: ${it.message}") }.getOrNull()
+        return Loaded(streams, account.expiresAt, account.maxConnections, vod)
     }
 
     private fun HttpResponse.ensureOk(source: Source) {
         if (!status.isSuccess()) {
-            // The URL is never logged whole: it can embed credentials (PLAN §1).
+            // The URL is never logged whole: it can embed credentials (PLAN Â§1).
             error("HTTP ${status.value} from ${CredentialMasking.forLog(call.request.url.toString(), source)}")
         }
     }
@@ -171,6 +205,12 @@ class SourceRepository(
         connectionLimit = connection_limit.toInt(),
         lastRefreshedAt = last_refreshed_at,
         lastError = last_error,
+    )
+
+    private fun VodCategory.toRow() = com.signal.db.user.Vod_category(sourceId, kind.name, categoryId, CharacterCleanup.clean(name, true).ifEmpty { name }, position.toLong())
+
+    private fun VodItem.toRow() = com.signal.db.user.Vod_item(
+        id, sourceId, kind.name, providerId, name, categoryId, posterUrl, year?.toLong(), rating, addedAt, tmdbId, containerExt, plot, url, position.toLong(),
     )
 
     private fun ProviderStream.toRow(removeEmoji: Boolean) = com.signal.db.user.Stream(

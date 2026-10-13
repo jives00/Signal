@@ -31,15 +31,20 @@ class NavBarKeyMapTest {
         focusedStartsWith("Home")
         press(RemoteAction.Right)
         focusedStartsWith("Live TV")
+        // The Demo source has movies and series, so both are on the bar (PLAN §4.1).
+        press(RemoteAction.Right)
+        focusedStartsWith("Movies")
+        press(RemoteAction.Right)
+        focusedStartsWith("Series")
         press(RemoteAction.Right)
         focusedStartsWith("Search")
         press(RemoteAction.Right)
         focusedStartsWith("Settings")
-        press(RemoteAction.Left)
-        press(RemoteAction.Left)
+        repeat(4) { press(RemoteAction.Left) }
         focusedStartsWith("Live TV")
+        press(RemoteAction.Right)
         press(RemoteAction.Select)
-        route(Route.LiveTv)
+        route(Route.Movies)
     }
 
     @Test fun downGoesIntoThePage() = keyMapTest {

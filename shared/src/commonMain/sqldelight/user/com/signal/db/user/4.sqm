@@ -1,0 +1,30 @@
+-- Milestone 4 (VOD): cached movies and series.
+CREATE TABLE vod_category (
+    source_id TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    category_id TEXT NOT NULL,
+    name TEXT NOT NULL,
+    position INTEGER NOT NULL,
+    PRIMARY KEY (source_id, kind, category_id)
+);
+
+CREATE TABLE vod_item (
+    id TEXT NOT NULL PRIMARY KEY,
+    source_id TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    provider_id TEXT NOT NULL,
+    name TEXT NOT NULL,
+    category_id TEXT NOT NULL,
+    poster_url TEXT,
+    year INTEGER,
+    rating REAL,
+    added_at INTEGER NOT NULL DEFAULT 0,
+    tmdb_id INTEGER,
+    container_ext TEXT,
+    plot TEXT,
+    url TEXT,
+    position INTEGER NOT NULL
+);
+
+CREATE INDEX vod_item_category ON vod_item(source_id, kind, category_id, position);
+CREATE INDEX vod_item_added ON vod_item(kind, added_at);

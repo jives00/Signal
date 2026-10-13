@@ -1,0 +1,73 @@
+-- Movies and series (PLAN §4.3.6–4.3.7): cached source data, rebuilt on every source refresh and
+-- never edited, like stream. What the user does with them (Library, resume, watched) is elsewhere.
+CREATE TABLE vod_category (
+    source_id TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    category_id TEXT NOT NULL,
+    name TEXT NOT NULL,
+    position INTEGER NOT NULL,
+    PRIMARY KEY (source_id, kind, category_id)
+);
+
+CREATE TABLE vod_item (
+    id TEXT NOT NULL PRIMARY KEY,
+    source_id TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    provider_id TEXT NOT NULL,
+    name TEXT NOT NULL,
+    category_id TEXT NOT NULL,
+    poster_url TEXT,
+    year INTEGER,
+    rating REAL,
+    added_at INTEGER NOT NULL DEFAULT 0,
+    tmdb_id INTEGER,
+    container_ext TEXT,
+    plot TEXT,
+    url TEXT,
+    position INTEGER NOT NULL
+);
+
+CREATE INDEX vod_item_category ON vod_item(source_id, kind, category_id, position);
+CREATE INDEX vod_item_added ON vod_item(kind, added_at);
+
+insertCategory:
+INSERT OR REPLACE INTO vod_category(source_id, kind, category_id, name, position) VALUES ?;
+
+insertItem:
+INSERT OR REPLACE INTO vod_item(id, source_id, kind, provider_id, name, category_id, poster_url, year, rating, added_at, tmdb_id, container_ext, plot, url, position)
+VALUES ?;
+
+deleteCategoriesForSource:
+DELETE FROM vod_category WHERE source_id = ? AND kind = ?;
+
+deleteItemsForSource:
+DELETE FROM vod_item WHERE source_id = ? AND kind = ?;
+
+deleteAllForSource {
+    DELETE FROM vod_item WHERE source_id = :sourceId;
+    DELETE FROM vod_category WHERE source_id = :sourceId;
+}
+
+-- The category column: each provider category with its title count, enabled sources only.
+categories:
+SELECT c.source_id, c.category_id, c.name, c.position, count(i.id) AS item_count
+FROM vod_category c
+JOIN source src ON src.id = c.source_id AND src.enabled = 1
+LEFT JOIN vod_item i ON i.source_id = c.source_id AND i.kind = c.kind AND i.category_id = c.category_id
+WHERE c.kind = ?
+GROUP BY c.source_id, c.category_id
+HAVING item_count > 0
+ORDER BY src.created_at, c.position;
+
+itemsInCategory:
+SELECT * FROM vod_item WHERE source_id = ? AND kind = ? AND category_id = ? ORDER BY position;
+
+recentlyAdded:
+SELECT i.* FROM vod_item i JOIN source src ON src.id = i.source_id AND src.enabled = 1
+WHERE i.kind = ? ORDER BY i.added_at DESC, i.position LIMIT ?;
+
+countForKind:
+SELECT count(*) FROM vod_item i JOIN source src ON src.id = i.source_id AND src.enabled = 1 WHERE i.kind = ?;
+
+itemById:
+SELECT * FROM vod_item WHERE id = ?;

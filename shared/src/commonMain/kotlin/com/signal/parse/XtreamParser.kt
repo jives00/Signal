@@ -74,6 +74,72 @@ object XtreamParser {
         return out
     }
 
+    /** `get_vod_streams` (PLAN §4.3.6): movies, with category IDs kept as given. */
+    fun vodStreams(source: Source, body: String): List<com.signal.model.VodItem> {
+        val out = ArrayList<com.signal.model.VodItem>()
+        val seen = HashSet<String>()
+        json.parseToJsonElement(body).arrayOrEmpty().forEach { el ->
+            val obj = el as? JsonObject ?: return@forEach
+            val streamId = obj.string("stream_id") ?: return@forEach
+            val id = com.signal.model.VodIds.movie(source.id, streamId)
+            if (!seen.add(id)) return@forEach
+            val name = obj.string("name")?.trim().orEmpty().ifEmpty { "Movie $streamId" }
+            out += com.signal.model.VodItem(
+                id = id,
+                sourceId = source.id,
+                kind = com.signal.model.VodKind.MOVIE,
+                providerId = streamId,
+                name = name,
+                categoryId = obj.string("category_id") ?: "",
+                posterUrl = obj.string("stream_icon")?.takeIf { it.isNotBlank() },
+                year = obj.int("year")?.takeIf { it in 1880..2100 } ?: yearIn(name),
+                rating = obj.double("rating")?.takeIf { it > 0 },
+                addedAt = obj.long("added") ?: 0,
+                tmdbId = obj.long("tmdb")?.takeIf { it > 0 } ?: obj.long("tmdb_id")?.takeIf { it > 0 },
+                containerExt = obj.string("container_extension")?.takeIf { it.isNotBlank() },
+                position = out.size,
+            )
+        }
+        return out
+    }
+
+    /** `get_series` (PLAN §4.3.7). */
+    fun series(source: Source, body: String): List<com.signal.model.VodItem> {
+        val out = ArrayList<com.signal.model.VodItem>()
+        val seen = HashSet<String>()
+        json.parseToJsonElement(body).arrayOrEmpty().forEach { el ->
+            val obj = el as? JsonObject ?: return@forEach
+            val seriesId = obj.string("series_id") ?: return@forEach
+            val id = com.signal.model.VodIds.series(source.id, seriesId)
+            if (!seen.add(id)) return@forEach
+            val name = obj.string("name")?.trim().orEmpty().ifEmpty { "Series $seriesId" }
+            out += com.signal.model.VodItem(
+                id = id,
+                sourceId = source.id,
+                kind = com.signal.model.VodKind.SERIES,
+                providerId = seriesId,
+                name = name,
+                categoryId = obj.string("category_id") ?: "",
+                posterUrl = obj.string("cover")?.takeIf { it.isNotBlank() },
+                year = obj.string("releaseDate")?.take(4)?.toIntOrNull()?.takeIf { it in 1880..2100 }
+                    ?: obj.string("release_date")?.take(4)?.toIntOrNull()?.takeIf { it in 1880..2100 } ?: yearIn(name),
+                rating = obj.double("rating")?.takeIf { it > 0 },
+                addedAt = obj.long("last_modified") ?: 0,
+                tmdbId = obj.long("tmdb")?.takeIf { it > 0 } ?: obj.long("tmdb_id")?.takeIf { it > 0 },
+                plot = obj.string("plot")?.takeIf { it.isNotBlank() },
+                position = out.size,
+            )
+        }
+        return out
+    }
+
+    private val yearInName = Regex("""[(\[](19\d{2}|20\d{2})[)\]]""")
+
+    /** "Heat (1995)" → 1995: many providers put the year only in the name. */
+    fun yearIn(name: String): Int? = yearInName.find(name)?.groupValues?.get(1)?.toIntOrNull()
+
+    private fun JsonObject.double(key: String): Double? = string(key)?.trim()?.toDoubleOrNull()
+
     private fun JsonElement.arrayOrEmpty(): JsonArray = (this as? JsonArray) ?: runCatching { jsonArray }.getOrNull() ?: JsonArray(emptyList())
 
     private fun JsonObject.string(key: String): String? = when (val v = this[key]) {

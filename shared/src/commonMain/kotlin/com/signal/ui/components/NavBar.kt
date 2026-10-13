@@ -128,8 +128,17 @@ fun TopLevelPage(
 private fun NavBar(current: Route, chrome: PageChrome) {
     val app = LocalApp.current
     val c = SignalTheme.colors
-    // Movies and Series join the bar with VOD (PLAN §8, milestone 4).
-    val items = listOf("Home" to Route.Home, "Live TV" to Route.LiveTv, "Search" to Route.Search, "Settings" to Route.Settings)
+    // Movies and Series only when a source has some (PLAN §4.1).
+    val movies by app.movieCount.collectAsState()
+    val series by app.seriesCount.collectAsState()
+    val items = buildList {
+        add("Home" to Route.Home)
+        add("Live TV" to Route.LiveTv)
+        if (movies > 0) add("Movies" to Route.Movies)
+        if (series > 0) add("Series" to Route.Series)
+        add("Search" to Route.Search)
+        add("Settings" to Route.Settings)
+    }
     Row(
         Modifier
             .fillMaxWidth()

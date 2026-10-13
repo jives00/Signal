@@ -61,6 +61,8 @@ fun SignalApp(app: AppController) {
                             Route.Home -> HomePage()
                             Route.LiveTv -> LiveTvPage()
                             Route.Search -> SearchPage()
+                            Route.Movies -> com.signal.ui.screens.VodBrowsePage(com.signal.model.VodKind.MOVIE)
+                            Route.Series -> com.signal.ui.screens.VodBrowsePage(com.signal.model.VodKind.SERIES)
                             Route.Settings -> SettingsPage()
                             is Route.FullScreen -> FullScreenPlayback(route)
                         }
