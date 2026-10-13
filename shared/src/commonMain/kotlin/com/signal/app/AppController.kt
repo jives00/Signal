@@ -113,6 +113,14 @@ class AppController(val platform: Platform, val log: Log) {
     var guideBuilding by mutableStateOf(false)
         private set
 
+    // Declared before the init blocks below: the coroutines they start can run before the constructor
+    // reaches a later line, and would find these still null (seen on CI as an NPE in Mutex.withLock).
+
+    /** True while the NAS's event stream is connected; Settings shows it. */
+    val eventsConnected = kotlinx.coroutines.flow.MutableStateFlow(false)
+
+    private val reminderCheck = kotlinx.coroutines.sync.Mutex()
+
     init {
         scope.launch {
             withContext(guideIo) { guideStore.open() }
@@ -198,9 +206,6 @@ class AppController(val platform: Platform, val log: Log) {
     // ---- The NAS guide (PLAN §5.2, §6) ---------------------------------------------------------
 
     // ---- Settings sync (PLAN §5.5, §9.2) ------------------------------------------------------
-
-    /** True while the NAS's event stream is connected; Settings shows it. */
-    val eventsConnected = kotlinx.coroutines.flow.MutableStateFlow(false)
 
     /**
      * Push, pull, and act on what arrived: new sources load, a removed last source returns to setup,
@@ -374,8 +379,6 @@ class AppController(val platform: Platform, val log: Log) {
             delay(15_000)
         }
     }
-
-    private val reminderCheck = kotlinx.coroutines.sync.Mutex()
 
     private suspend fun checkReminders() = reminderCheck.withLock {
         val now = Clock.System.now().toEpochMilliseconds()
