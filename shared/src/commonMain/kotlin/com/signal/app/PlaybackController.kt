@@ -77,6 +77,12 @@ class PlaybackController(
         if (fullScreen) scope.launch { rememberLastPlayed(channel) }
     }
 
+    /** The Stream picker chose another stream for the playing channel: play it now. */
+    fun switchStream(channel: Channel) {
+        _current.value = channel
+        scope.launch { start(channel) }
+    }
+
     private suspend fun start(channel: Channel) {
         val source = sources.byId(channel.stream.sourceId) ?: return
         val url = StreamUrls.live(source, channel.stream)

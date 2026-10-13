@@ -1,0 +1,51 @@
+{
+    "targetSourceId": "new",
+    "targetName": "New provider",
+    "otherSources": [
+        {
+            "id": "src",
+            "name": "Provider",
+            "enabled": true
+        }
+    ],
+    "confident": [
+        {
+            "userChannelId": "ch:src:x:42",
+            "name": "FOX Sports 1",
+            "favorite": true,
+            "fromName": "US: FOX Sports 1",
+            "fromSource": "Provider",
+            "matches": [
+                {
+                    "streamId": "new:x:9",
+                    "name": "FS1 HD",
+                    "group": "Sports",
+                    "score": 0.6,
+                    "confidence": "CONFIDENT",
+                    "reasons": [
+                        "same tvg-id"
+                    ],
+                    "now": null
+                }
+            ]
+        }
+    ],
+    "suggested": [],
+    "unmatched": [
+        {
+            "userChannelId": "ch:src:x:7",
+            "name": "Local 7",
+            "favorite": false,
+            "fromSource": "Provider"
+        }
+    ],
+    "alreadyLinked": 12,
+    "groups": [
+        {
+            "sourceId": "src",
+            "sourceName": "Provider",
+            "group": "US Sports",
+            "toGroup": "Sports"
+        }
+    ]
+}

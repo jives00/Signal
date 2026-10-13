@@ -267,6 +267,7 @@ private fun OptionsRow(channel: Channel, state: PlaybackState, first: FocusReque
         add("Audio" to { app.panel.open(audioPicker(app, channel, state), returnTo) })
         add("Subtitles" to { app.panel.open(subtitlePicker(app, channel, state), returnTo) })
         add("Aspect ratio" to { app.panel.open(aspectPicker(app, channel), returnTo) })
+        if (app.menus.linkedStreams(channel) != null) add("Stream" to { app.panel.open(app.menus.streamPage(channel), returnTo) })
         add((if (channel.isFavorite) "Remove favorite" else "Favorite") to { app.scope.launch { app.channels.setFavorite(channel, !channel.isFavorite) } })
         add("Add to playlist…" to { app.panel.open(app.menus.addToPlaylistPage { listOf(channel) }, returnTo) })
         add("Previous channel" to onRecall)

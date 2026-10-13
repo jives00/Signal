@@ -11,12 +11,42 @@ import kotlinx.coroutines.launch
 
 /**
  * The item menus opened by long-press OK (PLAN §4.2 → What long-press OK opens). Only actions that
- * apply are shown. Features from later milestones (guide mapping, stream choice, multi-view, logo
+ * apply are shown. Features from later milestones (multi-view, the logo
  * picker) join these menus when they land.
  */
 class ItemMenus(private val app: AppController) {
     private fun launch(block: suspend () -> Unit) {
         app.scope.launch { block() }
+    }
+
+    /** The streams [channel] can play, when it has more than one (PLAN §4.5), or null. */
+    fun linkedStreams(channel: Channel): List<com.signal.data.ChannelRepository.LinkedStream>? =
+        channel.userChannelId?.let { app.linkedStreams.value[it] }?.takeIf { it.size > 1 }
+
+    private fun streamAction(channel: Channel): PanelAction? {
+        val links = linkedStreams(channel) ?: return null
+        val playing = links.firstOrNull { it.streamId == channel.stream.id } ?: links.firstOrNull { it.preferred }
+        return PanelAction("Stream", detail = playing?.let { "${it.sourceName} · ${it.name}" }) { streamPage(channel) }
+    }
+
+    /**
+     * Stream (PLAN §4.2 → channel menu, §4.3.3 → Options row): which linked stream plays. The choice
+     * is remembered per channel for every device, and a playing channel switches at once.
+     */
+    fun streamPage(channel: Channel): PanelPage.Actions {
+        val links = linkedStreams(channel).orEmpty()
+        val uc = channel.userChannelId
+        return PanelPage.Actions("Stream", links.map { l ->
+            PanelAction("${l.sourceName} · ${l.name}", detail = l.group, selected = l.preferred) {
+                launch {
+                    if (uc == null) return@launch
+                    app.channels.choosePreferred(uc, l.streamId)
+                    val now = app.playback.current.value
+                    if (now?.userChannelId == uc) app.channels.channelByStream(l.streamId)?.let { app.playback.switchStream(it) }
+                }
+                null
+            }
+        })
     }
 
     /**
@@ -43,6 +73,7 @@ class ItemMenus(private val app: AppController) {
                 }
             })
             guideSourceAction(channel)?.let(::add)
+            streamAction(channel)?.let(::add)
             add(PanelAction("Hide channel") {
                 launch { app.channels.setHidden(channel, true) }
                 null

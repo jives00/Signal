@@ -13,8 +13,9 @@ import Mapping from "./pages/Mapping";
 import Reminders from "./pages/Reminders";
 import Settings from "./pages/Settings";
 import Sources from "./pages/Sources";
+import Switch from "./pages/Switch";
 
-/** The sidebar (PLAN §4.3.18). Name cleanup and the provider switch arrive later. */
+/** The sidebar (PLAN §4.3.18). Name cleanup arrives with cleanup rules on the TV. */
 const pages: { path: string; title: string; ready: boolean; soon?: string }[] = [
   { path: "/", title: "Dashboard", ready: true },
   { path: "/sources", title: "Sources", ready: true },
@@ -23,7 +24,7 @@ const pages: { path: string; title: string; ready: boolean; soon?: string }[] = 
   { path: "/groups", title: "Groups", ready: true },
   { path: "/cleanup", title: "Name cleanup", ready: false, soon: "Arrives with name cleanup rules on the TV" },
   { path: "/mapping", title: "Guide mapping", ready: true },
-  { path: "/switch", title: "Provider switch", ready: false, soon: "Arrives with multiple sources and the matcher" },
+  { path: "/switch", title: "Provider switch", ready: true },
   { path: "/reminders", title: "Reminders", ready: true },
   { path: "/settings", title: "Settings", ready: true },
   { path: "/devices", title: "Devices & profiles", ready: true },
@@ -105,6 +106,7 @@ function Shell() {
           <Route path="/favorites" element={<Lists />} />
           <Route path="/groups" element={<Groups />} />
           <Route path="/mapping" element={<Mapping />} />
+          <Route path="/switch" element={<Switch />} />
           <Route path="/reminders" element={<Reminders />} />
           <Route path="/settings" element={<Settings />} />
           <Route path="/devices" element={<Devices />} />

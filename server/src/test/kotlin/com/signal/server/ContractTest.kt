@@ -61,7 +61,17 @@ class ContractTest {
         check("settings", SettingsView.serializer(), SettingsView(mapOf("default_epg_source" to "epg:src"), mapOf("clock_24h" to "true"), CompanionSettingsView("03:00", "America/Chicago", 30, 90, "main")))
         check(
             "overview", Overview.serializer(),
-            Overview(listOf(source), Coverage(900, 1000), 2, 0, listOf(job), listOf(Device("d1", "Living room", "SHIELD", "0.3.0", 1, 2, "main", 3)), "0.3.0"),
+            Overview(listOf(source), Coverage(900, 1000), 2, 0, listOf(job), listOf(Device("d1", "Living room", "SHIELD", "0.3.0", 1, 2, "main", 3)), "0.3.0", 4),
         )
+        check(
+            "switch", SwitchView.serializer(),
+            SwitchView(
+                "new", "New provider", listOf(SourceRef("src", "Provider", true)),
+                listOf(ProposalView("ch:src:x:42", "FOX Sports 1", true, "US: FOX Sports 1", "Provider", listOf(MatchView("new:x:9", "FS1 HD", "Sports", 0.6, "CONFIDENT", listOf("same tvg-id"))))),
+                emptyList(), listOf(UnmatchedView("ch:src:x:7", "Local 7", false, "Provider")), 12,
+                listOf(GroupProposalView("src", "Provider", "US Sports", "Sports")),
+            ),
+        )
+        check("links", kotlinx.serialization.builtins.ListSerializer(LinkView.serializer()), listOf(LinkView("src:x:42", "FOX Sports 1", "US Sports", "Provider", true, true)))
     }
 }

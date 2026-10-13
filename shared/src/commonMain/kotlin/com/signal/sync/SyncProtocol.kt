@@ -41,6 +41,8 @@ object SyncType {
     const val GROUP_OVERRIDE = "group_override"
     const val REMINDER = "reminder"
     const val SETTING = "setting"
+    const val ALIAS = "alias"
+    const val MATCH_REJECT = "match_reject"
 }
 
 @Serializable

@@ -12,6 +12,8 @@ import queue from "./contract/queue.json";
 import settings from "./contract/settings.json";
 import settingsFile from "./contract/settings-file.json";
 import sources from "./contract/sources.json";
+import links from "./contract/links.json";
+import switchView from "./contract/switch.json";
 
 const cases: [string, ZodTypeAny, unknown][] = [
   ["settings-file", S.SettingsFile, settingsFile],
@@ -23,6 +25,8 @@ const cases: [string, ZodTypeAny, unknown][] = [
   ["queue", S.QueueView, queue],
   ["settings", S.SettingsView, settings],
   ["overview", S.Overview, overview],
+  ["switch", S.SwitchView, switchView],
+  ["links", S.LinkView.array(), links],
 ];
 
 describe("contract", () => {

@@ -144,3 +144,11 @@ export function moved<T>(list: T[], from: number, to: number): T[] {
   out.splice(to, 0, item);
   return out;
 }
+
+// ---- Provider switch (PLAN §4.5) ----
+export const getSwitch = (profile: string, source: string) => read(S.SwitchView, `/api/switch?${q(profile)}&source=${enc(source)}`);
+export const acceptLinks = (links: { userChannelId: string; streamId: string; confident: boolean }[]) => post("/api/switch/accept", { links });
+export const rejectMatches = (userChannelId: string, streamIds: string[]) => post("/api/switch/reject", { userChannelId, streamIds });
+export const carryGroup = (fromSource: string, fromGroup: string, toSource: string, toGroup: string) => post("/api/switch/groups", { fromSource, fromGroup, toSource, toGroup });
+export const getLinks = (uc: string) => read(S.LinkView.array(), `/api/links/${enc(uc)}`);
+export const preferStream = (uc: string, streamId: string) => post(`/api/links/${enc(uc)}/preferred`, { streamId });

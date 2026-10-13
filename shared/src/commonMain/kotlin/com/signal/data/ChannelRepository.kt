@@ -293,6 +293,23 @@ class ChannelRepository(
         db.userChannelQueries.profileRow(id, profile).executeAsOneOrNull()?.let { Remembered(it.audio_language, it.subtitle, it.aspect) }
     }
 
+    // ---- Linked streams (PLAN §4.5): the Stream picker --------------------------------------------
+
+    data class LinkedStream(val userChannelId: String, val streamId: String, val preferred: Boolean, val name: String, val group: String, val sourceName: String)
+
+    /** User channels with more than one playable stream, and those streams: small, so it's kept live for menus. */
+    fun multiLinked(): Flow<Map<String, List<LinkedStream>>> = db.userChannelQueries.multiLinked().asFlow().mapToList(io).map { rows ->
+        rows.groupBy({ it.user_channel_id }) { LinkedStream(it.user_channel_id, it.stream_id, it.preferred == 1L, it.display_name, it.group_name, it.source_name) }
+    }
+
+    /** Picks the stream a user channel plays, for every device (household, PLAN §9.1). */
+    suspend fun choosePreferred(userChannelId: String, streamId: String) = withContext(io) {
+        db.transaction {
+            db.userChannelQueries.clearPreferred(userChannelId)
+            db.userChannelQueries.setPreferred(userChannelId, streamId)
+        }
+    }
+
     // ---- Provider groups --------------------------------------------------------------------
 
     suspend fun setGroupHidden(group: ChannelGroup.Provider, hidden: Boolean) = groupEdit(group) {

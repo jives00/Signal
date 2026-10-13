@@ -1,0 +1,31 @@
+-- The provider matcher's memory (PLAN §4.5 → Matching), household scope: aliases the user confirmed
+-- (two names for one channel) and matches the user rejected, so they aren't offered again.
+CREATE TABLE alias (
+    id TEXT NOT NULL PRIMARY KEY,
+    a TEXT NOT NULL,
+    b TEXT NOT NULL
+);
+
+CREATE TABLE match_reject (
+    user_channel_id TEXT NOT NULL,
+    stream_id TEXT NOT NULL,
+    PRIMARY KEY (user_channel_id, stream_id)
+);
+
+allAliases:
+SELECT * FROM alias;
+
+putAlias:
+INSERT OR REPLACE INTO alias(id, a, b) VALUES (?, ?, ?);
+
+deleteAlias:
+DELETE FROM alias WHERE id = ?;
+
+allRejects:
+SELECT * FROM match_reject;
+
+putReject:
+INSERT OR IGNORE INTO match_reject(user_channel_id, stream_id) VALUES (?, ?);
+
+deleteReject:
+DELETE FROM match_reject WHERE user_channel_id = ? AND stream_id = ?;

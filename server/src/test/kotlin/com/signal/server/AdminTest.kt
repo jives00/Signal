@@ -195,6 +195,52 @@ class AdminTest {
         assertEquals(1, obj(client.send("GET", "/api/lists?profile=${kids.id}"))["favorites"]!!.jsonArray.size)
     }
 
+    @Test fun aProviderSwitchLinksFavoritesToTheNewSourceBeforeTheOldOneGoes() = testApplication {
+        application { signalModule(companion) }
+        client.demo()
+        val oldId = obj(client.send("GET", "/api/sources"))["sources"]!!.jsonArray.single().jsonObject.s("id")!!
+        val favs = client.channels("limit=3").rows().map { it.s("streamId")!! }
+        client.send("POST", "/api/channels/edit", """{"streamIds":${Json.encodeToString(favs)},"profiles":["main"],"action":"favorite"}""")
+
+        // The new provider: the same channels under new stream IDs.
+        client.send("POST", "/api/sources", """{"name":"Demo Two","kind":"DEMO","url":"demo:"}""")
+        val newId = obj(client.send("GET", "/api/sources"))["sources"]!!.jsonArray.map { it.jsonObject }.first { it.s("name") == "Demo Two" }.s("id")!!
+        repeat(200) { if (companion.catalog.streams.count { it.sourceId == newId } > 0) return@repeat; delay(50) }
+
+        val report = obj(client.send("GET", "/api/switch?source=$newId"))
+        val confident = report["confident"]!!.jsonArray.map { it.jsonObject }
+        assertEquals(3, confident.size, report.toString())
+        assertEquals(0, report["unmatched"]!!.jsonArray.size)
+        assertTrue(obj(client.send("GET", "/api/overview"))["switchReview"]!!.jsonPrimitive.int >= 3)
+
+        val links = confident.map { p -> """{"userChannelId":"${p.s("userChannelId")}","streamId":"${p["matches"]!!.jsonArray.first().jsonObject.s("streamId")}","confident":true}""" }
+        client.send("POST", "/api/switch/accept", """{"links":[${links.joinToString(",")}]}""")
+        val after = obj(client.send("GET", "/api/switch?source=$newId"))
+        assertEquals(3, after["alreadyLinked"]!!.jsonPrimitive.int)
+        assertEquals(0, after["confident"]!!.jsonArray.size)
+
+        // The final step: the old source goes, and favorites play from the new one.
+        client.send("POST", "/api/sources/$oldId/enabled", """{"enabled":false}""")
+        val lists = obj(client.send("GET", "/api/lists?profile=main"))["favorites"]!!.jsonArray.map { it.jsonObject }
+        assertEquals(3, lists.size)
+        assertTrue(lists.all { it.s("sourceId") == newId && it.s("unavailable") == "false" }, lists.toString())
+    }
+
+    @Test fun rejectingASuggestionKeepsItAway() = testApplication {
+        application { signalModule(companion) }
+        client.demo()
+        val s = client.channels("limit=1").rows().single().s("streamId")!!
+        client.send("POST", "/api/channels/edit", """{"streamIds":["$s"],"profiles":["main"],"action":"favorite"}""")
+        client.send("POST", "/api/sources", """{"name":"Demo Two","kind":"DEMO","url":"demo:"}""")
+        val newId = obj(client.send("GET", "/api/sources"))["sources"]!!.jsonArray.map { it.jsonObject }.first { it.s("name") == "Demo Two" }.s("id")!!
+        repeat(200) { if (companion.catalog.streams.count { it.sourceId == newId } > 0) return@repeat; delay(50) }
+        val p = obj(client.send("GET", "/api/switch?source=$newId"))["confident"]!!.jsonArray.single().jsonObject
+        val ids = p["matches"]!!.jsonArray.map { "\"${it.jsonObject.s("streamId")}\"" }
+        client.send("POST", "/api/switch/reject", """{"userChannelId":"${p.s("userChannelId")}","streamIds":[${ids.joinToString(",")}]}""")
+        val after = obj(client.send("GET", "/api/switch?source=$newId"))
+        assertTrue(after["confident"]!!.jsonArray.none { it.jsonObject.s("userChannelId") == p.s("userChannelId") && it.jsonObject["matches"]!!.jsonArray.any { m -> "\"${m.jsonObject.s("streamId")}\"" in ids } })
+    }
+
     @Test fun sourcesEditKeepsThePasswordAndRemoveTakesTheGuideToo() = testApplication {
         application { signalModule(companion) }
         companion.startCatalog()

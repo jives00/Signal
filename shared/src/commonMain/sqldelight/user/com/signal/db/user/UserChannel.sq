@@ -85,3 +85,36 @@ JOIN stream s ON s.id = cl.stream_id
 WHERE cp.profile_id = ? AND cp.hidden = 1
 GROUP BY cp.user_channel_id
 ORDER BY coalesce(cp.custom_name, s.display_name);
+
+-- The Stream picker (PLAN §4.3.3 → Options row, §4.2 → channel menu): every linked stream whose
+-- source is enabled, for user channels with more than one.
+multiLinked:
+SELECT cl.user_channel_id, cl.stream_id, cl.preferred, s.display_name, s.group_name, src.name AS source_name
+FROM channel_link cl
+JOIN stream s ON s.id = cl.stream_id
+JOIN source src ON src.id = s.source_id AND src.enabled = 1
+WHERE cl.user_channel_id IN (
+    SELECT cl2.user_channel_id FROM channel_link cl2
+    JOIN stream s2 ON s2.id = cl2.stream_id
+    JOIN source src2 ON src2.id = s2.source_id AND src2.enabled = 1
+    GROUP BY cl2.user_channel_id HAVING count(*) > 1
+)
+ORDER BY cl.user_channel_id, src.created_at, s.position;
+
+clearPreferred:
+UPDATE channel_link SET preferred = 0 WHERE user_channel_id = ?;
+
+setPreferred:
+UPDATE channel_link SET preferred = 1 WHERE user_channel_id = ? AND stream_id = ?;
+
+-- Linking a stream to a user channel from the provider switch review.
+linkStream:
+INSERT OR REPLACE INTO channel_link(user_channel_id, stream_id, kind, preferred) VALUES (?, ?, ?, 0);
+
+-- The user channels and their linked streams, for the TV's provider switch review.
+linksWithStreams:
+SELECT cl.user_channel_id, cl.stream_id, s.source_id, s.raw_name, s.tvg_id, s.logo_url, s.group_name
+FROM channel_link cl JOIN stream s ON s.id = cl.stream_id;
+
+streamsForMatching:
+SELECT id, source_id, raw_name, tvg_id, logo_url, group_name FROM stream WHERE source_id = ?;

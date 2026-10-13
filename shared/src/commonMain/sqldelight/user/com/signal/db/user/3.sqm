@@ -1,0 +1,12 @@
+-- Milestone 3 (multiple sources and the matcher): learned aliases and rejected matches.
+CREATE TABLE alias (
+    id TEXT NOT NULL PRIMARY KEY,
+    a TEXT NOT NULL,
+    b TEXT NOT NULL
+);
+
+CREATE TABLE match_reject (
+    user_channel_id TEXT NOT NULL,
+    stream_id TEXT NOT NULL,
+    PRIMARY KEY (user_channel_id, stream_id)
+);

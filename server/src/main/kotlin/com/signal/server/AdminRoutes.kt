@@ -125,6 +125,8 @@ data class Overview(
     val failedJobs: List<JobRun>,
     val devices: List<Device>,
     val latestAppVersion: String,
+    /** Channels the provider switch review has for you, across sources (PLAN §4.3.18 → Needs attention). */
+    val switchReview: Int = 0,
 )
 
 @Serializable data class Coverage(val mapped: Int, val total: Int)
@@ -158,6 +160,7 @@ private fun targets(profiles: List<String>) = profiles.ifEmpty { listOf(SyncServ
 fun Route.adminPageRoutes(companion: Companion) {
     val channels = AdminChannels(companion)
     val edits = AdminEdits(companion)
+    val switch = AdminSwitch(companion)
     val now = { System.currentTimeMillis() }
 
     // ---- Dashboard ----
@@ -168,7 +171,7 @@ fun Route.adminPageRoutes(companion: Companion) {
             val favs = channels.rowsFor(view, view.favorites.entries.sortedBy { it.value }.map { it.key }, now())
             val failed = companion.store?.jobs(50).orEmpty().filter { it.result == "failed" && it.startedAt > now() - 7 * 24 * 60 * 60_000L }
             Overview(sourceViews(companion, view), Coverage(mapped, total), favs.count { !it.unavailable && it.guide == null }, favs.count { it.unavailable }, failed,
-                companion.devices?.all().orEmpty(), companion.version)
+                companion.devices?.all().orEmpty(), companion.version, switch.pending(call.profile()))
         }
     }
 
@@ -306,6 +309,38 @@ fun Route.adminPageRoutes(companion: Companion) {
             }.sortedBy { it.channelName.lowercase() }
         }
     }
+
+    // ---- Provider switch (PLAN §4.5) ----
+    get("/switch") {
+        call.answer {
+            val target = call.request.queryParameters["source"] ?: throw SyncRefused(400, "Choose the new source.")
+            switch.view(target, call.profile(), now())
+        }
+    }
+    // A channel's linked streams and the preferred one (PLAN §4.3.18 → Channels → Row detail drawer).
+    get("/links/{uc}") {
+        call.answer {
+            val view = channels.view(SyncService.MAIN)
+            val byId = companion.catalog.streams.associateBy { it.id }
+            val names = view.sources.associate { it.first.id to it.first }
+            view.streamsByUserChannel[call.parameters["uc"]!!].orEmpty().map { l ->
+                val s = byId[l.streamId]
+                LinkView(l.streamId, s?.displayName ?: "Gone from its source", s?.groupName.orEmpty(), s?.let { names[it.sourceId]?.name }.orEmpty(), l.preferred, s != null && names[s.sourceId]?.enabled == true)
+            }
+        }
+    }
+    post("/links/{uc}/preferred") {
+        val r = call.receive<PreferRequest>()
+        call.edit {
+            val uc = call.parameters["uc"]!!
+            val links = channels.view(SyncService.MAIN).streamsByUserChannel[uc].orEmpty()
+            if (links.none { it.streamId == r.streamId }) throw SyncRefused(404, "That stream isn't linked to this channel.")
+            companion.sync.edit(links.map { l -> AdminOp(SyncType.CHANNEL_LINK, "$uc|${l.streamId}", SyncScope.HOUSEHOLD, fields = fields("preferred" to (l.streamId == r.streamId))) }, "Stream picker")
+        }
+    }
+    post("/switch/accept") { val r = call.receive<AcceptRequest>(); call.edit { switch.accept(r.links) } }
+    post("/switch/reject") { val r = call.receive<RejectRequest>(); call.edit { switch.reject(r) } }
+    post("/switch/groups") { val r = call.receive<GroupCarry>(); call.edit { switch.carryGroup(r) } }
 
     // ---- Reminders ----
     get("/reminders") {
@@ -499,3 +534,6 @@ private fun groupsView(companion: Companion, view: AdminView): GroupsView {
     }.map { it.first }
     return GroupsView(view.groupSort.name, view.channelSort.name, sorted)
 }
+
+@Serializable data class LinkView(val streamId: String, val name: String, val group: String, val sourceName: String, val preferred: Boolean, val playable: Boolean)
+@Serializable data class PreferRequest(val streamId: String)

@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
-  clock, editChannels, getChannel, getChannels, getLists, getSources, resetMapping, revealHidden, searchGuide, setMapping,
+  clock, editChannels, getChannel, getChannels, getLinks, getLists, getSources, preferStream, resetMapping, revealHidden, searchGuide, setMapping,
   type ChannelAction, type ChannelQuery,
 } from "../admin";
 import { ApplyTo, profileNames, useProfiles, useToast } from "../context";
-import type { ChannelPage, ChannelRow, GuideChannelInfo, ProgramBrief, SourcesView } from "../schema";
+import type { ChannelPage, ChannelRow, GuideChannelInfo, LinkView, ProgramBrief, SourcesView } from "../schema";
 
 const PAGE = 100;
 
@@ -238,9 +238,34 @@ function ChannelDrawer({ streamId, onClose, onChanged, sources }: { streamId: st
         ))}
       </ul>
 
+      {row.userChannelId && <Streams uc={row.userChannelId} onChanged={after} />}
+
       <h3>Raw name</h3>
       <p className="mono">{revealHidden(row.rawName)}</p>
       {row.tvgId && <p className="detail">tvg-id <span className="mono">{row.tvgId}</span></p>}
     </aside>
+  );
+}
+
+/** Linked streams and the preferred one (PLAN §4.5): the stream every device plays for this channel. */
+function Streams({ uc, onChanged }: { uc: string; onChanged: () => void }) {
+  const { save } = useToast();
+  const [links, setLinks] = useState<LinkView[] | null>(null);
+  const load = useCallback(() => { getLinks(uc).then(setLinks).catch(() => setLinks(null)); }, [uc]);
+  useEffect(load, [load]);
+  if (!links || links.length < 2) return null;
+  return (
+    <>
+      <h3>Streams</h3>
+      <ul className="choices">
+        {links.map((l) => (
+          <li key={l.streamId}>
+            <button disabled={l.preferred || !l.playable} onClick={() => save("Preferred stream set · every device", () => preferStream(uc, l.streamId), () => { load(); onChanged(); })}>
+              <span className="grow">{l.preferred && <span className="tag">Preferred</span>} {l.sourceName} · {l.name} <span className="detail small">{l.group}{!l.playable && " · source off or stream gone"}</span></span>
+            </button>
+          </li>
+        ))}
+      </ul>
+    </>
   );
 }

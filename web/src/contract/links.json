@@ -1,0 +1,10 @@
+[
+    {
+        "streamId": "src:x:42",
+        "name": "FOX Sports 1",
+        "group": "US Sports",
+        "sourceName": "Provider",
+        "preferred": true,
+        "playable": true
+    }
+]

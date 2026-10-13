@@ -85,6 +85,10 @@ class SyncTables(private val db: UserDatabase, private val settings: Settings, p
                 fields("user_channel_id" to r.user_channel_id, "title" to r.title, "start_ms" to r.start_ms, "stop_ms" to r.stop_ms, "created_at" to r.created_at),
             )
         }
+        db.matchQueries.allAliases().executeAsList().forEach { a -> out += item(SyncType.ALIAS, h, a.id, fields("a" to a.a, "b" to a.b)) }
+        db.matchQueries.allRejects().executeAsList().forEach { r ->
+            out += item(SyncType.MATCH_REJECT, h, "${r.user_channel_id}|${r.stream_id}", fields("user_channel_id" to r.user_channel_id, "stream_id" to r.stream_id))
+        }
         settings.rows().forEach { s ->
             if (s.key in Settings.Key.notSynced) return@forEach
             // Another profile's leftovers (from before a move) aren't this device's to send.
@@ -175,6 +179,8 @@ class SyncTables(private val db: UserDatabase, private val settings: Settings, p
                 if (id in Settings.Key.notSynced) return true
                 settings.applySynced(item.scope, id, f.str("value"))
             }
+            SyncType.ALIAS -> db.matchQueries.putAlias(id, f.str("a") ?: return true, f.str("b") ?: return true)
+            SyncType.MATCH_REJECT -> db.matchQueries.putReject(f.str("user_channel_id") ?: return true, f.str("stream_id") ?: return true)
             else -> return false
         }
         return true
@@ -210,6 +216,8 @@ class SyncTables(private val db: UserDatabase, private val settings: Settings, p
             }
             SyncType.REMINDER -> db.reminderQueries.deleteReminder(id)
             SyncType.SETTING -> if (id !in Settings.Key.notSynced) settings.applySynced(item.scope, id, null)
+            SyncType.ALIAS -> db.matchQueries.deleteAlias(id)
+            SyncType.MATCH_REJECT -> id.split('|', limit = 2).takeIf { it.size == 2 }?.let { db.matchQueries.deleteReject(it[0], it[1]) }
         }
     }
 

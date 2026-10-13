@@ -185,6 +185,7 @@ export const Overview = z.object({
   failedJobs: z.array(JobRun),
   devices: z.array(Device),
   latestAppVersion: z.string(),
+  switchReview: z.number().default(0),
 });
 
 export const SnapshotSummary = z.object({ counts: z.record(z.number()), profiles: z.array(z.string()), devices: z.array(z.string()) });
@@ -209,3 +210,37 @@ export type JobRun = z.infer<typeof JobRun>;
 export type Overview = z.infer<typeof Overview>;
 export type SnapshotSummary = z.infer<typeof SnapshotSummary>;
 export type ProgramBrief = z.infer<typeof ProgramBrief>;
+
+/** server/AdminSwitch.kt → SwitchView (PLAN §4.3.18 → Provider switch). */
+export const MatchView = z.object({
+  streamId: z.string(),
+  name: z.string(),
+  group: z.string(),
+  score: z.number(),
+  confidence: z.enum(["CONFIDENT", "SUGGESTED"]),
+  reasons: z.array(z.string()),
+  now: ProgramBrief.nullable().optional(),
+});
+export const ProposalView = z.object({
+  userChannelId: z.string(),
+  name: z.string(),
+  favorite: z.boolean(),
+  fromName: z.string(),
+  fromSource: z.string(),
+  matches: z.array(MatchView),
+});
+export const SwitchView = z.object({
+  targetSourceId: z.string(),
+  targetName: z.string(),
+  otherSources: z.array(z.object({ id: z.string(), name: z.string(), enabled: z.boolean() })),
+  confident: z.array(ProposalView),
+  suggested: z.array(ProposalView),
+  unmatched: z.array(z.object({ userChannelId: z.string(), name: z.string(), favorite: z.boolean(), fromSource: z.string() })),
+  alreadyLinked: z.number(),
+  groups: z.array(z.object({ sourceId: z.string(), sourceName: z.string(), group: z.string(), toGroup: z.string().nullable() })),
+});
+export type SwitchView = z.infer<typeof SwitchView>;
+export type ProposalView = z.infer<typeof ProposalView>;
+
+export const LinkView = z.object({ streamId: z.string(), name: z.string(), group: z.string(), sourceName: z.string(), preferred: z.boolean(), playable: z.boolean() });
+export type LinkView = z.infer<typeof LinkView>;

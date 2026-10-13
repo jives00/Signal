@@ -53,6 +53,7 @@ class AppController(val platform: Platform, val log: Log) {
     val http = platform.createHttpClient()
     val sources = SourceRepository(db, http, platform.secretBox, platform.io, log)
     val channels = ChannelRepository(db, settings, platform.io)
+    val switches = com.signal.data.SwitchRepository(db, settings, platform.io)
     val playback = PlaybackController(platform.player, channels, sources, settings, scope, log)
     // The NAS companion (PLAN §5.7): optional; the app works the same without it.
     val nas = com.signal.nas.NasConnection(settings, http, platform.secretBox, platform.appInfo, log)
@@ -81,6 +82,9 @@ class AppController(val platform: Platform, val log: Log) {
 
     /** Live TV's group list, kept live for menus and screens. */
     val groups: StateFlow<List<GroupEntry>> = channels.groups().stateIn(scope, SharingStarted.Eagerly, emptyList())
+
+    /** User channels with more than one playable stream, for the Stream picker (PLAN §4.5). */
+    val linkedStreams: StateFlow<Map<String, List<ChannelRepository.LinkedStream>>> = channels.multiLinked().stateIn(scope, SharingStarted.Eagerly, emptyMap())
 
     /** The sources, kept live, so Settings never shows an empty list while it reloads. */
     val sourceList: StateFlow<List<Source>> = sources.sources().stateIn(scope, SharingStarted.Eagerly, emptyList())

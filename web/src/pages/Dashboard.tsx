@@ -39,6 +39,7 @@ export default function Dashboard({ status, failed }: { status: Status | null; f
   const attention: { text: string; to: string }[] = [];
   if (overview) {
     const unmapped = overview.coverage.total - overview.coverage.mapped;
+    if (overview.switchReview) attention.push({ text: `${overview.switchReview} channels to review in the provider switch`, to: "/switch" });
     if (overview.unmappedFavorites) attention.push({ text: `${overview.unmappedFavorites} favorites without guide data`, to: "/mapping" });
     if (overview.unavailableFavorites) attention.push({ text: `${overview.unavailableFavorites} favorites unavailable: their streams are gone`, to: "/favorites" });
     if (unmapped && !overview.unmappedFavorites) attention.push({ text: `${unmapped.toLocaleString()} visible channels without guide data`, to: "/mapping" });

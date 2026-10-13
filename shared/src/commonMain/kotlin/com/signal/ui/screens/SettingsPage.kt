@@ -149,7 +149,7 @@ private fun SourcesSection(app: AppController, onAdd: () -> Unit, onEdit: (Sourc
                 !s.enabled -> "Disabled"
                 else -> "$count channels · ${refreshedLabel(app, s.lastRefreshedAt)}"
             }
-            ListRow("${s.name} · ${kindLabel(s.kind)}", detail = detail, onSelect = { app.panel.open(sourceActions(app, s, onEdit), returnTo) })
+            ListRow("${s.name} · ${kindLabel(s.kind)}", detail = detail, onSelect = { app.panel.open(sourceActions(app, s, onEdit, returnTo), returnTo) })
         }
         item { ListRow("Add source", detail = "M3U or Xtream Codes", onSelect = onAdd) }
         epgSourceItems(app, guideState.sources, guideState.defaultId, epgCounts, returnTo)
@@ -168,9 +168,13 @@ internal fun refreshedLabel(app: AppController, at: Long): String {
     return "refreshed ${t.date} ${formatTime(t.hour, t.minute, app.settings.bool(Settings.Key.CLOCK_24H, app.platform.systemUses24HourClock()))}"
 }
 
-private fun sourceActions(app: AppController, s: Source, onEdit: (Source) -> Unit): PanelPage = PanelPage.Actions(s.name, buildList {
+private fun sourceActions(app: AppController, s: Source, onEdit: (Source) -> Unit, returnTo: FocusRequester): PanelPage = PanelPage.Actions(s.name, buildList {
     add(PanelAction("Refresh now") { app.scope.launch { app.refresh(s.id) }; null })
     if (s.kind != SourceKind.DEMO) add(PanelAction("Edit") { onEdit(s); null })
+    // With another source beside this one: the provider switch review (PLAN §4.5).
+    if (app.sourceList.value.size > 1) add(PanelAction("Match channels to this source", detail = "Link your channels to its streams before switching") {
+        com.signal.ui.menus.SwitchReview.open(app, s, returnTo); null
+    })
     add(PanelAction(if (s.enabled) "Disable" else "Enable") { app.scope.launch { app.sources.save(s.copy(enabled = !s.enabled)) }; null })
     add(PanelAction("Remove") {
         PanelPage.Confirm("Remove ${s.name}?", "Its channels leave every list, including Favorites and playlists.", "Remove") {
