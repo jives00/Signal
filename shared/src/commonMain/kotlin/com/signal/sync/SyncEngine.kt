@@ -76,10 +76,14 @@ class SyncEngine(
      * Push, then pull. Null when the companion couldn't be reached or refused; the changes stay
      * here and go next time (PLAN §9.2: "Nothing blocks on it").
      */
-    suspend fun sync(transport: SyncTransport): Report? = lock.withLock {
+    /**
+     * [full] asks for every item instead of the changes, which also removes anything agreed before that
+     * the companion no longer has: the app does one at launch, so a missed change can never stick.
+     */
+    suspend fun sync(transport: SyncTransport, full: Boolean = false): Report? = lock.withLock {
         _state.value = _state.value.copy(running = true)
         try {
-            runSync(transport).also { report ->
+            runSync(transport, full).also { report ->
                 _state.value = _state.value.copy(error = if (report == null) "Couldn't reach the NAS" else null)
             }
         } catch (e: Exception) {
@@ -92,7 +96,7 @@ class SyncEngine(
         }
     }
 
-    private suspend fun runSync(transport: SyncTransport): Report? {
+    private suspend fun runSync(transport: SyncTransport, full: Boolean): Report? {
         val since = withContext(io) { stateValue(REV)?.toLongOrNull() }
         val initial = since == null
 
@@ -115,7 +119,7 @@ class SyncEngine(
         }
 
         // Pull: what changed elsewhere. A move to another profile starts over from revision 0.
-        var pulled = transport.pull(since ?: 0) ?: return null
+        var pulled = transport.pull(if (full) 0 else since ?: 0) ?: return null
         var profileChanged = false
         if (pulled.profileId != settings.profileId) {
             val old = settings.profileId

@@ -53,7 +53,19 @@ class SyncService(private val companion: Companion) {
 
     private fun nextRev(store: SyncStore): Long = ((rev ?: store.maxRev()) + 1).also { rev = it }
 
-    fun currentRev(): Long = companion.syncStore?.let { rev ?: it.maxRev() } ?: 0
+    /**
+     * The newest revision whose items are written. Revisions are handed out before the write commits,
+     * so a pull must never report one beyond this: it would skip the items still being written, for good.
+     */
+    @Volatile private var committed: Long? = null
+
+    fun currentRev(): Long = committed ?: companion.syncStore?.maxRev() ?: 0
+
+    /** Writes [items] and only then makes their revisions visible to pulls. Called under the lock. */
+    private fun commit(store: SyncStore, items: List<StoredItem>) {
+        store.write(items)
+        committed = rev ?: store.maxRev()
+    }
 
     private fun checkSchema(schema: Int) {
         if (schema > BUNDLE_SCHEMA) throw SyncRefused(409, "This app is newer than the NAS companion. Update the companion.")
@@ -143,7 +155,7 @@ class SyncService(private val companion: Companion) {
             pending[key] = stored
             written += stored
         }
-        store.write(written)
+        commit(store, written)
         if (written.isNotEmpty()) {
             itemsCache = null
             log.info("$by: ${written.size} changes; now at revision $rev")
@@ -175,10 +187,12 @@ class SyncService(private val companion: Companion) {
         val store = store()
         val compacted = companion.store?.setting(COMPACTED_REV)?.toLongOrNull() ?: 0
         val full = since <= 0 || since < compacted
-        val items = if (full) store.live(device.profileId, device.id) else store.changedSince(since, device.profileId, device.id)
+        // The revision first, then the items up to it: anything newer is mid-write and comes next time.
+        val upTo = currentRev()
+        val items = (if (full) store.live(device.profileId, device.id) else store.changedSince(since, device.profileId, device.id)).filter { it.rev <= upTo }
         val profile = store.profiles().firstOrNull { it.id == device.profileId } ?: Profile("main", "Main", 0)
         companion.devices?.synced(device.id, System.currentTimeMillis())
-        return PullResult(BUNDLE_SCHEMA, currentRev(), full, profile.id, profile.name, items.map { it.toItem() })
+        return PullResult(BUNDLE_SCHEMA, upTo, full, profile.id, profile.name, items.map { it.toItem() })
     }
 
     // ---- The guide's inputs (PLAN §5.2): the household's sources and EPG sources -------------------
@@ -217,7 +231,7 @@ class SyncService(private val companion: Companion) {
         store.saveProfile(profile)
         if (copyFrom != null) {
             val copied = store.ofOwner(SyncScope.PROFILE, copyFrom).filter { !it.deleted }.map { it.copy(owner = profile.id, rev = nextRev(store), updatedAt = now) }
-            store.write(copied)
+            commit(store, copied)
         }
         profile
     }
@@ -327,7 +341,7 @@ class SyncService(private val companion: Companion) {
             val was = current[k]
             if (was == null || was.deleted || was.fields != item.fields) written += item.copy(deleted = false, rev = nextRev(store), updatedAt = now)
         }
-        store.write(written)
+        commit(store, written)
         itemsCache = null
         if (written.isNotEmpty()) companion.events.tryEmit(SyncEvent(SyncEvent.SETTINGS, rev = rev ?: 0))
         val after = guideInputs()

@@ -38,6 +38,7 @@ import io.ktor.client.plugins.defaultRequest
 import io.ktor.server.engine.embeddedServer
 import io.ktor.server.netty.Netty
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.Json
@@ -294,6 +295,60 @@ class SyncTest {
         val newer = client.get("${SyncPaths.PULL}?since=0&schema=${BUNDLE_SCHEMA + 1}") { header(HttpHeaders.Authorization, bearer(a.key)) }
         assertEquals(HttpStatusCode.Conflict, newer.status)
         assertEquals(HttpStatusCode.Unauthorized, client.get("${SyncPaths.PULL}?since=0&schema=$BUNDLE_SCHEMA").status)
+    }
+
+    @Test fun aPullDuringAWriteNeverSkipsTheItemsBeingWritten(): Unit = runBlocking {
+        // A store whose write can be held open, to land a pull between "revisions handed out" and "written".
+        val gate = java.util.concurrent.CountDownLatch(1)
+        val writing = java.util.concurrent.CountDownLatch(1)
+        val inner = MemorySyncStore()
+        var hold = false
+        val slow = object : SyncStore by inner {
+            override fun write(items: List<StoredItem>) {
+                if (hold) { writing.countDown(); gate.await() }
+                inner.write(items)
+            }
+        }
+        val c = Companion(
+            Config(port = 0, db = null, secretKey = "k", dataDir = Files.createTempDirectory("race").toFile().path, webDir = "missing"),
+            deviceStore = MemoryDeviceStore(), companionStore = MemoryCompanionStore(), syncStoreOverride = slow,
+        )
+        val device = Device("d1", "TV", "SHIELD", "0.3.0", 0, 0)
+        c.sync.edit(listOf(AdminOp("setting", "a", "household", "", com.signal.sync.fields("value" to "1"))))
+        val before = c.sync.pull(device, 0, BUNDLE_SCHEMA).rev
+
+        hold = true
+        val edit = launch(Dispatchers.IO) { c.sync.edit(listOf(AdminOp("setting", "b", "household", "", com.signal.sync.fields("value" to "2")))) }
+        writing.await()
+        // Mid-write: the pull must not claim the new revision.
+        val during = try {
+            c.sync.pull(device, before, BUNDLE_SCHEMA)
+        } finally {
+            hold = false
+            gate.countDown()
+        }
+        edit.join()
+        assertEquals(before, during.rev)
+        val after = c.sync.pull(device, during.rev, BUNDLE_SCHEMA)
+        assertEquals(listOf("b"), after.items.map { it.id })
+    }
+
+    @Test fun aFullSyncHealsATvThatMissedADelete() = testApplication {
+        application { signalModule(companion) }
+        val a = paired(Tv("a"))
+        val b = paired(Tv("b"))
+        val uc = a.addChannel("s:x:5")
+        a.db.listsQueries.addFavorite("main", uc, "a0")
+        a.sync()
+        b.sync()
+        b.db.listsQueries.removeFavorite("main", uc)
+        b.sync()
+        // A "misses" the delete: its saved revision jumps past it without applying it.
+        a.db.syncQueries.putState("rev", companion.sync.currentRev().toString())
+        a.sync()
+        assertEquals(listOf(uc), a.favorites(), "an ordinary sync can't see it any more")
+        assertNotNull(a.engine.sync(a.transport, full = true))
+        assertEquals(emptyList(), a.favorites())
     }
 
     // On a real Netty server: Ktor's in-memory test client only hands over a response body once it ends.
