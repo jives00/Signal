@@ -47,6 +47,7 @@ class TestPlayer : VideoPlayer {
 
     override fun play(request: PlayRequest) {
         played += request.label
+        positionMs = request.startPositionMs
         _state.value = PlaybackState(
             status = PlaybackState.Status.PLAYING,
             request = request,
@@ -56,6 +57,14 @@ class TestPlayer : VideoPlayer {
             selectedAudioTrackId = "0:0",
         )
     }
+
+    // On-demand: tests move the position and end the video themselves.
+    var positionMs = 0L
+    var durationMs = 10 * 60_000L
+    override fun position() = com.signal.player.PlaybackPosition(if (_state.value.request?.isLive == false) positionMs else 0, if (_state.value.request?.isLive == false) durationMs else 0)
+    override fun seekTo(positionMs: Long) { this.positionMs = positionMs.coerceIn(0, durationMs); _state.value = _state.value.copy(ended = false) }
+    override fun setPaused(paused: Boolean) { _state.value = _state.value.copy(paused = paused) }
+    fun end() { positionMs = durationMs; _state.value = _state.value.copy(ended = true) }
 
     override fun stop() { _state.value = PlaybackState() }
     override fun retry() { _state.value.request?.let(::play) }

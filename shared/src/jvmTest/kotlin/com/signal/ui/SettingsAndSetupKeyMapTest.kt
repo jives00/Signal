@@ -79,7 +79,8 @@ class SettingsAndSetupKeyMapTest {
 
     @Test fun settingsNasSectionOffersPairing() = keyMapTest(start = Route.Settings) {
         focusedStartsWith("Sources")
-        repeat(4) { press(RemoteAction.Down) }
+        // Sources, Channels & groups, Live TV & guide, Movies & Series, Appearance, then NAS & sync.
+        repeat(5) { press(RemoteAction.Down) }
         focusedStartsWith("NAS & sync")
         press(RemoteAction.Right)
         focusedStartsWith("Pair with NAS")

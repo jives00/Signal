@@ -14,6 +14,10 @@ sealed interface Route {
     data class FullScreen(val group: ChannelGroup) : Route
     data object Movies : Route
     data object Series : Route
+    data class MovieDetail(val itemId: String) : Route
+    data class SeriesDetail(val itemId: String) : Route
+    /** Movie or episode playback (PLAN §4.3.10); what plays is in VodPlayback. */
+    data object VodPlayer : Route
     data object Search : Route
     data object Settings : Route
 

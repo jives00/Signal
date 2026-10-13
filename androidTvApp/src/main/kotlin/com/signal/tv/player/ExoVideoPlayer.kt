@@ -111,7 +111,8 @@ class ExoVideoPlayer(context: Context) : VideoPlayer {
             .setUserAgent(request.headers["User-Agent"] ?: DEFAULT_USER_AGENT)
             .setDefaultRequestProperties(request.headers - "User-Agent")
         val source = DefaultMediaSourceFactory(http).createMediaSource(liveItem(request))
-        exo.setMediaSource(source)
+        // On-demand resumes where it left off (PLAN §4.3.8); live always starts at the live edge.
+        if (!request.isLive && request.startPositionMs > 0) exo.setMediaSource(source, request.startPositionMs) else exo.setMediaSource(source)
         exo.prepare()
         exo.playWhenReady = true
         _state.value = PlaybackState(status = PlaybackState.Status.BUFFERING, request = request)
@@ -157,6 +158,19 @@ class ExoVideoPlayer(context: Context) : VideoPlayer {
 
     override fun setVolume(volume: Float) {
         exo.volume = volume
+    }
+
+    override fun position(): com.signal.player.PlaybackPosition =
+        com.signal.player.PlaybackPosition(exo.currentPosition.coerceAtLeast(0), exo.duration.takeIf { it != C.TIME_UNSET && it > 0 } ?: 0)
+
+    override fun seekTo(positionMs: Long) {
+        exo.seekTo(positionMs.coerceAtLeast(0))
+        _state.update { it.copy(ended = false) }
+    }
+
+    override fun setPaused(paused: Boolean) {
+        exo.playWhenReady = !paused
+        _state.update { it.copy(paused = paused) }
     }
 
     /** Stop frees the decoders and the provider connection; the instance stays usable (PLAN §4.2). */
@@ -215,7 +229,8 @@ class ExoVideoPlayer(context: Context) : VideoPlayer {
                 else -> return
             }
             if (playbackState == Player.STATE_ENDED) {
-                retry()
+                // On-demand ends for real (autoplay, PLAN §4.3.9); live streams "end" when the provider drops them.
+                if (request?.isLive == false) _state.update { it.copy(status = PlaybackState.Status.PLAYING, ended = true) } else retry()
                 return
             }
             _state.update { it.copy(status = status, error = null) }

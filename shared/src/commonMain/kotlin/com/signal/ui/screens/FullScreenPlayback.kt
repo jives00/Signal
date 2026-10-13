@@ -135,7 +135,7 @@ fun FullScreenPlayback(route: Route.FullScreen) {
 
 /** The bar's shared look: full width, theme bg at about 72%, a short fade at its top edge, no blur. */
 @Composable
-private fun OverlayBackground(modifier: Modifier = Modifier, content: @Composable () -> Unit) {
+internal fun OverlayBackground(modifier: Modifier = Modifier, content: @Composable () -> Unit) {
     val bg = SignalTheme.colors.bg
     Column(modifier.fillMaxWidth()) {
         Box(Modifier.fillMaxWidth().height(48.dp).background(Brush.verticalGradient(listOf(Color.Transparent, bg.copy(alpha = 0.72f)))))

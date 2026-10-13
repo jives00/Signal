@@ -133,6 +133,87 @@ object XtreamParser {
         return out
     }
 
+    /** `get_vod_info` (PLAN §4.3.8). */
+    fun movieDetail(body: String): com.signal.model.MovieDetail {
+        val root = json.parseToJsonElement(body) as? JsonObject ?: return com.signal.model.MovieDetail()
+        val info = root["info"] as? JsonObject ?: JsonObject(emptyMap())
+        val data = root["movie_data"] as? JsonObject ?: JsonObject(emptyMap())
+        return com.signal.model.MovieDetail(
+            plot = info.string("plot")?.takeIf { it.isNotBlank() } ?: info.string("description")?.takeIf { it.isNotBlank() },
+            genres = genres(info.string("genre")),
+            cast = info.string("cast")?.takeIf { it.isNotBlank() } ?: info.string("actors")?.takeIf { it.isNotBlank() },
+            director = info.string("director")?.takeIf { it.isNotBlank() },
+            durationSec = info.int("duration_secs")?.takeIf { it > 0 } ?: hms(info.string("duration")),
+            releaseDate = info.string("releasedate")?.takeIf { it.isNotBlank() } ?: info.string("release_date")?.takeIf { it.isNotBlank() },
+            rating = info.double("rating")?.takeIf { it > 0 },
+            backdropUrl = firstUrl(info["backdrop_path"]),
+            posterUrl = info.string("movie_image")?.takeIf { it.isNotBlank() } ?: info.string("cover_big")?.takeIf { it.isNotBlank() },
+            trailerKey = trailer(info.string("youtube_trailer")),
+            tmdbId = info.long("tmdb_id")?.takeIf { it > 0 },
+            containerExt = data.string("container_extension")?.takeIf { it.isNotBlank() },
+        )
+    }
+
+    /** `get_series_info` (PLAN §4.3.9). Episodes come as a map by season or, from some providers, a flat list. */
+    fun seriesDetail(source: Source, body: String): com.signal.model.SeriesDetail {
+        val root = json.parseToJsonElement(body) as? JsonObject ?: return com.signal.model.SeriesDetail()
+        val info = root["info"] as? JsonObject ?: JsonObject(emptyMap())
+        val raw: List<JsonElement> = when (val e = root["episodes"]) {
+            is JsonObject -> e.values.flatMap { (it as? JsonArray).orEmpty() }
+            is JsonArray -> e.flatMap { (it as? JsonArray) ?: listOf(it) }
+            else -> emptyList()
+        }
+        val episodes = raw.mapNotNull { el ->
+            val obj = el as? JsonObject ?: return@mapNotNull null
+            val id = obj.string("id") ?: return@mapNotNull null
+            val epInfo = obj["info"] as? JsonObject ?: JsonObject(emptyMap())
+            val season = obj.int("season") ?: return@mapNotNull null
+            val number = obj.int("episode_num") ?: return@mapNotNull null
+            com.signal.model.Episode(
+                id = "${source.id}:e:$id",
+                providerId = id,
+                season = season,
+                episode = number,
+                title = obj.string("title")?.trim()?.takeIf { it.isNotBlank() } ?: "Episode $number",
+                plot = epInfo.string("plot")?.takeIf { it.isNotBlank() },
+                durationSec = epInfo.int("duration_secs")?.takeIf { it > 0 } ?: hms(epInfo.string("duration")),
+                stillUrl = epInfo.string("movie_image")?.takeIf { it.isNotBlank() },
+                containerExt = obj.string("container_extension")?.takeIf { it.isNotBlank() },
+            )
+        }.distinctBy { it.id }
+        return com.signal.model.SeriesDetail(
+            plot = info.string("plot")?.takeIf { it.isNotBlank() },
+            genres = genres(info.string("genre")),
+            cast = info.string("cast")?.takeIf { it.isNotBlank() },
+            director = info.string("director")?.takeIf { it.isNotBlank() },
+            rating = info.double("rating")?.takeIf { it > 0 },
+            backdropUrl = firstUrl(info["backdrop_path"]),
+            trailerKey = trailer(info.string("youtube_trailer")),
+            tmdbId = info.long("tmdb")?.takeIf { it > 0 } ?: info.long("tmdb_id")?.takeIf { it > 0 },
+            episodes = episodes,
+        )
+    }
+
+    private fun genres(text: String?): List<String> = text.orEmpty().split(',', '/', '|').map { it.trim() }.filter { it.isNotEmpty() }.distinct()
+
+    /** "01:45:30" → seconds. */
+    private fun hms(text: String?): Int? {
+        val parts = text?.trim()?.split(':')?.map { it.toIntOrNull() ?: return null } ?: return null
+        return parts.fold(0) { acc, p -> acc * 60 + p }.takeIf { it > 0 && parts.size in 2..3 }
+    }
+
+    private fun firstUrl(el: JsonElement?): String? = when (el) {
+        is JsonArray -> el.firstNotNullOfOrNull { (it as? JsonPrimitive)?.content?.takeIf { s -> s.isNotBlank() } }
+        is JsonPrimitive -> el.content.takeIf { it.isNotBlank() && el !is JsonNull }
+        else -> null
+    }
+
+    /** Providers send a bare YouTube ID or a whole URL; keep the ID. */
+    private fun trailer(text: String?): String? {
+        val t = text?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+        return Regex("""(?:v=|youtu\.be/|embed/)([A-Za-z0-9_-]{6,})""").find(t)?.groupValues?.get(1) ?: t.takeIf { Regex("[A-Za-z0-9_-]{6,}").matches(it) }
+    }
+
     private val yearInName = Regex("""[(\[](19\d{2}|20\d{2})[)\]]""")
 
     /** "Heat (1995)" → 1995: many providers put the year only in the name. */

@@ -43,7 +43,7 @@ import kotlinx.coroutines.delay
  * the spot. While video plays nothing is painted here, so the video layer shows through.
  */
 @Composable
-fun VideoBox(modifier: Modifier = Modifier, aspect: AspectMode = AspectMode.FIT, compact: Boolean = false, emptyText: String? = null) {
+fun VideoBox(modifier: Modifier = Modifier, aspect: AspectMode = AspectMode.FIT, compact: Boolean = false, emptyText: String? = null, errorTitle: String = "Can't play this channel", retryHint: String? = null) {
     val app = LocalApp.current
     val layer = LocalVideoLayer.current
     val state by app.platform.player.state.collectAsState()
@@ -61,9 +61,9 @@ fun VideoBox(modifier: Modifier = Modifier, aspect: AspectMode = AspectMode.FIT,
         when (state.status) {
             PlaybackState.Status.BUFFERING -> DelayedSpinner(if (compact) 48 else 72)
             PlaybackState.Status.ERROR -> Column(Modifier.background(c.videoGround).padding(32.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                SText("Can't play this channel", if (compact) 26 else 32, weight = FontWeight.ExtraBold)
+                SText(errorTitle, if (compact) 26 else 32, weight = FontWeight.ExtraBold)
                 SText(state.error?.message ?: "", if (compact) 22 else 26, color = c.muted, maxLines = 3)
-                SText(if (compact) "Press OK to retry" else "Press OK to retry · Up/Down to change channel", 22, Modifier.padding(top = 12.dp), color = c.muted)
+                SText(retryHint ?: if (compact) "Press OK to retry" else "Press OK to retry · Up/Down to change channel", 22, Modifier.padding(top = 12.dp), color = c.muted)
             }
             PlaybackState.Status.IDLE -> emptyText?.let { SText(it, 24, color = c.muted) }
             PlaybackState.Status.PLAYING -> {}

@@ -80,6 +80,9 @@ class DesktopPlatform(override val player: VideoPlayer) : Platform {
 
     override fun exitApp() = exitProcess(0)
 
+    override fun openUrl(url: String): Boolean =
+        runCatching { java.awt.Desktop.getDesktop().browse(java.net.URI(url)) }.isSuccess
+
     private fun versionName(): String =
         javaClass.getResourceAsStream("/signal-version.txt")?.bufferedReader()?.readText()?.trim() ?: "dev"
 }

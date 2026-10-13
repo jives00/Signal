@@ -43,6 +43,10 @@ object SyncType {
     const val SETTING = "setting"
     const val ALIAS = "alias"
     const val MATCH_REJECT = "match_reject"
+    const val LIBRARY_ITEM = "library_item"
+    const val RESUME_POSITION = "resume_position"
+    const val WATCHED = "watched"
+    const val CONTINUE_HIDDEN = "continue_hidden"
 }
 
 @Serializable

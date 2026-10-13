@@ -27,10 +27,13 @@ import kotlinx.coroutines.flow.asStateFlow
  * or without using up a provider connection. Run with `-Psignal.player=fake`.
  */
 class FakePlayer : VideoPlayer {
+    private companion object { const val FAKE_LENGTH_MS = 10 * 60_000L }
+
     private val _state = MutableStateFlow(PlaybackState())
     override val state: StateFlow<PlaybackState> = _state.asStateFlow()
 
     override fun play(request: PlayRequest) {
+        startedAt = clockMs(); offsetMs = request.startPositionMs; pausedAt = null
         _state.value = PlaybackState(
             status = PlaybackState.Status.PLAYING,
             request = request,
@@ -39,6 +42,30 @@ class FakePlayer : VideoPlayer {
             subtitleTracks = listOf(Track("en", "English", "en", null)),
             selectedAudioTrackId = "en",
         )
+    }
+
+    // On-demand: a pretend clock, so resume and autoplay can be tried without video.
+    private var startedAt = 0L
+    private var offsetMs = 0L
+    private var pausedAt: Long? = null
+    private fun clockMs() = System.currentTimeMillis()
+
+    override fun position(): com.signal.player.PlaybackPosition {
+        val req = _state.value.request ?: return com.signal.player.PlaybackPosition(0, 0)
+        if (req.isLive) return com.signal.player.PlaybackPosition(0, 0)
+        val pos = offsetMs + ((pausedAt ?: clockMs()) - startedAt)
+        return com.signal.player.PlaybackPosition(pos.coerceIn(0, FAKE_LENGTH_MS), FAKE_LENGTH_MS)
+    }
+
+    override fun seekTo(positionMs: Long) {
+        offsetMs = positionMs
+        startedAt = pausedAt ?: clockMs()
+    }
+
+    override fun setPaused(paused: Boolean) {
+        if (paused && pausedAt == null) pausedAt = clockMs()
+        if (!paused) pausedAt?.let { startedAt += clockMs() - it; pausedAt = null }
+        _state.value = _state.value.copy(paused = paused)
     }
 
     override fun stop() { _state.value = PlaybackState() }

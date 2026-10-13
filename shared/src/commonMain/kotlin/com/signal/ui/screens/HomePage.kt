@@ -2,6 +2,7 @@ package com.signal.ui.screens
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -46,6 +47,7 @@ import com.signal.ui.components.VDivider
 import com.signal.ui.components.VideoBox
 import com.signal.ui.theme.SignalSizes
 import com.signal.ui.theme.SignalTheme
+import kotlinx.coroutines.launch
 
 /**
  * Home (PLAN §4.3.1): the hero (the last played channel, playing with sound, plus its details) and
@@ -68,11 +70,13 @@ fun HomePage() {
     }
     DisposableEffect(Unit) {
         // Leaving Home stops the preview, except into full screen, which carries the player over.
-        onDispose { if (app.navigator.current !is Route.FullScreen) app.playback.stop() }
+        // Continue watching starts a movie before going to the VOD player, so that's left alone too.
+        onDispose { if (app.navigator.current !is Route.FullScreen && app.navigator.current != Route.VodPlayer) app.playback.stop() }
     }
 
     TopLevelPage(Route.Home, chrome) {
-        Column(Modifier.fillMaxSize()) {
+        // Scrolls: with Continue watching and Reminders, the rows can run past the screen.
+        Column(Modifier.fillMaxSize().verticalScroll(androidx.compose.foundation.rememberScrollState())) {
             Row(Modifier.fillMaxWidth().height(400.dp)) {
                 Focusable(
                     Modifier.width(900.dp).fillMaxHeight(),
@@ -93,6 +97,7 @@ fun HomePage() {
             }
             HDivider()
             FavoritesRow(favorites)
+            ContinueRow()
             RemindersRow()
         }
     }
@@ -280,3 +285,83 @@ private fun reminderDay(ms: Long, now: Long): String {
     val hour = kotlin.time.Instant.fromEpochMilliseconds(ms).toLocalDateTime(kotlinx.datetime.TimeZone.currentSystemDefault()).hour
     return if (day == "Today" && hour >= 17) "Tonight" else day
 }
+
+/**
+ * Continue watching (PLAN §4.3.1): started movies and episodes, and next up. OK plays at once from
+ * the saved position (next up from the start); long-press opens details, Mark as watched and Remove.
+ * Hidden when empty.
+ */
+@Composable
+private fun ContinueRow() {
+    val app = LocalApp.current
+    val c = SignalTheme.colors
+    val cards by app.continueWatching.collectAsState()
+    if (cards.isEmpty()) return
+    val first = remember { FocusRequester() }
+    Column(Modifier.fillMaxWidth()) {
+        SText("Continue watching", 28, Modifier.padding(start = SignalSizes.EDGE_MARGIN.dp, top = 32.dp, bottom = 16.dp), weight = FontWeight.ExtraBold)
+        LazyRow(
+            Modifier.fillMaxWidth().focusRestorer(first),
+            horizontalArrangement = Arrangement.spacedBy(24.dp),
+            contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = SignalSizes.EDGE_MARGIN.dp),
+        ) {
+            itemsIndexed(cards, key = { _, card -> card.key }) { i, card ->
+                val own = remember { FocusRequester() }
+                val tile = if (i == 0) first else own
+                fun play() {
+                    app.scope.launch {
+                        val e = card.episode
+                        if (e != null) {
+                            val detail = app.vodDetails.series(card.item) ?: return@launch
+                            app.vodPlayback.unattendedEpisodes = 0
+                            app.vodPlayback.playEpisode(card.item, detail, e)
+                        } else {
+                            app.vodPlayback.playMovie(card.item)
+                        }
+                        app.navigator.go(Route.VodPlayer)
+                    }
+                }
+                Focusable(
+                    Modifier.width(326.dp),
+                    focusRequester = tile,
+                    onSelect = ::play,
+                    onOptions = { app.panel.open(continueMenu(app, card), tile) },
+                ) { focused ->
+                    Column(Modifier.fillMaxWidth().background(if (focused) c.accent else Color.Transparent)) {
+                        Box(Modifier.fillMaxWidth().height(150.dp).background(c.neutral300), contentAlignment = Alignment.BottomStart) {
+                            val image = card.episode?.stillUrl ?: card.item.posterUrl
+                            if (image != null) coil3.compose.AsyncImage(model = image, contentDescription = null, contentScale = androidx.compose.ui.layout.ContentScale.Crop, modifier = Modifier.fillMaxSize())
+                            else SText(card.title, 24, Modifier.align(Alignment.Center).padding(16.dp), weight = FontWeight.ExtraBold, color = c.secondaryText, maxLines = 2)
+                            if (card.fraction != null) com.signal.ui.components.ProgressBar(card.fraction, height = 6, onAccent = focused)
+                            else SText("Next up", 20, Modifier.background(c.tagBg).padding(horizontal = 10.dp, vertical = 2.dp), weight = FontWeight.SemiBold, color = c.tagText)
+                        }
+                        Column(Modifier.padding(horizontal = 12.dp, vertical = 10.dp)) {
+                            SText(card.title, 22, weight = FontWeight.SemiBold, color = if (focused) c.onAccent else c.text, maxLines = 1)
+                            card.subtitle?.let { SText(it, 20, color = if (focused) c.onAccent else c.muted, maxLines = 1) }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** Long-press on a Continue watching card (PLAN §4.3.1). */
+private fun continueMenu(app: com.signal.app.AppController, card: com.signal.data.ContinueWatching.Card): com.signal.ui.panel.PanelPage =
+    com.signal.ui.panel.PanelPage.Actions(card.title, listOf(
+        com.signal.ui.panel.PanelAction("Go to details") {
+            app.navigator.go(if (card.episode != null) Route.SeriesDetail(card.item.id) else Route.MovieDetail(card.item.id))
+            null
+        },
+        com.signal.ui.panel.PanelAction("Mark as watched") {
+            app.scope.launch {
+                val e = card.episode
+                app.watch.markWatched(card.key, if (e != null) "EPISODE" else "MOVIE", card.item.id, card.seriesKey, e?.season, e?.episode)
+            }
+            null
+        },
+        com.signal.ui.panel.PanelAction("Remove from Continue watching") {
+            app.scope.launch { card.seriesKey?.let { app.watch.hideSeries(it) } ?: app.watch.clearPosition(card.key) }
+            null
+        },
+    ))

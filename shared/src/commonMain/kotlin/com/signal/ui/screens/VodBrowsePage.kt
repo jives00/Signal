@@ -63,6 +63,7 @@ import kotlinx.coroutines.launch
 /** What the poster grid shows: a list, or one provider category. */
 private sealed interface Shelf {
     val key: String
+    data object Library : Shelf { override val key = "library" }
     data object Recent : Shelf { override val key = "recent" }
     data class Category(val entry: VodRepository.CategoryEntry) : Shelf { override val key = "${entry.sourceId}|${entry.categoryId}" }
 }
@@ -83,8 +84,13 @@ fun VodBrowsePage(kind: VodKind) {
     // Sort per category for this visit; TMDB lists will keep their own order (PLAN §4.3.6 → Poster grid).
     val sorts = remember(kind) { mutableStateMapOf<String, VodSort>() }
     val sort = sorts[shelf.key] ?: VodSort.RECENT
-    val items by produceState(emptyList<VodItem>(), kind, shelf, sort) {
+    val watch by app.watchState.collectAsState()
+    var libraryFilter by remember(kind) { mutableStateOf(LibraryFilter.ALL) }
+    var librarySort by remember(kind) { mutableStateOf(LibrarySort.ADDED) }
+    val libraryEntries = watch.library.filter { it.kind == kind }
+    val items by produceState(emptyList<VodItem>(), kind, shelf, sort, watch, libraryFilter, librarySort) {
         value = when (val s = shelf) {
+            Shelf.Library -> libraryItems(app, libraryEntries, watch, libraryFilter, librarySort)
             Shelf.Recent -> VodRepository.sorted(app.vod.recentlyAdded(kind), sort)
             is Shelf.Category -> app.vod.items(kind, s.entry.sourceId, s.entry.categoryId, sort)
         }
@@ -112,6 +118,18 @@ fun VodBrowsePage(kind: VodKind) {
         PanelAction(s.label, selected = s == sort) { sorts[shelf.key] = s; null }
     })
 
+    // Library (PLAN §4.3.11): All / Unwatched / Watched, and its own sorts.
+    fun libraryPage(): PanelPage = PanelPage.Actions(
+        "Library",
+        LibraryFilter.entries.map { f -> PanelAction("Show ${f.label.lowercase()}", selected = f == libraryFilter) { libraryFilter = f; null } } +
+            LibrarySort.entries.map { s -> PanelAction("Sort: ${s.label}", selected = s == librarySort) { librarySort = s; null } },
+    )
+
+    fun open(item: VodItem) {
+        if (item.id.startsWith(UNAVAILABLE)) return
+        app.navigator.go(if (item.kind == VodKind.MOVIE) Route.MovieDetail(item.id) else Route.SeriesDetail(item.id))
+    }
+
     // The column is lazy: its first row may not exist yet when the page appears (see requestFocusWhenReady).
     LaunchedEffect(kind) { firstShelf.requestFocusWhenReady() }
     // A new shelf or sort starts at the top, not where the last one was scrolled to.
@@ -127,7 +145,16 @@ fun VodBrowsePage(kind: VodKind) {
                 item { Box(Modifier.padding(top = 24.dp)) }
                 item {
                     ListRow(
-                        "Recently added", selected = shelf == Shelf.Recent, focusRequester = firstShelf,
+                        "Library", detail = libraryEntries.size.toString(), selected = shelf == Shelf.Library,
+                        focusRequester = if (libraryEntries.isNotEmpty()) firstShelf else null,
+                        onFocused = { shelf = Shelf.Library }, onSelect = { shelf = Shelf.Library; focusGrid() },
+                        onOptions = { app.panel.open(libraryPage(), returnTo) },
+                    )
+                }
+                item { SText("Lists", 22, Modifier.padding(start = 40.dp, top = 24.dp, bottom = 8.dp), color = c.muted, weight = FontWeight.SemiBold) }
+                item {
+                    ListRow(
+                        "Recently added", selected = shelf == Shelf.Recent, focusRequester = if (libraryEntries.isEmpty()) firstShelf else null,
                         onFocused = { shelf = Shelf.Recent }, onSelect = { shelf = Shelf.Recent; focusGrid() },
                         onOptions = { app.panel.open(sortPage(), returnTo) },
                     )
@@ -148,13 +175,21 @@ fun VodBrowsePage(kind: VodKind) {
             VDivider()
             Column(Modifier.fillMaxSize().padding(start = 56.dp, top = 40.dp, end = SignalSizes.EDGE_MARGIN.dp)) {
                 val title = when (val s = shelf) {
+                    Shelf.Library -> "Library"
                     Shelf.Recent -> "Recently added"
                     is Shelf.Category -> s.entry.name
                 }
                 SText(title, 48, weight = FontWeight.ExtraBold, maxLines = 1)
-                SText("${items.size} titles · Sort: ${sort.label}", 24, Modifier.padding(top = 8.dp, bottom = 28.dp), color = c.muted)
+                val line = if (shelf == Shelf.Library) "${items.size} titles · ${libraryFilter.label} · Sort: ${librarySort.label}" else "${items.size} titles · Sort: ${sort.label}"
+                SText(line, 24, Modifier.padding(top = 8.dp, bottom = 28.dp), color = c.muted)
                 if (items.isEmpty()) {
-                    SText(if (kind == VodKind.MOVIE) "No movies here." else "No series here.", 26, color = c.secondaryText)
+                    val empty = when {
+                        shelf == Shelf.Library && libraryEntries.isEmpty() -> "Nothing in your Library yet. Long-press a poster, or use Add to Library on its page."
+                        shelf == Shelf.Library -> "Nothing ${libraryFilter.label.lowercase()} in your Library."
+                        kind == VodKind.MOVIE -> "No movies here."
+                        else -> "No series here."
+                    }
+                    SText(empty, 26, color = c.secondaryText, maxLines = 2)
                 } else {
                     LazyVerticalGrid(
                         columns = GridCells.Fixed(6),
@@ -164,12 +199,15 @@ fun VodBrowsePage(kind: VodKind) {
                         verticalArrangement = Arrangement.spacedBy(32.dp),
                     ) {
                         itemsIndexed(items, key = { _, it -> it.id }) { i, item ->
+                            val key = com.signal.data.ItemKeys.of(item)
                             PosterTile(
                                 item,
                                 focusRequester = if (i == 0) firstPoster else null,
-                                // Movie and series pages arrive in slice 2.
-                                onSelect = {},
-                                onOptions = null,
+                                onSelect = { open(item) },
+                                onOptions = if (item.id.startsWith(UNAVAILABLE)) null else ({ app.panel.open(com.signal.ui.menus.VodMenus.item(app, item, watch), returnTo) }),
+                                // Watched shows full, a resume position its fraction (PLAN §4.3.6 → Poster grid).
+                                progress = if (key in watch.watched) 1f else watch.positions[key]?.fraction,
+                                unavailable = item.id.startsWith(UNAVAILABLE),
                             )
                         }
                     }
@@ -193,7 +231,7 @@ fun VodBrowsePage(kind: VodKind) {
  * offset by 4px, the one exception to the accent fill (PLAN §3).
  */
 @Composable
-fun PosterTile(item: VodItem, focusRequester: FocusRequester?, onSelect: () -> Unit, onOptions: (() -> Unit)?, progress: Float? = null) {
+fun PosterTile(item: VodItem, focusRequester: FocusRequester?, onSelect: () -> Unit, onOptions: (() -> Unit)?, progress: Float? = null, unavailable: Boolean = false) {
     val c = SignalTheme.colors
     val name = VodRepository.displayName(item)
     Focusable(Modifier.fillMaxWidth(), onSelect = onSelect, onOptions = onOptions, focusRequester = focusRequester) { focused ->
@@ -221,7 +259,59 @@ fun PosterTile(item: VodItem, focusRequester: FocusRequester?, onSelect: () -> U
                 }
             }
             SText(name, 22, Modifier.padding(start = 8.dp, top = 4.dp), weight = FontWeight.SemiBold, maxLines = 1)
-            item.year?.let { SText(it.toString(), 20, Modifier.padding(start = 8.dp), color = c.muted) }
+            val meta = listOfNotNull(item.year?.toString(), if (unavailable) "Unavailable" else null).joinToString(" · ")
+            if (meta.isNotEmpty()) SText(meta, 20, Modifier.padding(start = 8.dp), color = c.muted)
         }
     }
+}
+
+/** Library filters (PLAN §4.3.11). For series, Unwatched means it has unwatched episodes. */
+private enum class LibraryFilter(val label: String) { ALL("All"), UNWATCHED("Unwatched"), WATCHED("Watched") }
+
+/** Library sorts (PLAN §4.3.11): recently added to the Library is the default. */
+private enum class LibrarySort(val label: String) { ADDED("Recently added"), A_Z("A–Z"), WATCHED("Recently watched") }
+
+/** The ID of a Library title no source has any more, shown as unavailable (PLAN §4.3.11). */
+private const val UNAVAILABLE = "unavailable:"
+
+/**
+ * The Library's titles as posters. Series with new episodes sorting first arrives with slice 4's
+ * badge; a title no enabled source has stays, marked unavailable.
+ */
+private suspend fun libraryItems(
+    app: com.signal.app.AppController,
+    entries: List<com.signal.data.WatchRepository.LibraryEntry>,
+    watch: com.signal.data.WatchRepository.State,
+    filter: LibraryFilter,
+    sort: LibrarySort,
+): List<VodItem> {
+    val enabled = app.sourceList.value.filter { it.enabled }.map { it.id }.toSet()
+    val rows = entries.map { e ->
+        val item = app.vod.item(e.vodItemId)?.takeIf { it.sourceId in enabled }
+            ?: VodItem("$UNAVAILABLE${e.key}", "", e.kind, "", e.title, "", posterUrl = e.posterUrl, year = e.year)
+        Triple(e, item, isWatched(app, e, item, watch))
+    }
+    val filtered = rows.filter { (_, _, watched) ->
+        when (filter) {
+            LibraryFilter.ALL -> true
+            LibraryFilter.UNWATCHED -> !watched
+            LibraryFilter.WATCHED -> watched
+        }
+    }
+    fun lastWatched(e: com.signal.data.WatchRepository.LibraryEntry): Long = maxOf(
+        watch.positions.values.filter { it.key == e.key || it.seriesKey == e.key }.maxOfOrNull { it.updatedAt } ?: 0,
+        watch.watched.values.filter { it.key == e.key || it.seriesKey == e.key }.maxOfOrNull { it.watchedAt } ?: 0,
+    )
+    return when (sort) {
+        LibrarySort.ADDED -> filtered.sortedByDescending { it.first.addedAt }
+        LibrarySort.A_Z -> filtered.sortedBy { VodRepository.displayName(it.second).lowercase() }
+        LibrarySort.WATCHED -> filtered.sortedByDescending { lastWatched(it.first) }
+    }.map { it.second }
+}
+
+private suspend fun isWatched(app: com.signal.app.AppController, e: com.signal.data.WatchRepository.LibraryEntry, item: VodItem, watch: com.signal.data.WatchRepository.State): Boolean {
+    if (e.kind == VodKind.MOVIE) return e.key in watch.watched
+    val detail = if (item.id.startsWith(UNAVAILABLE)) null else app.vodDetails.cachedSeries(item)
+    val episodes = detail?.episodes ?: return false
+    return episodes.isNotEmpty() && episodes.all { com.signal.data.ItemKeys.episode(e.key, it) in watch.watched }
 }

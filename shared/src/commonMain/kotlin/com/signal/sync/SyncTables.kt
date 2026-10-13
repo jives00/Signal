@@ -89,6 +89,22 @@ class SyncTables(private val db: UserDatabase, private val settings: Settings, p
         db.matchQueries.allRejects().executeAsList().forEach { r ->
             out += item(SyncType.MATCH_REJECT, h, "${r.user_channel_id}|${r.stream_id}", fields("user_channel_id" to r.user_channel_id, "stream_id" to r.stream_id))
         }
+        db.watchQueries.libraryFor(profile).executeAsList().forEach { l ->
+            out += item(SyncType.LIBRARY_ITEM, p, l.item_key, fields("kind" to l.kind, "vod_item_id" to l.vod_item_id, "title" to l.title, "year" to l.year, "poster_url" to l.poster_url, "added_at" to l.added_at))
+        }
+        db.watchQueries.resumeFor(profile).executeAsList().forEach { r ->
+            out += item(
+                SyncType.RESUME_POSITION, p, r.item_key,
+                fields(
+                    "kind" to r.kind, "vod_item_id" to r.vod_item_id, "episode_id" to r.episode_id, "series_key" to r.series_key, "season" to r.season,
+                    "episode" to r.episode, "title" to r.title, "position_ms" to r.position_ms, "duration_ms" to r.duration_ms, "updated_at" to r.updated_at,
+                ),
+            )
+        }
+        db.watchQueries.watchedFor(profile).executeAsList().forEach { w ->
+            out += item(SyncType.WATCHED, p, w.item_key, fields("kind" to w.kind, "vod_item_id" to w.vod_item_id, "series_key" to w.series_key, "season" to w.season, "episode" to w.episode, "watched_at" to w.watched_at))
+        }
+        db.watchQueries.hiddenFor(profile).executeAsList().forEach { h -> out += item(SyncType.CONTINUE_HIDDEN, p, h.series_key, fields("hidden_at" to h.hidden_at)) }
         settings.rows().forEach { s ->
             if (s.key in Settings.Key.notSynced) return@forEach
             // Another profile's leftovers (from before a move) aren't this device's to send.
@@ -180,6 +196,19 @@ class SyncTables(private val db: UserDatabase, private val settings: Settings, p
                 settings.applySynced(item.scope, id, f.str("value"))
             }
             SyncType.ALIAS -> db.matchQueries.putAlias(id, f.str("a") ?: return true, f.str("b") ?: return true)
+            SyncType.LIBRARY_ITEM -> db.watchQueries.putLibrary(
+                com.signal.db.user.Library_item(profile, id, f.str("kind") ?: "MOVIE", f.str("vod_item_id") ?: return true, f.str("title").orEmpty(), f.long("year"), f.str("poster_url"), f.long("added_at") ?: 0),
+            )
+            SyncType.RESUME_POSITION -> db.watchQueries.putResume(
+                com.signal.db.user.Resume_position(
+                    profile, id, f.str("kind") ?: "MOVIE", f.str("vod_item_id") ?: return true, f.str("episode_id"), f.str("series_key"), f.long("season"), f.long("episode"),
+                    f.str("title").orEmpty(), f.long("position_ms") ?: 0, f.long("duration_ms") ?: 0, f.long("updated_at") ?: 0,
+                ),
+            )
+            SyncType.WATCHED -> db.watchQueries.putWatched(
+                com.signal.db.user.Watched(profile, id, f.str("kind") ?: "MOVIE", f.str("vod_item_id") ?: return true, f.str("series_key"), f.long("season"), f.long("episode"), f.long("watched_at") ?: 0),
+            )
+            SyncType.CONTINUE_HIDDEN -> db.watchQueries.putHidden(profile, id, f.long("hidden_at") ?: 0)
             SyncType.MATCH_REJECT -> db.matchQueries.putReject(f.str("user_channel_id") ?: return true, f.str("stream_id") ?: return true)
             else -> return false
         }
@@ -217,6 +246,10 @@ class SyncTables(private val db: UserDatabase, private val settings: Settings, p
             SyncType.REMINDER -> db.reminderQueries.deleteReminder(id)
             SyncType.SETTING -> if (id !in Settings.Key.notSynced) settings.applySynced(item.scope, id, null)
             SyncType.ALIAS -> db.matchQueries.deleteAlias(id)
+            SyncType.LIBRARY_ITEM -> db.watchQueries.removeLibrary(profile, id)
+            SyncType.RESUME_POSITION -> db.watchQueries.removeResume(profile, id)
+            SyncType.WATCHED -> db.watchQueries.removeWatched(profile, id)
+            SyncType.CONTINUE_HIDDEN -> db.watchQueries.removeHidden(profile, id)
             SyncType.MATCH_REJECT -> id.split('|', limit = 2).takeIf { it.size == 2 }?.let { db.matchQueries.deleteReject(it[0], it[1]) }
         }
     }
@@ -229,6 +262,7 @@ class SyncTables(private val db: UserDatabase, private val settings: Settings, p
         db.syncQueries.deleteProfileGroupOverrides(profileId)
         db.syncQueries.deleteProfileChannelRows(profileId)
         db.syncQueries.deleteProfileReminders(profileId)
+        db.watchQueries.deleteProfileWatch(profileId)
         settings.forgetProfile(profileId)
     }
 }

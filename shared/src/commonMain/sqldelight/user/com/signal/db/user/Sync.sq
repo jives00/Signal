@@ -47,7 +47,8 @@ SELECT (SELECT count(*) FROM source) + (SELECT count(*) FROM epg_source) + (SELE
      + (SELECT count(*) FROM user_channel) + (SELECT count(*) FROM channel_link) + (SELECT count(*) FROM channel_profile)
      + (SELECT count(*) FROM favorite) + (SELECT count(*) FROM playlist) + (SELECT count(*) FROM playlist_item)
      + (SELECT count(*) FROM group_override) + (SELECT count(*) FROM reminder) + (SELECT count(*) FROM setting)
-     + (SELECT count(*) FROM alias) + (SELECT count(*) FROM match_reject);
+     + (SELECT count(*) FROM alias) + (SELECT count(*) FROM match_reject)
+     + (SELECT count(*) FROM library_item) + (SELECT count(*) FROM resume_position) + (SELECT count(*) FROM watched) + (SELECT count(*) FROM continue_hidden);
 
 -- Moving to another profile replaces the old profile's rows (PLAN §5.4).
 deleteProfileFavorites:

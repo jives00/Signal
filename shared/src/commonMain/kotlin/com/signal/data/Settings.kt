@@ -41,6 +41,8 @@ class Settings(private val db: UserDatabase, private val io: CoroutineDispatcher
         DEFAULT_EPG_SOURCE(Scope.HOUSEHOLD, "default_epg_source"),
         REMINDER_LEAD_MINUTES(Scope.PROFILE, "reminder_lead_minutes"),
         REMINDER_AUTO_SWITCH(Scope.PROFILE, "reminder_auto_switch"),
+        // Movies and series (PLAN §4.3.9 → Autoplay next episode): on by default.
+        AUTOPLAY_NEXT(Scope.PROFILE, "autoplay_next"),
         RECENT_SEARCHES(Scope.DEVICE, "recent_searches"),
         SEARCH_FILTER(Scope.DEVICE, "search_filter"),
         // The NAS companion (PLAN §5.7). The key is encrypted with the SecretBox and never synced.

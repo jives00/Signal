@@ -1,0 +1,116 @@
+-- What the user does with movies and series (PLAN §4.3.8–4.3.11): profile scope, synced. Keyed by an
+-- item key, "tmdb:movie:<id>" or "tmdb:tv:<id>" when TMDB is known, else the source's item ID, so
+-- they survive a provider switch where possible (PLAN §5.4). An episode's key is its series key plus
+-- ":s<season>e<episode>". The source IDs beside them say what to play today.
+CREATE TABLE library_item (
+    profile_id TEXT NOT NULL,
+    item_key TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    vod_item_id TEXT NOT NULL,
+    title TEXT NOT NULL,
+    year INTEGER,
+    poster_url TEXT,
+    added_at INTEGER NOT NULL,
+    PRIMARY KEY (profile_id, item_key)
+);
+
+CREATE TABLE resume_position (
+    profile_id TEXT NOT NULL,
+    item_key TEXT NOT NULL,
+    -- MOVIE or EPISODE.
+    kind TEXT NOT NULL,
+    -- The movie, or the episode's series.
+    vod_item_id TEXT NOT NULL,
+    episode_id TEXT,
+    series_key TEXT,
+    season INTEGER,
+    episode INTEGER,
+    title TEXT NOT NULL,
+    position_ms INTEGER NOT NULL,
+    duration_ms INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL,
+    PRIMARY KEY (profile_id, item_key)
+);
+
+CREATE TABLE watched (
+    profile_id TEXT NOT NULL,
+    item_key TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    vod_item_id TEXT NOT NULL,
+    series_key TEXT,
+    season INTEGER,
+    episode INTEGER,
+    watched_at INTEGER NOT NULL,
+    PRIMARY KEY (profile_id, item_key)
+);
+
+-- "Remove from Continue watching" on a series: no next-up for it until another episode is watched.
+CREATE TABLE continue_hidden (
+    profile_id TEXT NOT NULL,
+    series_key TEXT NOT NULL,
+    hidden_at INTEGER NOT NULL,
+    PRIMARY KEY (profile_id, series_key)
+);
+
+-- Cached detail from get_vod_info / get_series_info, as the provider sent it (PLAN §4.3.13: refreshed
+-- when opened if older than 7 days). Device-local cache, not synced.
+CREATE TABLE vod_info (
+    vod_item_id TEXT NOT NULL PRIMARY KEY,
+    fetched_at INTEGER NOT NULL,
+    body TEXT NOT NULL
+);
+
+libraryFor:
+SELECT * FROM library_item WHERE profile_id = ? ORDER BY added_at DESC;
+
+putLibrary:
+INSERT OR REPLACE INTO library_item(profile_id, item_key, kind, vod_item_id, title, year, poster_url, added_at) VALUES ?;
+
+removeLibrary:
+DELETE FROM library_item WHERE profile_id = ? AND item_key = ?;
+
+resumeFor:
+SELECT * FROM resume_position WHERE profile_id = ? ORDER BY updated_at DESC;
+
+putResume:
+INSERT OR REPLACE INTO resume_position(profile_id, item_key, kind, vod_item_id, episode_id, series_key, season, episode, title, position_ms, duration_ms, updated_at) VALUES ?;
+
+removeResume:
+DELETE FROM resume_position WHERE profile_id = ? AND item_key = ?;
+
+watchedFor:
+SELECT * FROM watched WHERE profile_id = ?;
+
+putWatched:
+INSERT OR REPLACE INTO watched(profile_id, item_key, kind, vod_item_id, series_key, season, episode, watched_at) VALUES ?;
+
+removeWatched:
+DELETE FROM watched WHERE profile_id = ? AND item_key = ?;
+
+hiddenFor:
+SELECT * FROM continue_hidden WHERE profile_id = ?;
+
+putHidden:
+INSERT OR REPLACE INTO continue_hidden(profile_id, series_key, hidden_at) VALUES (?, ?, ?);
+
+removeHidden:
+DELETE FROM continue_hidden WHERE profile_id = ? AND series_key = ?;
+
+infoFor:
+SELECT * FROM vod_info WHERE vod_item_id = ?;
+
+putInfo:
+INSERT OR REPLACE INTO vod_info(vod_item_id, fetched_at, body) VALUES (?, ?, ?);
+
+-- Profile moves drop these too (PLAN §5.4).
+deleteProfileWatch {
+    DELETE FROM library_item WHERE profile_id = :profileId;
+    DELETE FROM resume_position WHERE profile_id = :profileId;
+    DELETE FROM watched WHERE profile_id = :profileId;
+    DELETE FROM continue_hidden WHERE profile_id = :profileId;
+}
+
+-- Every table here changes the Home row and the posters: one query to observe them all.
+watchTick:
+SELECT (SELECT count(*) FROM library_item) + (SELECT count(*) FROM resume_position) + (SELECT max(updated_at) FROM resume_position)
+     + (SELECT count(*) FROM watched) + (SELECT count(*) FROM continue_hidden);

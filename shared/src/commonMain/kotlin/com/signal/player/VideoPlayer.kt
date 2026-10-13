@@ -27,6 +27,13 @@ interface VideoPlayer {
     @Composable
     fun Surface(modifier: Modifier, aspect: AspectMode)
 
+    /** On-demand (PLAN §4.3.10): where playback is and how long the video is. Polled, since it changes every frame; zero for live. */
+    fun position(): PlaybackPosition = PlaybackPosition(0, 0)
+
+    fun seekTo(positionMs: Long) {}
+
+    fun setPaused(paused: Boolean) {}
+
     /** Frees the decoder and the stream connection: the app is going to the background (PLAN §4.2). */
     fun release()
 }
@@ -35,6 +42,8 @@ data class PlayRequest(
     val url: String,
     val headers: Map<String, String> = emptyMap(),
     val isLive: Boolean = true,
+    /** On-demand: where to start, for Resume (PLAN §4.3.8). */
+    val startPositionMs: Long = 0,
     /** For logs and diagnostics only; never the URL, which may embed credentials (PLAN §1). */
     val label: String,
 )
@@ -48,6 +57,9 @@ data class PlaybackState(
     val subtitleTracks: List<Track> = emptyList(),
     val selectedAudioTrackId: String? = null,
     val selectedSubtitleTrackId: String? = null,
+    val paused: Boolean = false,
+    /** On-demand only: the video played to its end (live streams retry instead). */
+    val ended: Boolean = false,
 ) {
     enum class Status { IDLE, BUFFERING, PLAYING, ERROR }
 }
@@ -110,3 +122,5 @@ private fun channelLayout(channels: Int): String = when (channels) {
     8 -> "7.1"
     else -> "${channels}ch"
 }
+
+data class PlaybackPosition(val positionMs: Long, val durationMs: Long)

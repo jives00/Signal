@@ -92,8 +92,8 @@ class VlcjPlayer : VideoPlayer {
                 _state.update { it.copy(status = PlaybackState.Status.ERROR, error = PlaybackError(PlaybackError.Kind.OFFLINE)) }
             }
             override fun finished(mediaPlayer: MediaPlayer) {
-                // Live streams "finish" when the provider drops them; restart like the Shield does.
-                retry()
+                // Live streams "finish" when the provider drops them; restart like the Shield does. On-demand ends.
+                if (_state.value.request?.isLive == false) _state.update { it.copy(ended = true) } else retry()
             }
             override fun elementaryStreamAdded(mediaPlayer: MediaPlayer, type: uk.co.caprica.vlcj.media.TrackType, id: Int) = refreshTracks()
         })
@@ -105,8 +105,9 @@ class VlcjPlayer : VideoPlayer {
             request.headers["User-Agent"]?.let { add(":http-user-agent=$it") }
             request.headers["Referer"]?.let { add(":http-referrer=$it") }
         }
+        val start = if (!request.isLive && request.startPositionMs > 0) listOf(":start-time=${request.startPositionMs / 1000.0}") else emptyList()
         _state.value = PlaybackState(status = PlaybackState.Status.BUFFERING, request = request)
-        mp.submit { mp.media().play(request.url, *options.toTypedArray()) }
+        mp.submit { mp.media().play(request.url, *(options + start).toTypedArray()) }
     }
 
     override fun stop() {
@@ -131,6 +132,18 @@ class VlcjPlayer : VideoPlayer {
 
     override fun setVolume(volume: Float) {
         mp.submit { mp.audio().setVolume((volume * 100).toInt()) }
+    }
+
+    override fun position() = com.signal.player.PlaybackPosition(mp.status().time().coerceAtLeast(0), mp.status().length().coerceAtLeast(0))
+
+    override fun seekTo(positionMs: Long) {
+        mp.submit { mp.controls().setTime(positionMs.coerceAtLeast(0)) }
+        _state.update { it.copy(ended = false) }
+    }
+
+    override fun setPaused(paused: Boolean) {
+        mp.submit { mp.controls().setPause(paused) }
+        _state.update { it.copy(paused = paused) }
     }
 
     override fun release() = stop()

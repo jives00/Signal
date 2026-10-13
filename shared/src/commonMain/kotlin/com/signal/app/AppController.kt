@@ -34,6 +34,7 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.mapLatest
 import app.cash.sqldelight.coroutines.asFlow
 import com.signal.platform.Platform
 import kotlinx.coroutines.CoroutineScope
@@ -55,6 +56,9 @@ class AppController(val platform: Platform, val log: Log) {
     val channels = ChannelRepository(db, settings, platform.io)
     val switches = com.signal.data.SwitchRepository(db, settings, platform.io)
     val vod = com.signal.data.VodRepository(db, platform.io)
+    val vodDetails = com.signal.data.VodDetailRepository(db, sources, platform.io, log)
+    val watch = com.signal.data.WatchRepository(db, settings, platform.io)
+    val vodPlayback = VodPlayback(platform.player, sources, vodDetails, watch, scope, log)
     val playback = PlaybackController(platform.player, channels, sources, settings, scope, log)
     // The NAS companion (PLAN §5.7): optional; the app works the same without it.
     val nas = com.signal.nas.NasConnection(settings, http, platform.secretBox, platform.appInfo, log)
@@ -87,6 +91,15 @@ class AppController(val platform: Platform, val log: Log) {
     /** Titles per kind on enabled sources: Movies and Series show in the nav bar only when there are some (PLAN §4.1). */
     val movieCount: StateFlow<Long> = vod.count(com.signal.model.VodKind.MOVIE).stateIn(scope, SharingStarted.Eagerly, 0L)
     val seriesCount: StateFlow<Long> = vod.count(com.signal.model.VodKind.SERIES).stateIn(scope, SharingStarted.Eagerly, 0L)
+
+    /** The Library, resume positions and watched state for this profile, kept live for posters and Home (PLAN §4.3.8–4.3.11). */
+    val watchState: StateFlow<com.signal.data.WatchRepository.State> = watch.state().stateIn(scope, SharingStarted.Eagerly, com.signal.data.WatchRepository.State())
+
+    /** Home's Continue watching row (PLAN §4.3.1), rebuilt whenever the watch state changes. */
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    val continueWatching: StateFlow<List<com.signal.data.ContinueWatching.Card>> = watch.state()
+        .mapLatest { com.signal.data.ContinueWatching.build(it, vod, vodDetails, Clock.System.now().toEpochMilliseconds()) }
+        .stateIn(scope, SharingStarted.Eagerly, emptyList())
 
     /** User channels with more than one playable stream, for the Stream picker (PLAN §4.5). */
     val linkedStreams: StateFlow<Map<String, List<ChannelRepository.LinkedStream>>> = channels.multiLinked().stateIn(scope, SharingStarted.Eagerly, emptyMap())
@@ -123,6 +136,8 @@ class AppController(val platform: Platform, val log: Log) {
 
     /** True while the NAS's event stream is connected; Settings shows it. */
     val eventsConnected = kotlinx.coroutines.flow.MutableStateFlow(false)
+
+    private var fullSyncDone = false
 
     private val reminderCheck = kotlinx.coroutines.sync.Mutex()
 
@@ -218,7 +233,9 @@ class AppController(val platform: Platform, val log: Log) {
      */
     suspend fun syncNow(): Boolean {
         if (!nas.isPaired) return false
-        val report = sync.sync(nas) ?: return false
+        // The first sync after launch is a full one (see SyncEngine.sync).
+        val report = sync.sync(nas, full = !fullSyncDone) ?: return false
+        fullSyncDone = true
         for (id in report.sourcesToRefresh) {
             refresh(id)
             sources.byId(id)?.let { epg.ensureForSource(it) }
@@ -416,6 +433,8 @@ class AppController(val platform: Platform, val log: Log) {
     /** The prompt's Watch: the channel full screen, in its own group. */
     fun watchReminder(active: ActiveReminder) {
         activeReminder = null
+        // During a movie, OK = Watch saves the position first (PLAN §4.3.10).
+        if (navigator.current == Route.VodPlayer) vodPlayback.stop()
         val ch = active.channel
         val group = if (ch.isFavorite) ChannelGroup.Favorites else ChannelGroup.Provider(ch.stream.sourceId, ch.stream.groupName, ch.stream.groupName)
         panel.close()
@@ -443,6 +462,8 @@ class AppController(val platform: Platform, val log: Log) {
     // ---- Lifecycle (PLAN §4.2 → Sleep, the Home button and interruptions) ---------------------
 
     fun onBackground() {
+        // A movie or episode saves its position first (PLAN §4.3.10: "on pause, Back and app exit").
+        if (navigator.current == Route.VodPlayer) vodPlayback.release()
         playback.release()
         settings.put(Settings.Key.BACKGROUNDED_AT, Clock.System.now().toEpochMilliseconds().toString())
     }
@@ -453,6 +474,8 @@ class AppController(val platform: Platform, val log: Log) {
         scope.launch { catchUpReminders() }
         if (away != null && away > AWAY_RESETS_TO_HOME_MS && navigator.current != Route.Setup) {
             navigator.resetTo(Route.Home)
+        } else if (away != null && navigator.current == Route.VodPlayer) {
+            scope.launch { vodPlayback.resume() }
         } else if (away != null && navigator.current.showsVideo) {
             playback.resume()
         }

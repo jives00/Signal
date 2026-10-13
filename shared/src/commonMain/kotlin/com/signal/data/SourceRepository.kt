@@ -184,6 +184,19 @@ class SourceRepository(
         return Loaded(streams, account.expiresAt, account.maxConnections, vod)
     }
 
+    /** One Xtream `player_api.php` call with the source's login, for detail pages (get_vod_info, get_series_info). */
+    suspend fun xtream(source: Source, action: String, vararg params: Pair<String, String>): String = withContext(io) {
+        val response = http.get(source.url.trimEnd('/') + "/player_api.php") {
+            parameter("username", source.username)
+            parameter("password", source.password)
+            parameter("action", action)
+            params.forEach { (k, v) -> parameter(k, v) }
+            source.headers.forEach { (k, v) -> header(k, v) }
+        }
+        response.ensureOk(source)
+        response.bodyAsText()
+    }
+
     private fun HttpResponse.ensureOk(source: Source) {
         if (!status.isSuccess()) {
             // The URL is never logged whole: it can embed credentials (PLAN Â§1).

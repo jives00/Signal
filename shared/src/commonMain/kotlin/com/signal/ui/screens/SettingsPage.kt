@@ -58,6 +58,7 @@ private enum class Section(val title: String) {
     SOURCES("Sources"),
     CHANNELS("Channels & groups"),
     LIVE_TV("Live TV & guide"),
+    MOVIES("Movies & Series"),
     APPEARANCE("Appearance"),
     NAS("NAS & sync"),
     GUIDE_DATA("Guide data"),
@@ -104,6 +105,7 @@ fun SettingsPage() {
                     section == Section.SOURCES -> SourcesSection(app, onAdd = { adding = true }, onEdit = { editing = it }, returnTo = contentFocus)
                     section == Section.CHANNELS -> ChannelsSection(app, contentFocus)
                     section == Section.LIVE_TV -> LiveTvGuideSection(app, contentFocus)
+                    section == Section.MOVIES -> MoviesSection(app)
                     section == Section.APPEARANCE -> AppearanceSection(app, contentFocus)
                     section == Section.NAS -> NasSection(app, onForm = { nasForm = it }, returnTo = contentFocus)
                     section == Section.GUIDE_DATA -> GuideDataSection(app)
@@ -231,6 +233,20 @@ private fun channelSortLabel(s: ChannelSort) = when (s) {
     ChannelSort.PROVIDER -> "Provider order"
     ChannelSort.NUMBER -> "Channel number"
     ChannelSort.A_Z -> "A–Z"
+}
+
+/** Settings → Movies & Series (PLAN §4.3.15, section 4). VOD category tools and default sorts come later. */
+@Composable
+private fun MoviesSection(app: AppController) {
+    var tick by remember { mutableStateOf(0) }
+    val autoplay = remember(tick) { app.settings.bool(Settings.Key.AUTOPLAY_NEXT, true) }
+    Column(Modifier.width(1100.dp)) {
+        SectionTitle("Playback")
+        ListRow("Autoplay next episode", detail = if (autoplay) "On · asks \"Still watching?\" after 3 in a row" else "Off", onSelect = {
+            app.settings.put(Settings.Key.AUTOPLAY_NEXT, (!autoplay).toString())
+            tick++
+        })
+    }
 }
 
 @Composable

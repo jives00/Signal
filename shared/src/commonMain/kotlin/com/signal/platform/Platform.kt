@@ -34,6 +34,9 @@ interface Platform {
     /** The device's own 12/24-hour preference, the default until the user picks one (PLAN §4.3.15). */
     fun systemUses24HourClock(): Boolean
 
+    /** Opens a link in the app that handles it: a trailer in YouTube on the Shield (PLAN §4.3.8). False if nothing can. */
+    fun openUrl(url: String): Boolean = false
+
     /** Back on the nav bar of Home exits the app straight away (PLAN §4.3.1). */
     fun exitApp()
 }

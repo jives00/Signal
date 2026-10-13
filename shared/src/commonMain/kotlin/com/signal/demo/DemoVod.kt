@@ -66,6 +66,30 @@ object DemoVod {
         }
     }
 
+    /** A Demo movie's detail: synthetic, with the test video's real length roughly. */
+    fun movieDetail(item: VodItem): com.signal.model.MovieDetail = com.signal.model.MovieDetail(
+        plot = item.plot, genres = listOf(movieCategories[(item.categoryId.toIntOrNull() ?: 1) - 1].substringAfter("| ")),
+        cast = "Alex Doe, Sam Roe, Jordan Poe", director = "Casey Moe", durationSec = 596, releaseDate = "${item.year}-01-01",
+        rating = item.rating, containerExt = "m3u8",
+    )
+
+    /** A Demo series: 2 to 4 seasons of 6 to 10 episodes, seeded by the series. */
+    fun seriesDetail(item: VodItem): com.signal.model.SeriesDetail {
+        val rnd = Random(SEED + item.providerId.hashCode())
+        val episodes = (1..(2 + rnd.nextInt(3))).flatMap { season ->
+            (1..(6 + rnd.nextInt(5))).map { n ->
+                val pid = "${item.providerId}${season.toString().padStart(2, '0')}${n.toString().padStart(2, '0')}"
+                com.signal.model.Episode(
+                    id = "${item.sourceId}:e:$pid", providerId = pid, season = season, episode = n,
+                    title = "${first[rnd.nextInt(first.size)]} ${second[rnd.nextInt(second.size)]}",
+                    plot = "A synthetic episode from the Demo source.", durationSec = 596,
+                    containerExt = "m3u8", url = testVideos[(season + n) % testVideos.size],
+                )
+            }
+        }
+        return com.signal.model.SeriesDetail(plot = item.plot, genres = listOf("Drama"), cast = "Alex Doe, Sam Roe", rating = item.rating, episodes = episodes)
+    }
+
     fun series(sourceId: String): List<VodItem> {
         val rnd = Random(SEED + 1)
         return (0 until 60).map { i ->

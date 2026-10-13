@@ -68,6 +68,17 @@ class AndroidPlatform(private val context: Context) : Platform {
     override fun exitApp() {
         activity?.get()?.finish()
     }
+
+    override fun openUrl(url: String): Boolean {
+        val act = activity?.get() ?: return false
+        // YouTube links open in the YouTube app when it's installed, else whatever handles the URL.
+        val youtube = Regex("""[?&]v=([A-Za-z0-9_-]+)""").find(url)?.groupValues?.get(1)
+        val intents = listOfNotNull(
+            youtube?.let { android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse("vnd.youtube:$it")) },
+            android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(url)),
+        )
+        return intents.any { runCatching { act.startActivity(it) }.isSuccess }
+    }
 }
 
 /** Credentials at rest, encrypted with an AES-GCM key held in the Android Keystore (PLAN §5.7). */

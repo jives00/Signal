@@ -1,0 +1,53 @@
+-- Milestone 4 (VOD detail and playback): Library, resume positions, watched state, and cached detail.
+CREATE TABLE library_item (
+    profile_id TEXT NOT NULL,
+    item_key TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    vod_item_id TEXT NOT NULL,
+    title TEXT NOT NULL,
+    year INTEGER,
+    poster_url TEXT,
+    added_at INTEGER NOT NULL,
+    PRIMARY KEY (profile_id, item_key)
+);
+
+CREATE TABLE resume_position (
+    profile_id TEXT NOT NULL,
+    item_key TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    vod_item_id TEXT NOT NULL,
+    episode_id TEXT,
+    series_key TEXT,
+    season INTEGER,
+    episode INTEGER,
+    title TEXT NOT NULL,
+    position_ms INTEGER NOT NULL,
+    duration_ms INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL,
+    PRIMARY KEY (profile_id, item_key)
+);
+
+CREATE TABLE watched (
+    profile_id TEXT NOT NULL,
+    item_key TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    vod_item_id TEXT NOT NULL,
+    series_key TEXT,
+    season INTEGER,
+    episode INTEGER,
+    watched_at INTEGER NOT NULL,
+    PRIMARY KEY (profile_id, item_key)
+);
+
+CREATE TABLE continue_hidden (
+    profile_id TEXT NOT NULL,
+    series_key TEXT NOT NULL,
+    hidden_at INTEGER NOT NULL,
+    PRIMARY KEY (profile_id, series_key)
+);
+
+CREATE TABLE vod_info (
+    vod_item_id TEXT NOT NULL PRIMARY KEY,
+    fetched_at INTEGER NOT NULL,
+    body TEXT NOT NULL
+);

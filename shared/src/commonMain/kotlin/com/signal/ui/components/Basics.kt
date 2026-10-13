@@ -150,11 +150,15 @@ fun SButton(
     modifier: Modifier = Modifier,
     primary: Boolean = false,
     focusRequester: FocusRequester? = null,
+    /** Long-press OK: movie detail opens its menu from any button (PLAN §4.3.8). */
+    onOptions: (() -> Unit)? = null,
+    /** Fill the width [modifier] gives it: movie detail's 2×2 grid. */
+    fillWidth: Boolean = false,
 ) {
     val c = SignalTheme.colors
-    Focusable(modifier, onSelect = onSelect, focusRequester = focusRequester) { focused ->
+    Focusable(modifier, onSelect = onSelect, onOptions = onOptions, focusRequester = focusRequester) { focused ->
         Box(
-            Modifier
+            (if (fillWidth) Modifier.fillMaxWidth() else Modifier)
                 .height(72.dp)
                 .background(if (focused || primary) c.accent else Color.Transparent)
                 .let { if (!focused && !primary) it.border(SignalSizes.DIVIDER.dp, c.divider) else it }
