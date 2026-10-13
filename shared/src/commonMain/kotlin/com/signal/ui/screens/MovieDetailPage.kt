@@ -91,10 +91,11 @@ fun MovieDetailPage(route: Route.MovieDetail) {
     val key = ItemKeys.movie(it, detail?.tmdbId ?: it.tmdbId)
     val position = state.positions[key]
     val inLibrary = state.inLibrary(key) || state.inLibrary(ItemKeys.of(it))
-    val menu = { app.panel.open(VodMenus.item(app, it, state), returnTo) }
+    val menu = { VodMenus.open(app, it, state, returnTo, key) }
+    // Play uses the preferred source when several have the movie (PLAN §4.3.8 → Stream choice).
     fun play(fromStart: Boolean) {
         app.scope.launch {
-            app.vodPlayback.playMovie(it, fromStart)
+            app.vodPlayback.playMovie(app.vod.copies(it).first(), fromStart, asKey = key)
             app.navigator.go(Route.VodPlayer)
         }
     }

@@ -22,6 +22,7 @@ import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -34,15 +35,22 @@ import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.focusRestorer
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import coil3.compose.AsyncImage
+import coil3.compose.SubcomposeAsyncImage
 import com.signal.app.AppController
 import com.signal.app.Route
+import com.signal.data.ItemKeys
 import com.signal.data.Settings
+import com.signal.data.VodRepository
 import com.signal.input.RemoteAction
 import com.signal.input.RemoteHandler
 import com.signal.model.Channel
 import com.signal.model.ChannelGroup
+import com.signal.model.VodItem
+import com.signal.model.VodKind
 import com.signal.search.SearchRepository
 import com.signal.ui.LocalApp
 import com.signal.ui.components.Focusable
@@ -54,13 +62,20 @@ import com.signal.ui.components.SField
 import com.signal.ui.components.SText
 import com.signal.ui.components.TopLevelPage
 import com.signal.ui.components.requestFocusWhenReady
+import com.signal.ui.menus.VodMenus
 import com.signal.ui.theme.SignalSizes
 import com.signal.ui.theme.SignalTheme
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
 
-/** Search's result types (PLAN §4.3.14). Movies and Series join with VOD in milestone 4. */
-internal enum class SearchType(val label: String) { CHANNELS("Channels"), PROGRAMS("Programs") }
+/** Search's result types (PLAN §4.3.14). Movies and Series show only when a source has them. */
+internal enum class SearchType(val label: String) {
+    CHANNELS("Channels"), PROGRAMS("Programs"), MOVIES("Movies"), SERIES("Series");
+
+    val vodKind: VodKind? get() = when (this) { MOVIES -> VodKind.MOVIE; SERIES -> VodKind.SERIES; else -> null }
+}
 
 /**
  * Search (PLAN §4.3.14): the field and mic, the type chips, then one row per type (or a grid of one
@@ -79,24 +94,51 @@ fun SearchPage() {
     // The first item of whatever shows below the chips: where entering the results lands first.
     val firstResult = remember { FocusRequester() }
     var fieldHasFocus by remember { mutableStateOf(false) }
-    var query by remember { mutableStateOf("") }
-    // The type filter: empty is All. Remembered on the device (PLAN §4.3.14).
-    var filter by remember { mutableStateOf(loadFilter(app)) }
+    // Find in Movies/Series can open Search with a title and Movies + Series (PLAN §4.3.4).
+    val request = remember { app.searchRequest.value.also { app.searchRequest.value = null } }
+    var query by remember { mutableStateOf(request?.query.orEmpty()) }
+    // Movies and Series are offered only when a source has them (PLAN §4.3.14).
+    val movieCount by app.movieCount.collectAsState()
+    val seriesCount by app.seriesCount.collectAsState()
+    val types = SearchType.entries.filter { t -> when (t) { SearchType.MOVIES -> movieCount > 0; SearchType.SERIES -> seriesCount > 0; else -> true } }
+    // The type filter: empty is All. Remembered on the device (PLAN §4.3.14); a Find request's isn't.
+    var filter by remember {
+        mutableStateOf(request?.types?.mapNotNull { n -> SearchType.entries.firstOrNull { it.name == n } }?.toSet() ?: loadFilter(app))
+    }
+    val shown = (if (filter.isEmpty()) types else filter.filter { it in types }).toSet()
     var channels by remember { mutableStateOf<List<Channel>>(emptyList()) }
     var programs by remember { mutableStateOf<List<SearchRepository.ProgramHit>>(emptyList()) }
+    var movies by remember { mutableStateOf<List<VodItem>>(emptyList()) }
+    var series by remember { mutableStateOf<List<VodItem>>(emptyList()) }
     var recents by remember { mutableStateOf(loadRecents(app)) }
     val now = rememberNow()
+    val watch by app.watchState.collectAsState()
+    val newEpisodes by app.newEpisodes.collectAsState()
 
     LaunchedEffect(Unit) { field.requestFocusWhenReady() }
+    // A request while Search is already open (Find from a program Search opened).
+    LaunchedEffect(Unit) {
+        app.searchRequest.collect { r ->
+            if (r == null) return@collect
+            app.searchRequest.value = null
+            query = r.query
+            filter = r.types.mapNotNull { n -> SearchType.entries.firstOrNull { it.name == n } }.toSet()
+        }
+    }
 
-    // Search as you type: 300ms after typing stops, from 2 characters.
-    LaunchedEffect(query, filter) {
-        if (query.trim().length < 2) { channels = emptyList(); programs = emptyList(); return@LaunchedEffect }
+    // Search as you type: 300ms after typing stops, from 2 characters. Each type fills in as its query returns.
+    LaunchedEffect(query, shown) {
+        if (query.trim().length < 2) { channels = emptyList(); programs = emptyList(); movies = emptyList(); series = emptyList(); return@LaunchedEffect }
         delay(300)
         val q = query
-        if (filter.isEmpty() || SearchType.CHANNELS in filter) channels = app.search.channels(q) else channels = emptyList()
-        if (filter.isEmpty() || SearchType.PROGRAMS in filter) programs = app.search.programs(q, now) else programs = emptyList()
+        coroutineScope {
+            launch { channels = if (SearchType.CHANNELS in shown) app.search.channels(q) else emptyList() }
+            launch { programs = if (SearchType.PROGRAMS in shown) app.search.programs(q, now) else emptyList() }
+            launch { movies = if (SearchType.MOVIES in shown) app.vod.search(q, VodKind.MOVIE) else emptyList() }
+            launch { series = if (SearchType.SERIES in shown) app.vod.search(q, VodKind.SERIES) else emptyList() }
+        }
     }
+    val found = Found(channels, programs, movies, series)
 
     // A search is saved when a result opens, or on leaving Search after typing (PLAN §4.3.14).
     val queryNow = rememberUpdatedState(query)
@@ -120,11 +162,27 @@ fun SearchPage() {
         else app.panel.open(programDetails(app, hit.channel, hit.program, now), card)
     }
 
+    fun openVod(item: VodItem) {
+        saveSearch(query)
+        app.navigator.go(if (item.kind == VodKind.MOVIE) Route.MovieDetail(item.id) else Route.SeriesDetail(item.id))
+    }
+
+    fun vodMenu(item: VodItem, card: FocusRequester) {
+        saveSearch(query)
+        VodMenus.open(app, item, watch, card)
+    }
+
+    val vodCard: @Composable (VodItem, FocusRequester?) -> Unit = { item, first ->
+        val key = ItemKeys.of(item)
+        VodCard(item, if (key in watch.watched) null else watch.positions[key]?.fraction, item.kind == VodKind.SERIES && key in newEpisodes, first, ::openVod, ::vodMenu)
+    }
+
     TopLevelPage(Route.Search, chrome) {
         Column(Modifier.fillMaxSize().padding(horizontal = SignalSizes.EDGE_MARGIN.dp)) {
             Row(Modifier.fillMaxWidth().padding(top = 16.dp), verticalAlignment = Alignment.Bottom) {
                 Box(Modifier.weight(1f).onFocusChanged { fieldHasFocus = it.hasFocus }) {
-                    SField("Search channels and programs", query, { query = it }, focusRequester = field, down = chips)
+                    val hint = if (SearchType.MOVIES in types || SearchType.SERIES in types) "Search channels, programs, movies and series" else "Search channels and programs"
+                    SField(hint, query, { query = it }, focusRequester = field, down = chips)
                 }
                 app.platform.voiceInput?.let { voice ->
                     SButton("Mic", onSelect = { voice.listen { text -> query = text } }, modifier = Modifier.padding(start = 16.dp, bottom = 8.dp))
@@ -133,10 +191,10 @@ fun SearchPage() {
             // The type chips. All is on by default; the others toggle (PLAN §4.3.14).
             Row(Modifier.padding(top = 16.dp).focusProperties { down = results }, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 Chip("All", filter.isEmpty(), Modifier.focusRequester(chips)) { filter = emptySet(); saveFilter(app, filter) }
-                SearchType.entries.forEach { t ->
+                types.forEach { t ->
                     Chip(t.label, t in filter) {
                         filter = if (t in filter) filter - t else filter + t
-                        if (filter.size == SearchType.entries.size) filter = emptySet()
+                        if (filter.containsAll(types)) filter = emptySet()
                         saveFilter(app, filter)
                     }
                 }
@@ -146,20 +204,33 @@ fun SearchPage() {
                     recents = recents - r
                     saveRecents(app, recents)
                 }, onClear = { recents = emptyList(); saveRecents(app, recents) })
-                filter.size == 1 -> ResultGrid(filter.single(), channels, programs, now, firstResult, ::openChannel, ::openProgram)
+                shown.size == 1 -> ResultGrid(shown.single(), found, now, firstResult, ::openChannel, ::openProgram, vodCard)
                 else -> LazyColumn(Modifier.fillMaxSize().padding(top = 8.dp)) {
-                    // All: one row per type, Channels then Programs.
+                    // All: one row per type, in the order Channels, Programs, Movies, Series. The first
+                    // card of the first row with results is where entering the results lands.
+                    val firstType = types.firstOrNull { it in shown && found.count(it) > 0 }
+                    fun first(t: SearchType, i: Int) = if (i == 0 && t == firstType) firstResult else null
                     item {
                         ResultRow("Channels", channels.size, onSeeAll = { filter = setOf(SearchType.CHANNELS) }) {
-                            itemsIndexed(channels.take(20), key = { _, ch -> ch.stream.id }) { i, ch -> ChannelCard(app, ch, now, if (i == 0) firstResult else null, ::openChannel) }
+                            itemsIndexed(channels.take(20), key = { _, ch -> ch.stream.id }) { i, ch -> ChannelCard(app, ch, now, first(SearchType.CHANNELS, i), ::openChannel) }
                         }
                     }
                     item {
                         ResultRow("Programs", programs.size, onSeeAll = { filter = setOf(SearchType.PROGRAMS) }) {
-                            itemsIndexed(programs.take(20), key = { _, hit -> hit.program.id }) { i, hit -> ProgramCard(app, hit, now, if (i == 0 && channels.isEmpty()) firstResult else null, ::openProgram) }
+                            itemsIndexed(programs.take(20), key = { _, hit -> hit.program.id }) { i, hit -> ProgramCard(app, hit, now, first(SearchType.PROGRAMS, i), ::openProgram) }
                         }
                     }
-                    if (channels.isEmpty() && programs.isEmpty()) item {
+                    item {
+                        ResultRow("Movies", movies.size, onSeeAll = { filter = setOf(SearchType.MOVIES) }) {
+                            itemsIndexed(movies.take(20), key = { _, m -> m.id }) { i, m -> vodCard(m, first(SearchType.MOVIES, i)) }
+                        }
+                    }
+                    item {
+                        ResultRow("Series", series.size, onSeeAll = { filter = setOf(SearchType.SERIES) }) {
+                            itemsIndexed(series.take(20), key = { _, s -> s.id }) { i, s -> vodCard(s, first(SearchType.SERIES, i)) }
+                        }
+                    }
+                    if (firstType == null) item {
                         SText("No results.", 24, Modifier.padding(top = 32.dp), color = c.muted)
                     }
                 }
@@ -209,23 +280,79 @@ private fun ResultRow(title: String, count: Int, onSeeAll: () -> Unit, cards: an
     }
 }
 
+/** One search's results, per type. */
+internal class Found(
+    val channels: List<Channel>,
+    val programs: List<SearchRepository.ProgramHit>,
+    val movies: List<VodItem>,
+    val series: List<VodItem>,
+) {
+    fun count(t: SearchType) = when (t) {
+        SearchType.CHANNELS -> channels.size
+        SearchType.PROGRAMS -> programs.size
+        SearchType.MOVIES -> movies.size
+        SearchType.SERIES -> series.size
+    }
+}
+
 @Composable
 private fun ResultGrid(
     type: SearchType,
-    channels: List<Channel>,
-    programs: List<SearchRepository.ProgramHit>,
+    found: Found,
     now: Long,
     first: FocusRequester,
     openChannel: (Channel) -> Unit,
     openProgram: (SearchRepository.ProgramHit, Boolean, FocusRequester) -> Unit,
+    vodCard: @Composable (VodItem, FocusRequester?) -> Unit,
 ) {
     val app = LocalApp.current
-    val count = if (type == SearchType.CHANNELS) channels.size else programs.size
     Column(Modifier.fillMaxSize().padding(top = 24.dp)) {
-        SText("${type.label} · ${countLabel(count)}", 28, Modifier.padding(bottom = 12.dp), weight = FontWeight.ExtraBold)
+        SText("${type.label} · ${countLabel(found.count(type))}", 28, Modifier.padding(bottom = 12.dp), weight = FontWeight.ExtraBold)
         LazyVerticalGrid(GridCells.Fixed(4), horizontalArrangement = Arrangement.spacedBy(24.dp), verticalArrangement = Arrangement.spacedBy(24.dp)) {
-            if (type == SearchType.CHANNELS) itemsIndexed(channels, key = { _, ch -> ch.stream.id }) { i, ch -> ChannelCard(app, ch, now, if (i == 0) first else null, openChannel) }
-            else itemsIndexed(programs, key = { _, hit -> hit.program.id }) { i, hit -> ProgramCard(app, hit, now, if (i == 0) first else null, openProgram) }
+            when (type) {
+                SearchType.CHANNELS -> itemsIndexed(found.channels, key = { _, ch -> ch.stream.id }) { i, ch -> ChannelCard(app, ch, now, if (i == 0) first else null, openChannel) }
+                SearchType.PROGRAMS -> itemsIndexed(found.programs, key = { _, hit -> hit.program.id }) { i, hit -> ProgramCard(app, hit, now, if (i == 0) first else null, openProgram) }
+                SearchType.MOVIES -> itemsIndexed(found.movies, key = { _, m -> m.id }) { i, m -> vodCard(m, if (i == 0) first else null) }
+                SearchType.SERIES -> itemsIndexed(found.series, key = { _, s -> s.id }) { i, s -> vodCard(s, if (i == 0) first else null) }
+            }
+        }
+    }
+}
+
+/**
+ * A movie or series (PLAN §4.3.14): the poster, title and year, a Movie or Series label, and the
+ * resume bar for a started movie or the New episode badge for a series.
+ */
+@Composable
+private fun VodCard(item: VodItem, progress: Float?, newEpisode: Boolean, first: FocusRequester?, open: (VodItem) -> Unit, menu: (VodItem, FocusRequester) -> Unit) {
+    val c = SignalTheme.colors
+    val own = remember { FocusRequester() }
+    val me = first ?: own
+    Focusable(Modifier.width(400.dp), focusRequester = me, onSelect = { open(item) }, onOptions = { menu(item, me) }) { focused ->
+        val ink = if (focused) c.onAccent else c.text
+        val muted = if (focused) c.onAccent else c.muted
+        Row(Modifier.fillMaxWidth().height(136.dp).background(if (focused) c.accent else c.surface).padding(12.dp)) {
+            Box(Modifier.width(75.dp).height(112.dp).background(c.neutral300)) {
+                item.posterUrl?.takeIf { it.isNotBlank() }?.let { url ->
+                    SubcomposeAsyncImage(
+                        model = url, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize(),
+                        error = { item.fallbackPosterUrl?.let { f -> AsyncImage(model = f, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize()) } },
+                    )
+                }
+            }
+            Column(Modifier.padding(start = 16.dp).weight(1f)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    SText(VodRepository.displayName(item), 22, Modifier.weight(1f), weight = FontWeight.SemiBold, color = ink, maxLines = 2)
+                    SText(
+                        if (item.kind == VodKind.MOVIE) "Movie" else "Series", 20,
+                        Modifier.padding(start = 8.dp).background(if (focused) c.accent600 else c.tagBg).padding(horizontal = 10.dp, vertical = 2.dp),
+                        weight = FontWeight.SemiBold, color = if (focused) c.onAccent else c.tagText,
+                    )
+                }
+                item.year?.let { SText(it.toString(), 20, Modifier.padding(top = 4.dp), color = muted) }
+                if (newEpisode) NewEpisodeBadge(Modifier.padding(top = 8.dp))
+                if (progress != null && progress > 0f) ProgressBar(progress, Modifier.padding(top = 12.dp), onAccent = focused)
+            }
         }
     }
 }

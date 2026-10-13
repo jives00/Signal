@@ -12,6 +12,7 @@ import com.signal.nas.VodMeta
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.mock.MockEngine
 import io.ktor.client.engine.mock.respond
+import io.ktor.client.request.delete
 import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.request.post
@@ -208,6 +209,37 @@ class VodTest {
         cache.get("w780", "s.png")
         assertTrue(!backdrop.exists(), "the least recently used file goes first")
         assertTrue(cache.size() <= limit)
+    }
+
+    @Test fun providerPostersAreCachedAsTvSizedJpegs(): Unit = runBlocking {
+        val png = ByteArrayOutputStream().also { ImageIO.write(BufferedImage(1000, 1500, BufferedImage.TYPE_INT_RGB), "png", it) }.toByteArray()
+        var fetched = 0
+        val provider = HttpClient(MockEngine { fetched++; respond(png, HttpStatusCode.OK, headersOf(HttpHeaders.ContentType, "image/png")) })
+        val cache = ImageCache(Files.createTempDirectory("signal-provider").toFile(), provider, { 1L shl 30 })
+        val poster = assertNotNull(cache.provider("http://provider.example/covers/7.png"))
+        assertEquals(500, ImageIO.read(poster).width)
+        assertNotNull(cache.provider("http://provider.example/covers/7.png"))
+        assertEquals(1, fetched, "the second ask is served from disk")
+        assertNull(cache.provider("file:///etc/passwd"), "only http and https")
+        assertTrue(cache.size() > 0, "provider posters count toward the cache limit")
+    }
+
+    @Test fun theWebAdminListsAddsAndRemovesLibraryTitles() = testApplication {
+        application { signalModule(companion) }
+        withKey()
+        companion.vod.run("test")
+        // Added under the key a TV would use: the TMDB ID when matched, else the item ID.
+        val add = client.post("/api/library") { contentType(ContentType.Application.Json); setBody("""{"itemIds":["p:v:1","p:v:3"],"profiles":[]}""") }
+        assertEquals(HttpStatusCode.OK, add.status, add.bodyAsText())
+        val rows = client.get("/api/library").bodyAsText()
+        assertTrue("\"key\":\"tmdb:movie:603\"" in rows && "\"key\":\"p:v:3\"" in rows, rows)
+        assertTrue("\"available\":false" !in rows, rows)
+        // The same title again is skipped.
+        val again = client.post("/api/library") { contentType(ContentType.Application.Json); setBody("""{"itemIds":["q:v:9"],"profiles":[]}""") }.bodyAsText()
+        assertTrue("\"changed\":0" in again, again)
+        assertEquals(HttpStatusCode.OK, client.delete("/api/library/p:v:3").status)
+        assertTrue("p:v:3" !in client.get("/api/library").bodyAsText())
+        assertEquals(HttpStatusCode.NotFound, client.post("/api/library") { contentType(ContentType.Application.Json); setBody("""{"itemIds":["nope"]}""") }.status)
     }
 
     private suspend fun ApplicationTestBuilder.pair(): String {

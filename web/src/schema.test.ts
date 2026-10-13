@@ -17,6 +17,7 @@ import switchView from "./contract/switch.json";
 import vodStatus from "./contract/vod-status.json";
 import vodRows from "./contract/vod-rows.json";
 import tmdbCandidates from "./contract/tmdb-candidates.json";
+import library from "./contract/library.json";
 
 const cases: [string, ZodTypeAny, unknown][] = [
   ["settings-file", S.SettingsFile, settingsFile],
@@ -33,6 +34,7 @@ const cases: [string, ZodTypeAny, unknown][] = [
   ["vod-status", S.VodStatus, vodStatus],
   ["vod-rows", S.VodRows, vodRows],
   ["tmdb-candidates", S.TmdbCandidate.array(), tmdbCandidates],
+  ["library", S.LibraryRow.array(), library],
 ];
 
 describe("contract", () => {

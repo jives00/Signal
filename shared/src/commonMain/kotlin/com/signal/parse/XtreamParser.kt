@@ -76,61 +76,64 @@ object XtreamParser {
 
     /** `get_vod_streams` (PLAN §4.3.6): movies, with category IDs kept as given. */
     fun vodStreams(source: Source, body: String): List<com.signal.model.VodItem> {
-        val out = ArrayList<com.signal.model.VodItem>()
         val seen = HashSet<String>()
-        json.parseToJsonElement(body).arrayOrEmpty().forEach { el ->
-            val obj = el as? JsonObject ?: return@forEach
-            val streamId = obj.string("stream_id") ?: return@forEach
-            val id = com.signal.model.VodIds.movie(source.id, streamId)
-            if (!seen.add(id)) return@forEach
-            val name = obj.string("name")?.trim().orEmpty().ifEmpty { "Movie $streamId" }
-            out += com.signal.model.VodItem(
-                id = id,
-                sourceId = source.id,
-                kind = com.signal.model.VodKind.MOVIE,
-                providerId = streamId,
-                name = name,
-                categoryId = obj.string("category_id") ?: "",
-                posterUrl = obj.string("stream_icon")?.takeIf { it.isNotBlank() },
-                year = obj.int("year")?.takeIf { it in 1880..2100 } ?: yearIn(name),
-                rating = obj.double("rating")?.takeIf { it > 0 },
-                addedAt = obj.long("added") ?: 0,
-                tmdbId = obj.long("tmdb")?.takeIf { it > 0 } ?: obj.long("tmdb_id")?.takeIf { it > 0 },
-                containerExt = obj.string("container_extension")?.takeIf { it.isNotBlank() },
-                position = out.size,
-            )
+        return json.parseToJsonElement(body).arrayOrEmpty().mapNotNull { el ->
+            (el as? JsonObject)?.let { movie(source, it, seen.size) }?.takeIf { seen.add(it.id) }
         }
-        return out
     }
 
     /** `get_series` (PLAN §4.3.7). */
     fun series(source: Source, body: String): List<com.signal.model.VodItem> {
-        val out = ArrayList<com.signal.model.VodItem>()
         val seen = HashSet<String>()
-        json.parseToJsonElement(body).arrayOrEmpty().forEach { el ->
-            val obj = el as? JsonObject ?: return@forEach
-            val seriesId = obj.string("series_id") ?: return@forEach
-            val id = com.signal.model.VodIds.series(source.id, seriesId)
-            if (!seen.add(id)) return@forEach
-            val name = obj.string("name")?.trim().orEmpty().ifEmpty { "Series $seriesId" }
-            out += com.signal.model.VodItem(
-                id = id,
-                sourceId = source.id,
-                kind = com.signal.model.VodKind.SERIES,
-                providerId = seriesId,
-                name = name,
-                categoryId = obj.string("category_id") ?: "",
-                posterUrl = obj.string("cover")?.takeIf { it.isNotBlank() },
-                year = obj.string("releaseDate")?.take(4)?.toIntOrNull()?.takeIf { it in 1880..2100 }
-                    ?: obj.string("release_date")?.take(4)?.toIntOrNull()?.takeIf { it in 1880..2100 } ?: yearIn(name),
-                rating = obj.double("rating")?.takeIf { it > 0 },
-                addedAt = obj.long("last_modified") ?: 0,
-                tmdbId = obj.long("tmdb")?.takeIf { it > 0 } ?: obj.long("tmdb_id")?.takeIf { it > 0 },
-                plot = obj.string("plot")?.takeIf { it.isNotBlank() },
-                position = out.size,
-            )
+        return json.parseToJsonElement(body).arrayOrEmpty().mapNotNull { el ->
+            (el as? JsonObject)?.let { seriesItem(source, it, seen.size) }?.takeIf { seen.add(it.id) }
         }
-        return out
+    }
+
+    /** One element of a streamed list ([JsonArrayObjects]), or null if it isn't an object. */
+    fun objectOf(text: String): JsonObject? = runCatching { json.parseToJsonElement(text) as? JsonObject }.getOrNull()
+
+    /** One movie from `get_vod_streams`, at [position] in the provider's list. */
+    fun movie(source: Source, obj: JsonObject, position: Int): com.signal.model.VodItem? {
+        val streamId = obj.string("stream_id") ?: return null
+        val name = obj.string("name")?.trim().orEmpty().ifEmpty { "Movie $streamId" }
+        return com.signal.model.VodItem(
+            id = com.signal.model.VodIds.movie(source.id, streamId),
+            sourceId = source.id,
+            kind = com.signal.model.VodKind.MOVIE,
+            providerId = streamId,
+            name = name,
+            categoryId = obj.string("category_id") ?: "",
+            posterUrl = obj.string("stream_icon")?.takeIf { it.isNotBlank() },
+            year = obj.int("year")?.takeIf { it in 1880..2100 } ?: yearIn(name),
+            rating = obj.double("rating")?.takeIf { it > 0 },
+            addedAt = obj.long("added") ?: 0,
+            tmdbId = obj.long("tmdb")?.takeIf { it > 0 } ?: obj.long("tmdb_id")?.takeIf { it > 0 },
+            containerExt = obj.string("container_extension")?.takeIf { it.isNotBlank() },
+            position = position,
+        )
+    }
+
+    /** One series from `get_series`, at [position] in the provider's list. */
+    fun seriesItem(source: Source, obj: JsonObject, position: Int): com.signal.model.VodItem? {
+        val seriesId = obj.string("series_id") ?: return null
+        val name = obj.string("name")?.trim().orEmpty().ifEmpty { "Series $seriesId" }
+        return com.signal.model.VodItem(
+            id = com.signal.model.VodIds.series(source.id, seriesId),
+            sourceId = source.id,
+            kind = com.signal.model.VodKind.SERIES,
+            providerId = seriesId,
+            name = name,
+            categoryId = obj.string("category_id") ?: "",
+            posterUrl = obj.string("cover")?.takeIf { it.isNotBlank() },
+            year = obj.string("releaseDate")?.take(4)?.toIntOrNull()?.takeIf { it in 1880..2100 }
+                ?: obj.string("release_date")?.take(4)?.toIntOrNull()?.takeIf { it in 1880..2100 } ?: yearIn(name),
+            rating = obj.double("rating")?.takeIf { it > 0 },
+            addedAt = obj.long("last_modified") ?: 0,
+            tmdbId = obj.long("tmdb")?.takeIf { it > 0 } ?: obj.long("tmdb_id")?.takeIf { it > 0 },
+            plot = obj.string("plot")?.takeIf { it.isNotBlank() },
+            position = position,
+        )
     }
 
     /** `get_vod_info` (PLAN §4.3.8). */
@@ -179,6 +182,7 @@ object XtreamParser {
                 durationSec = epInfo.int("duration_secs")?.takeIf { it > 0 } ?: hms(epInfo.string("duration")),
                 stillUrl = epInfo.string("movie_image")?.takeIf { it.isNotBlank() },
                 containerExt = obj.string("container_extension")?.takeIf { it.isNotBlank() },
+                addedAt = obj.long("added") ?: 0,
             )
         }.distinctBy { it.id }
         return com.signal.model.SeriesDetail(

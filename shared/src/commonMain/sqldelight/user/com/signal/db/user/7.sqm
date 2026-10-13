@@ -1,0 +1,29 @@
+-- Milestone 4 (VOD, slice 4): a real catalog has hundreds of thousands of titles, so matching titles
+-- across sources and Search run in SQLite, not in memory. A refresh streams into staging first.
+ALTER TABLE vod_item ADD COLUMN title_key TEXT NOT NULL DEFAULT '';
+ALTER TABLE vod_item ADD COLUMN search_name TEXT NOT NULL DEFAULT '';
+CREATE INDEX vod_item_title ON vod_item(kind, title_key);
+CREATE INDEX vod_item_tmdb ON vod_item(kind, tmdb_id);
+CREATE INDEX vod_tmdb_id ON vod_tmdb(tmdb_id);
+
+CREATE TABLE vod_item_staging (
+    id TEXT NOT NULL PRIMARY KEY,
+    source_id TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    provider_id TEXT NOT NULL,
+    name TEXT NOT NULL,
+    category_id TEXT NOT NULL,
+    poster_url TEXT,
+    year INTEGER,
+    rating REAL,
+    added_at INTEGER NOT NULL DEFAULT 0,
+    tmdb_id INTEGER,
+    container_ext TEXT,
+    plot TEXT,
+    url TEXT,
+    position INTEGER NOT NULL,
+    title_key TEXT NOT NULL DEFAULT '',
+    search_name TEXT NOT NULL DEFAULT ''
+);
+
+CREATE VIRTUAL TABLE vod_fts USING fts4(search_name);

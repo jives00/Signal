@@ -111,6 +111,9 @@ data class GroupView(
 data class ManualMapping(val userChannelId: String, val channelName: String, val epgSourceId: String, val epgSourceName: String, val guideChannelId: String?, val guideChannelName: String?)
 
 @Serializable data class ReminderView(val id: String, val title: String, val start: Long, val stop: Long, val channelName: String)
+/** One Library title (PLAN §4.3.11). [available] is false when no enabled source has it now. */
+@Serializable data class LibraryRow(val key: String, val kind: String, val title: String, val year: Int?, val addedAt: Long, val available: Boolean)
+@Serializable data class LibraryAdd(val itemIds: List<String>, val profiles: List<String> = emptyList())
 
 @Serializable data class SettingsView(val household: Map<String, String>, val profile: Map<String, String>, val companion: CompanionSettingsView)
 
@@ -354,6 +357,35 @@ fun Route.adminPageRoutes(companion: Companion) {
         }
     }
     delete("/reminders/{id}") { call.edit { edits.deleteReminder(call.parameters["id"]!!, call.profile()) } }
+
+    // ---- Library (PLAN §4.3.11) ----
+    get("/library") {
+        call.answer {
+            val view = channels.view(call.profile())
+            val items = companion.vodItems()
+            val ids = items.map { it.id }.toSet()
+            // A TMDB key is available when any source has that title; the companion's matches count too.
+            val tmdb = runCatching { companion.vod.index().tmdbIds }.getOrDefault(emptyMap())
+            val tmdbKeys = (items.mapNotNull { i -> (tmdb[i.id] ?: i.tmdbId)?.let { com.signal.data.ItemKeys.of(i.copy(tmdbId = it)) } }).toSet()
+            view.library.map { l ->
+                val vodItemId = l.fields.str("vod_item_id").orEmpty()
+                LibraryRow(
+                    l.id, l.fields.str("kind") ?: "MOVIE", l.fields.str("title").orEmpty(), l.fields.long("year")?.toInt(), l.fields.long("added_at") ?: 0,
+                    available = l.id in tmdbKeys || l.id in ids || vodItemId in ids,
+                )
+            }.sortedByDescending { it.addedAt }
+        }
+    }
+    post("/library") {
+        val r = call.receive<LibraryAdd>()
+        call.edit {
+            val items = r.itemIds.mapNotNull { companion.catalogItem(it) }
+            if (items.isEmpty()) throw SyncRefused(404, "Those titles aren't in the catalog.")
+            val tmdb = runCatching { companion.vod.index().tmdbIds }.getOrDefault(emptyMap())
+            edits.addToLibrary(items, tmdb, targets(r.profiles))
+        }
+    }
+    delete("/library/{key}") { call.edit { edits.removeFromLibrary(listOf(call.parameters["key"]!!), call.profile()) } }
 
     // ---- Settings ----
     get("/settings") {

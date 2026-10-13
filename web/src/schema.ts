@@ -272,6 +272,14 @@ export const VodRow = z.object({
   tmdbYear: z.number().nullable(),
 });
 export const VodRows = z.object({ rows: z.array(VodRow), total: z.number() });
+export const LibraryRow = z.object({
+  key: z.string(),
+  kind: z.enum(["MOVIE", "SERIES"]),
+  title: z.string(),
+  year: z.number().nullable(),
+  addedAt: z.number(),
+  available: z.boolean(),
+});
 export const TmdbCandidate = z.object({
   id: z.number(),
   title: z.string(),
@@ -284,3 +292,4 @@ export type VodStatus = z.infer<typeof VodStatus>;
 export type VodRow = z.infer<typeof VodRow>;
 export type VodRows = z.infer<typeof VodRows>;
 export type TmdbCandidate = z.infer<typeof TmdbCandidate>;
+export type LibraryRow = z.infer<typeof LibraryRow>;

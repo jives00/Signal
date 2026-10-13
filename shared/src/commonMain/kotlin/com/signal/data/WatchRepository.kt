@@ -58,7 +58,25 @@ class WatchRepository(private val db: UserDatabase, private val settings: Settin
     ) {
         val libraryKeys: Set<String> get() = library.map { it.key }.toSet()
         fun inLibrary(key: String) = library.any { it.key == key }
+
+        /**
+         * Series the user follows: in the Library, or with an episode watched or started. Each with
+         * what's needed to find it in today's sources, and when the user last did anything with it.
+         */
+        fun followedSeries(): Map<String, Followed> {
+            val out = HashMap<String, Followed>()
+            fun add(key: String, vodItemId: String, title: String?, year: Int?, at: Long) {
+                val f = out[key]
+                out[key] = Followed(key, f?.vodItemId ?: vodItemId, f?.title ?: title, f?.year ?: year, maxOf(f?.lastActivity ?: 0, at))
+            }
+            library.filter { it.kind == VodKind.SERIES }.forEach { add(it.key, it.vodItemId, it.title, it.year, it.addedAt) }
+            positions.values.forEach { p -> p.seriesKey?.let { add(it, p.vodItemId, p.title, null, p.updatedAt) } }
+            watched.values.forEach { w -> w.seriesKey?.let { add(it, w.vodItemId, null, null, w.watchedAt) } }
+            return out
+        }
     }
+
+    data class Followed(val seriesKey: String, val vodItemId: String, val title: String?, val year: Int?, val lastActivity: Long)
 
     /** Everything above, for the profile, re-read whenever any of it changes. */
     fun state(): Flow<State> = db.watchQueries.watchTick().asFlow().map { withContext(io) { read() } }
@@ -139,6 +157,30 @@ class WatchRepository(private val db: UserDatabase, private val settings: Settin
             db.watchQueries.putHidden(profile, seriesKey, nowMs())
             db.watchQueries.resumeFor(profile).executeAsList().filter { it.series_key == seriesKey }.forEach { db.watchQueries.removeResume(profile, it.item_key) }
         }
+    }
+
+    // ---- Carry-over (PLAN §4.3.11 → Across providers) -----------------------------------------------
+
+    /**
+     * Rows still keyed by a source's item ID whose source no longer has the title (it was removed,
+     * disabled or switched) move to the same title in another source, found by title and year. TMDB
+     * keys need nothing: they resolve to whichever source has the title. Sync pushes the moves.
+     */
+    suspend fun carryOver(vod: VodRepository): Int {
+        val (keys, state) = withContext(io) { db.watchQueries.itemKeyed().executeAsList().mapNotNull { it.item_key }.toSet() to read() }
+        var moved = 0
+        for (old in keys) {
+            if (old.startsWith("tmdb:") || vod.available(old)) continue
+            val kind = if (old.contains(":s:")) VodKind.SERIES else VodKind.MOVIE
+            val lib = state.library.firstOrNull { it.key == old }
+            val title = lib?.title ?: state.positions.values.firstOrNull { it.key == old || it.seriesKey == old }?.title
+            val now = vod.resolve(old, kind, old, title, lib?.year) ?: continue
+            val new = ItemKeys.of(now)
+            if (new == old) continue
+            withContext(io) { db.watchQueries.rekeyLibrary(new, old) }
+            moved++
+        }
+        return moved
     }
 
     companion object {

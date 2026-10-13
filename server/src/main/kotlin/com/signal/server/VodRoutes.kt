@@ -78,6 +78,15 @@ fun Route.vodImageRoutes(companion: Companion) {
         call.response.cacheControl(CacheControl.MaxAge(maxAgeSeconds = 30 * 24 * 60 * 60))
         call.respondFile(file)
     }
+
+    // A provider's poster, only for a title in the catalog: never a URL the caller chooses.
+    get("${NasVodPaths.PROVIDER_IMAGES}/{id}") {
+        val url = companion.catalogItem(call.parameters["id"]!!)?.posterUrl?.takeIf { it.isNotBlank() }
+        val file = url?.let { runCatching { companion.images.provider(it) }.getOrNull() }
+        if (file == null) return@get call.respondText("No such image", status = HttpStatusCode.NotFound)
+        call.response.cacheControl(CacheControl.MaxAge(maxAgeSeconds = 7 * 24 * 60 * 60))
+        call.respondFile(file)
+    }
 }
 
 fun Route.vodAdminRoutes(companion: Companion) {

@@ -102,9 +102,11 @@ fun VodBrowsePage(kind: VodKind) {
     var libraryFilter by remember(kind) { mutableStateOf(LibraryFilter.ALL) }
     var librarySort by remember(kind) { mutableStateOf(LibrarySort.ADDED) }
     val libraryEntries = watch.library.filter { it.kind == kind }
-    val items by produceState(emptyList<VodItem>(), kind, shelf, sort, watch, libraryFilter, librarySort, vodVersion) {
+    val newEpisodes by app.newEpisodes.collectAsState()
+    val catalogVersion by app.catalogVersion.collectAsState()
+    val items by produceState(emptyList<VodItem>(), kind, shelf, sort, watch, libraryFilter, librarySort, vodVersion, newEpisodes, catalogVersion) {
         value = when (val s = shelf) {
-            Shelf.Library -> libraryItems(app, libraryEntries, watch, libraryFilter, librarySort)
+            Shelf.Library -> libraryItems(app, libraryEntries, watch, libraryFilter, librarySort, newEpisodes)
             Shelf.Recent -> VodRepository.sorted(app.vod.recentlyAdded(kind), sort)
             is Shelf.Category -> app.vod.items(kind, s.entry.sourceId, s.entry.categoryId, sort)
             // Lists keep TMDB's order; genres sort like categories (PLAN §4.3.6 → Poster grid).
@@ -239,10 +241,11 @@ fun VodBrowsePage(kind: VodKind) {
                                 item,
                                 focusRequester = if (i == 0) firstPoster else null,
                                 onSelect = { open(item) },
-                                onOptions = if (item.id.startsWith(UNAVAILABLE)) null else ({ app.panel.open(com.signal.ui.menus.VodMenus.item(app, item, watch), returnTo) }),
+                                onOptions = if (item.id.startsWith(UNAVAILABLE)) null else ({ com.signal.ui.menus.VodMenus.open(app, item, watch, returnTo) }),
                                 // Watched shows full, a resume position its fraction (PLAN §4.3.6 → Poster grid).
                                 progress = if (key in watch.watched) 1f else watch.positions[key]?.fraction,
                                 unavailable = item.id.startsWith(UNAVAILABLE),
+                                newEpisode = item.kind == VodKind.SERIES && com.signal.data.ItemKeys.of(item) in newEpisodes,
                             )
                         }
                     }
@@ -266,7 +269,15 @@ fun VodBrowsePage(kind: VodKind) {
  * offset by 4px, the one exception to the accent fill (PLAN §3).
  */
 @Composable
-fun PosterTile(item: VodItem, focusRequester: FocusRequester?, onSelect: () -> Unit, onOptions: (() -> Unit)?, progress: Float? = null, unavailable: Boolean = false) {
+fun PosterTile(
+    item: VodItem,
+    focusRequester: FocusRequester?,
+    onSelect: () -> Unit,
+    onOptions: (() -> Unit)?,
+    progress: Float? = null,
+    unavailable: Boolean = false,
+    newEpisode: Boolean = false,
+) {
     val c = SignalTheme.colors
     val name = VodRepository.displayName(item)
     Focusable(Modifier.fillMaxWidth(), onSelect = onSelect, onOptions = onOptions, focusRequester = focusRequester) { focused ->
@@ -296,6 +307,8 @@ fun PosterTile(item: VodItem, focusRequester: FocusRequester?, onSelect: () -> U
                             com.signal.ui.components.ProgressBar(progress, height = 6)
                         }
                     }
+                    // A series with an episode added since the user last watched it (PLAN §4.3.7).
+                    if (newEpisode) Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopStart) { NewEpisodeBadge() }
                 }
             }
             SText(name, 22, Modifier.padding(start = 8.dp, top = 4.dp), weight = FontWeight.SemiBold, maxLines = 1)
@@ -315,8 +328,8 @@ private enum class LibrarySort(val label: String) { ADDED("Recently added"), A_Z
 private const val UNAVAILABLE = "unavailable:"
 
 /**
- * The Library's titles as posters. Series with new episodes sorting first arrives with slice 4's
- * badge; a title no enabled source has stays, marked unavailable.
+ * The Library's titles as posters, each from whichever source has it now. Series with new episodes
+ * sort first; a title no enabled source has stays, marked unavailable.
  */
 private suspend fun libraryItems(
     app: com.signal.app.AppController,
@@ -324,10 +337,11 @@ private suspend fun libraryItems(
     watch: com.signal.data.WatchRepository.State,
     filter: LibraryFilter,
     sort: LibrarySort,
+    newEpisodes: Set<String>,
 ): List<VodItem> {
-    val enabled = app.sourceList.value.filter { it.enabled }.map { it.id }.toSet()
     val rows = entries.map { e ->
-        val item = app.vod.item(e.vodItemId)?.takeIf { it.sourceId in enabled }
+        // Whichever enabled source has the title today (PLAN §4.3.11 → Across providers).
+        val item = app.vod.resolve(e.key, e.kind, e.vodItemId, e.title, e.year)
             ?: VodItem("$UNAVAILABLE${e.key}", "", e.kind, "", e.title, "", posterUrl = e.posterUrl, year = e.year)
         Triple(e, item, isWatched(app, e, item, watch))
     }
@@ -343,7 +357,8 @@ private suspend fun libraryItems(
         watch.watched.values.filter { it.key == e.key || it.seriesKey == e.key }.maxOfOrNull { it.watchedAt } ?: 0,
     )
     return when (sort) {
-        LibrarySort.ADDED -> filtered.sortedByDescending { it.first.addedAt }
+        // Series with new episodes first under the default sort (PLAN §4.3.11).
+        LibrarySort.ADDED -> filtered.sortedWith(compareBy<Triple<com.signal.data.WatchRepository.LibraryEntry, VodItem, Boolean>> { it.first.key !in newEpisodes }.thenByDescending { it.first.addedAt })
         LibrarySort.A_Z -> filtered.sortedBy { VodRepository.displayName(it.second).lowercase() }
         LibrarySort.WATCHED -> filtered.sortedByDescending { lastWatched(it.first) }
     }.map { it.second }
@@ -354,4 +369,11 @@ private suspend fun isWatched(app: com.signal.app.AppController, e: com.signal.d
     val detail = if (item.id.startsWith(UNAVAILABLE)) null else app.vodDetails.cachedSeries(item)
     val episodes = detail?.episodes ?: return false
     return episodes.isNotEmpty() && episodes.all { com.signal.data.ItemKeys.episode(e.key, it) in watch.watched }
+}
+
+/** The "New episode" badge on a series poster or Search card (PLAN §4.3.7, §4.3.14). */
+@Composable
+fun NewEpisodeBadge(modifier: Modifier = Modifier) {
+    val c = SignalTheme.colors
+    SText("New episode", 18, modifier.background(c.accent).padding(horizontal = 10.dp, vertical = 4.dp), weight = FontWeight.SemiBold, color = c.onAccent)
 }

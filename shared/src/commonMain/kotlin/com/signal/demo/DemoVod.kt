@@ -83,7 +83,7 @@ object DemoVod {
                     id = "${item.sourceId}:e:$pid", providerId = pid, season = season, episode = n,
                     title = "${first[rnd.nextInt(first.size)]} ${second[rnd.nextInt(second.size)]}",
                     plot = "A synthetic episode from the Demo source.", durationSec = 596,
-                    containerExt = "m3u8", url = testVideos[(season + n) % testVideos.size],
+                    containerExt = "m3u8", url = testVideos[(season + n) % testVideos.size], addedAt = item.addedAt,
                 )
             }
         }

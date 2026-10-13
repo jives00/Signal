@@ -112,7 +112,14 @@ class Companion(
     }
 
     suspend fun vodItems(): List<com.signal.model.VodItem> = vodItemsOverride?.invoke() ?: catalog.vodItems()
-    suspend fun catalogItem(id: String): com.signal.model.VodItem? = vodItems().firstOrNull { it.id == id }
+    @Volatile private var catalogById: Pair<List<com.signal.model.VodItem>, Map<String, com.signal.model.VodItem>>? = null
+
+    /** One catalog title by ID; a map kept beside the cached list, since every provider poster asks. */
+    suspend fun catalogItem(id: String): com.signal.model.VodItem? {
+        val list = vodItems()
+        val map = catalogById?.takeIf { it.first === list }?.second ?: list.associateBy { it.id }.also { catalogById = list to it }
+        return map[id]
+    }
 
     /** A match was fixed in the web admin: open TVs fetch the new index. */
     suspend fun vodChanged() {

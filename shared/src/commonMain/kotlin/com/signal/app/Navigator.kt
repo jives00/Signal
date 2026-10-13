@@ -15,7 +15,8 @@ sealed interface Route {
     data object Movies : Route
     data object Series : Route
     data class MovieDetail(val itemId: String) : Route
-    data class SeriesDetail(val itemId: String) : Route
+    /** [season] and [episode] open the page on that episode, focused (Find in Series, PLAN §4.3.4). */
+    data class SeriesDetail(val itemId: String, val season: Int? = null, val episode: Int? = null) : Route
     /** Movie or episode playback (PLAN §4.3.10); what plays is in VodPlayback. */
     data object VodPlayer : Route
     data object Search : Route

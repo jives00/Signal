@@ -79,5 +79,9 @@ class ContractTest {
         )
         check("tmdb-candidates", kotlinx.serialization.builtins.ListSerializer(TmdbCandidate.serializer()), listOf(TmdbCandidate(603, "The Matrix", null, 1999, "/matrix.jpg", "A hacker learns the truth.")))
         check("links", kotlinx.serialization.builtins.ListSerializer(LinkView.serializer()), listOf(LinkView("src:x:42", "FOX Sports 1", "US Sports", "Provider", true, true)))
+        check(
+            "library", kotlinx.serialization.builtins.ListSerializer(LibraryRow.serializer()),
+            listOf(LibraryRow("tmdb:movie:603", "MOVIE", "The Matrix", 1999, 1_760_000_000_000, true), LibraryRow("src:s:9", "SERIES", "Home Video", null, 1_760_000_000_000, false)),
+        )
     }
 }

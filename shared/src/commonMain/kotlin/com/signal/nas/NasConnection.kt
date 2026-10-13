@@ -268,6 +268,12 @@ class NasConnection(
         return if (base != null) "$base${NasVodPaths.IMAGES}/$size$path" else TmdbImages.direct(size, path)
     }
 
+    /** A title's provider poster through the companion's cache (PLAN §4.3.12), or null when it's out of reach. */
+    fun providerImageUrl(itemId: String): String? {
+        val base = active?.second?.takeIf { isPaired && _status.value is Status.Connected } ?: return null
+        return base + NasVodPaths.providerImage(itemId)
+    }
+
     // ---- Settings sync (PLAN §5.5, §9.2) --------------------------------------------------------
 
     override suspend fun push(request: com.signal.sync.PushRequest): com.signal.sync.PushResult? {

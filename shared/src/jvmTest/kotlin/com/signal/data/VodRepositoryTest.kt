@@ -29,6 +29,7 @@ class VodRepositoryTest {
     }
     private val vod = VodRepository(db, Dispatchers.IO)
     private val xtream = Source(id = "x", name = "Provider", kind = SourceKind.XTREAM, url = "http://p.example", username = "u", password = "p")
+    private fun sources() = SourceRepository(db, HttpClient(MockEngine { respondError(HttpStatusCode.NotFound) }), box, Dispatchers.IO, Log { _, _ -> })
 
     @Test fun parsesXtreamMoviesAndSeriesLeniently() {
         val movies = XtreamParser.vodStreams(
@@ -93,6 +94,43 @@ class VodRepositoryTest {
         vodWorks = false
         assertEquals(1, sources.refresh("x").getOrThrow(), "live channels still refresh")
         assertEquals(1L, vod.count(VodKind.MOVIE).first(), "the cached movies stay")
+    }
+
+    @Test fun aStreamedListThatBreaksPartWayKeepsTheOldCatalog(): Unit = runBlocking {
+        var broken = false
+        val http = HttpClient(MockEngine { req ->
+            when (req.url.parameters["action"]) {
+                null -> respond("""{"user_info":{"auth":1}}""")
+                "get_live_categories", "get_series_categories" -> respond("[]")
+                "get_live_streams" -> respond("""[{"stream_id":1,"name":"News 24"}]""")
+                "get_vod_categories" -> respond("""[{"category_id":"3","category_name":"Action"}]""")
+                // Streamed, so the movies have been staged by the time get_series fails.
+                "get_vod_streams" -> respond("""[{"stream_id":7,"name":"Heat (1995)","category_id":"3"},{"stream_id":7,"name":"twice"},{"stream_id":8,"name":"Alien {Director's Cut} \"Final\"","category_id":"3"}]""")
+                "get_series" -> if (broken) respondError(HttpStatusCode.BadGateway) else respond("""[{"series_id":5,"name":"The Wire"}]""")
+                else -> respondError(HttpStatusCode.NotFound)
+            }
+        })
+        val sources = SourceRepository(db, http, box, Dispatchers.IO, Log { _, _ -> })
+        sources.save(xtream)
+        sources.refresh("x").getOrThrow()
+        assertEquals(2L, vod.count(VodKind.MOVIE).first(), "the same ID twice is one movie")
+        assertEquals("Heat (1995)", vod.item("x:v:7")?.name, "the first wins")
+        assertEquals("Alien {Director's Cut} \"Final\"", vod.item("x:v:8")?.name)
+        assertEquals(listOf("x:s:5"), vod.search("wire", VodKind.SERIES).map { it.id }, "Search finds the swapped-in titles")
+        broken = true
+        sources.refresh("x").getOrThrow()
+        assertEquals(1L, vod.count(VodKind.SERIES).first(), "the old catalog stays")
+        assertEquals(0L, db.vodQueries.needsKeys(10).executeAsList().size.toLong())
+    }
+
+    @Test fun titlesCachedBeforeTheKeysGetThem(): Unit = runBlocking {
+        sources().save(xtream)
+        db.vodQueries.insertItem(com.signal.db.user.Vod_item("x:v:1", "x", "MOVIE", "1", "EN - Heat (1995)", "1", null, 1995, null, 0, null, null, null, null, 0, "", ""))
+        assertTrue(vod.search("heat", VodKind.MOVIE).isEmpty())
+        assertEquals(1, vod.fillMissingKeys())
+        assertEquals(listOf("x:v:1"), vod.search("heat", VodKind.MOVIE).map { it.id })
+        assertEquals("heat", vod.item("x:v:1")?.titleKey)
+        assertEquals(0, vod.fillMissingKeys())
     }
 
     @Test fun sortsAndDisplayNames() {

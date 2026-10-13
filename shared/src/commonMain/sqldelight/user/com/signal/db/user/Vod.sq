@@ -24,29 +24,88 @@ CREATE TABLE vod_item (
     container_ext TEXT,
     plot TEXT,
     url TEXT,
-    position INTEGER NOT NULL
+    position INTEGER NOT NULL,
+    -- For matching titles across sources and with the guide (VodTitles.nameKey), and for Search (SearchText.fold).
+    title_key TEXT NOT NULL DEFAULT '',
+    search_name TEXT NOT NULL DEFAULT ''
 );
 
 CREATE INDEX vod_item_category ON vod_item(source_id, kind, category_id, position);
 CREATE INDEX vod_item_added ON vod_item(kind, added_at);
+CREATE INDEX vod_item_title ON vod_item(kind, title_key);
+CREATE INDEX vod_item_tmdb ON vod_item(kind, tmdb_id);
+
+-- A refresh streams the provider's lists here first, a batch at a time, and swaps them in only once
+-- they've all arrived: a failure part way keeps the old catalog, and nothing holds the whole list.
+CREATE TABLE vod_item_staging (
+    id TEXT NOT NULL PRIMARY KEY,
+    source_id TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    provider_id TEXT NOT NULL,
+    name TEXT NOT NULL,
+    category_id TEXT NOT NULL,
+    poster_url TEXT,
+    year INTEGER,
+    rating REAL,
+    added_at INTEGER NOT NULL DEFAULT 0,
+    tmdb_id INTEGER,
+    container_ext TEXT,
+    plot TEXT,
+    url TEXT,
+    position INTEGER NOT NULL,
+    title_key TEXT NOT NULL DEFAULT '',
+    search_name TEXT NOT NULL DEFAULT ''
+);
+
+-- Search (PLAN §4.3.14): vod_item's search_name by rowid, kept in step by the refresh.
+CREATE VIRTUAL TABLE vod_fts USING fts4(search_name);
 
 insertCategory:
 INSERT OR REPLACE INTO vod_category(source_id, kind, category_id, name, position) VALUES ?;
 
+-- Tests and one-off writes; a refresh goes through staging. Search sees the title once indexFts runs.
 insertItem:
-INSERT OR REPLACE INTO vod_item(id, source_id, kind, provider_id, name, category_id, poster_url, year, rating, added_at, tmdb_id, container_ext, plot, url, position)
-VALUES ?;
+INSERT OR REPLACE INTO vod_item VALUES ?;
 
-deleteCategoriesForSource:
-DELETE FROM vod_category WHERE source_id = ? AND kind = ?;
-
-deleteItemsForSource:
-DELETE FROM vod_item WHERE source_id = ? AND kind = ?;
+indexFts:
+INSERT INTO vod_fts(docid, search_name) SELECT rowid, search_name FROM vod_item WHERE id = ?;
 
 deleteAllForSource {
+    DELETE FROM vod_fts WHERE docid IN (SELECT rowid FROM vod_item WHERE source_id = :sourceId);
     DELETE FROM vod_item WHERE source_id = :sourceId;
     DELETE FROM vod_category WHERE source_id = :sourceId;
+    DELETE FROM vod_item_staging WHERE source_id = :sourceId;
 }
+
+-- ---- A refresh: the lists stream into staging, then swap in whole -------------------------------
+
+clearStaging:
+DELETE FROM vod_item_staging WHERE source_id = ?;
+
+-- OR IGNORE: providers list the same ID twice, and the first wins.
+insertStaging:
+INSERT OR IGNORE INTO vod_item_staging VALUES ?;
+
+-- Run in one transaction with the new categories, after every list arrived.
+swapInStaging {
+    DELETE FROM vod_fts WHERE docid IN (SELECT rowid FROM vod_item WHERE source_id = :sourceId);
+    DELETE FROM vod_item WHERE source_id = :sourceId;
+    DELETE FROM vod_category WHERE source_id = :sourceId;
+    INSERT INTO vod_item SELECT * FROM vod_item_staging WHERE source_id = :sourceId;
+    INSERT INTO vod_fts(docid, search_name) SELECT rowid, search_name FROM vod_item WHERE source_id = :sourceId;
+    DELETE FROM vod_item_staging WHERE source_id = :sourceId;
+}
+
+-- Rows cached before title_key and search_name existed, filled in a batch at a time on launch.
+needsKeys:
+SELECT id, name FROM vod_item WHERE search_name = '' LIMIT ?;
+
+setKeys:
+UPDATE vod_item SET title_key = ?, search_name = ? WHERE id = ?;
+
+-- ---- Browsing ---------------------------------------------------------------------------------
+-- Every query that returns titles brings the companion's TMDB match beside each (nas_tmdb, nas_poster),
+-- so nothing keeps all the matches in memory.
 
 -- The category column: each provider category with its title count, enabled sources only.
 categories:
@@ -60,21 +119,63 @@ HAVING item_count > 0
 ORDER BY src.created_at, c.position;
 
 itemsInCategory:
-SELECT * FROM vod_item WHERE source_id = ? AND kind = ? AND category_id = ? ORDER BY position;
+SELECT i.*, t.tmdb_id AS nas_tmdb, t.poster AS nas_poster FROM vod_item i
+LEFT JOIN vod_tmdb t ON t.item_id = i.id
+WHERE i.source_id = ? AND i.kind = ? AND i.category_id = ? ORDER BY i.position;
 
 recentlyAdded:
-SELECT i.* FROM vod_item i JOIN source src ON src.id = i.source_id AND src.enabled = 1
+SELECT i.*, t.tmdb_id AS nas_tmdb, t.poster AS nas_poster FROM vod_item i
+JOIN source src ON src.id = i.source_id AND src.enabled = 1
+LEFT JOIN vod_tmdb t ON t.item_id = i.id
 WHERE i.kind = ? ORDER BY i.added_at DESC, i.position LIMIT ?;
 
 countForKind:
 SELECT count(*) FROM vod_item i JOIN source src ON src.id = i.source_id AND src.enabled = 1 WHERE i.kind = ?;
 
 itemById:
-SELECT * FROM vod_item WHERE id = ?;
+SELECT i.*, t.tmdb_id AS nas_tmdb, t.poster AS nas_poster FROM vod_item i
+LEFT JOIN vod_tmdb t ON t.item_id = i.id
+WHERE i.id = ?;
 
 -- The companion's matcher (PLAN §4.3.12): every title of every enabled source.
 allItems:
-SELECT i.* FROM vod_item i JOIN source src ON src.id = i.source_id AND src.enabled = 1 ORDER BY i.source_id, i.kind, i.position;
+SELECT i.*, t.tmdb_id AS nas_tmdb, t.poster AS nas_poster FROM vod_item i
+JOIN source src ON src.id = i.source_id AND src.enabled = 1
+LEFT JOIN vod_tmdb t ON t.item_id = i.id
+ORDER BY i.source_id, i.kind, i.position;
+
+-- ---- Titles across sources (PLAN §4.3.4, §4.3.8, §4.3.11): preferred source first -----------------
+
+availableById:
+SELECT count(*) FROM vod_item i JOIN source src ON src.id = i.source_id AND src.enabled = 1 WHERE i.id = ?;
+
+byTitleKey:
+SELECT i.*, t.tmdb_id AS nas_tmdb, t.poster AS nas_poster FROM vod_item i
+JOIN source src ON src.id = i.source_id AND src.enabled = 1
+LEFT JOIN vod_tmdb t ON t.item_id = i.id
+WHERE i.kind = ? AND i.title_key = ?
+ORDER BY src.created_at, i.source_id, i.position
+LIMIT 200;
+
+-- The provider's TMDB ID or the companion's; the caller drops a provider ID the companion overruled.
+byTmdb:
+SELECT i.*, t.tmdb_id AS nas_tmdb, t.poster AS nas_poster FROM vod_item i
+JOIN source src ON src.id = i.source_id AND src.enabled = 1
+LEFT JOIN vod_tmdb t ON t.item_id = i.id
+WHERE i.kind = :kind AND (i.id IN (SELECT item_id FROM vod_tmdb WHERE tmdb_id = :tmdb) OR i.tmdb_id = :tmdb)
+ORDER BY src.created_at, i.source_id, i.position
+LIMIT 200;
+
+-- Search (PLAN §4.3.14): every word as a prefix through the full-text index, then exact, prefix and
+-- shorter titles first.
+searchTitles:
+SELECT i.*, t.tmdb_id AS nas_tmdb, t.poster AS nas_poster FROM vod_fts f
+JOIN vod_item i ON i.rowid = f.docid
+JOIN source src ON src.id = i.source_id AND src.enabled = 1
+LEFT JOIN vod_tmdb t ON t.item_id = i.id
+WHERE vod_fts MATCH :match AND i.kind = :kind
+ORDER BY i.search_name = :exact DESC, i.search_name LIKE :prefix DESC, length(i.search_name), src.created_at, i.position
+LIMIT :limit;
 
 -- From the companion's VOD index (PLAN §4.3.12): each matched title's TMDB ID and poster, and the
 -- TMDB lists and genres as shelves ("list:trending", "genre:Action"). Replaced whole on each fetch.
@@ -84,6 +185,8 @@ CREATE TABLE vod_tmdb (
     tmdb_id INTEGER NOT NULL,
     poster TEXT
 );
+
+CREATE INDEX vod_tmdb_id ON vod_tmdb(tmdb_id);
 
 CREATE TABLE vod_shelf (
     kind TEXT NOT NULL,
@@ -104,9 +207,6 @@ INSERT OR REPLACE INTO vod_tmdb(item_id, tmdb_id, poster) VALUES (?, ?, ?);
 insertShelf:
 INSERT OR REPLACE INTO vod_shelf(kind, shelf, position, item_id) VALUES (?, ?, ?, ?);
 
-allTmdb:
-SELECT * FROM vod_tmdb;
-
 -- The Lists and Genres entries: shelves with at least one title of an enabled source.
 shelves:
 SELECT sh.shelf, count(DISTINCT sh.item_id) AS item_count
@@ -117,8 +217,13 @@ WHERE sh.kind = ?
 GROUP BY sh.shelf;
 
 itemsInShelf:
-SELECT i.* FROM vod_shelf sh
+SELECT i.*, t.tmdb_id AS nas_tmdb, t.poster AS nas_poster FROM vod_shelf sh
 JOIN vod_item i ON i.id = sh.item_id
 JOIN source src ON src.id = i.source_id AND src.enabled = 1
+LEFT JOIN vod_tmdb t ON t.item_id = i.id
 WHERE sh.kind = ? AND sh.shelf = ?
 ORDER BY sh.position;
+
+-- Observed only to learn that the catalog, the sources or the TMDB matches changed.
+catalogTick:
+SELECT (SELECT count(*) FROM vod_item) + (SELECT count(*) FROM source WHERE enabled = 1) + (SELECT count(*) FROM vod_tmdb);

@@ -29,6 +29,7 @@ import com.signal.db.user.UserDatabase
 import com.signal.input.RemoteDispatcher
 import com.signal.model.Source
 import com.signal.model.SourceKind
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.drop
@@ -56,7 +57,11 @@ class AppController(val platform: Platform, val log: Log) {
     val channels = ChannelRepository(db, settings, platform.io)
     val switches = com.signal.data.SwitchRepository(db, settings, platform.io)
     // Posters the companion matched come from its image cache, or TMDB's CDN when it's out of reach (PLAN §4.3.12).
-    val vod = com.signal.data.VodRepository(db, platform.io) { path -> nas.imageUrl(com.signal.nas.TmdbImages.POSTER, path) }
+    val vod = com.signal.data.VodRepository(
+        db, platform.io,
+        providerPoster = { id -> nas.providerImageUrl(id) },
+        tmdbPoster = { path -> nas.imageUrl(com.signal.nas.TmdbImages.POSTER, path) },
+    )
     val vodDetails = com.signal.data.VodDetailRepository(db, sources, platform.io, log)
     val watch = com.signal.data.WatchRepository(db, settings, platform.io)
     val vodPlayback = VodPlayback(platform.player, sources, vodDetails, watch, scope, log)
@@ -100,11 +105,23 @@ class AppController(val platform: Platform, val log: Log) {
     /** The Library, resume positions and watched state for this profile, kept live for posters and Home (PLAN §4.3.8–4.3.11). */
     val watchState: StateFlow<com.signal.data.WatchRepository.State> = watch.state().stateIn(scope, SharingStarted.Eagerly, com.signal.data.WatchRepository.State())
 
-    /** Home's Continue watching row (PLAN §4.3.1), rebuilt whenever the watch state changes. */
+    /** Bumped when the catalog, the enabled sources or the TMDB matches change: saved titles may resolve elsewhere now. */
+    val catalogVersion = kotlinx.coroutines.flow.MutableStateFlow(0)
+
+    /** What Continue watching and the badges depend on besides the watch state: detail and the catalog. */
+    private val vodInputs = combine(vodDetails.updates, catalogVersion) { a, b -> a to b }
+
+    /** Home's Continue watching row (PLAN §4.3.1), rebuilt whenever the watch state, detail or the catalog changes. */
     @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
-    val continueWatching: StateFlow<List<com.signal.data.ContinueWatching.Card>> = watch.state()
+    val continueWatching: StateFlow<List<com.signal.data.ContinueWatching.Card>> = combine(watch.state(), vodInputs) { s, _ -> s }
         .mapLatest { com.signal.data.ContinueWatching.build(it, vod, vodDetails, Clock.System.now().toEpochMilliseconds()) }
         .stateIn(scope, SharingStarted.Eagerly, emptyList())
+
+    /** Series keys with the "New episode" badge (PLAN §4.3.7). */
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    val newEpisodes: StateFlow<Set<String>> = combine(watch.state(), vodInputs) { s, _ -> s }
+        .mapLatest { com.signal.data.NewEpisodes.build(it, vod, vodDetails) }
+        .stateIn(scope, SharingStarted.Eagerly, emptySet())
 
     /** User channels with more than one playable stream, for the Stream picker (PLAN §4.5). */
     val linkedStreams: StateFlow<Map<String, List<ChannelRepository.LinkedStream>>> = channels.multiLinked().stateIn(scope, SharingStarted.Eagerly, emptyMap())
@@ -121,6 +138,14 @@ class AppController(val platform: Platform, val log: Log) {
     /** False until the first source check finishes, so first run never flashes Home. */
     var ready by mutableStateOf(false)
         private set
+
+    /**
+     * What Search opens with, set just before going there: Find in Movies/Series with no confident
+     * match fills in the title, limited to Movies and Series (PLAN §4.3.4). Taken once by Search.
+     */
+    val searchRequest = kotlinx.coroutines.flow.MutableStateFlow<SearchRequest?>(null)
+
+    data class SearchRequest(val query: String, val types: Set<String>)
 
     /** Shown by the setup screen and Settings while a refresh runs. */
     var refreshing by mutableStateOf<String?>(null)
@@ -151,11 +176,22 @@ class AppController(val platform: Platform, val log: Log) {
             withContext(guideIo) { guideStore.open() }
             if (sources.count() == 0L) navigator.resetTo(Route.Setup)
             ready = true
+            // Titles cached before Search and matching keys existed (user.db 7 → 8) get them now.
+            runCatching { vod.fillMissingKeys() }.onSuccess { if (it > 0) log.info("VOD: keyed $it cached titles") }
             refreshStaleSources()
+            refreshFollowedSeries()
             // Sources from before milestone 2 get their guides here too.
             sources.all().forEach { epg.ensureForSource(it) }
             // The NAS build first when paired; the device builds its own only when that gives nothing (PLAN §6).
             if (installNasGuide() == null && guideIsStale()) rebuildGuide()
+        }
+        // The catalog changed (a refresh, a source enabled or removed, new TMDB matches): saved titles
+        // find their copy in today's sources (PLAN §4.3.11 → Across providers).
+        scope.launch {
+            vod.catalogChanges().collect { catalogVersion.value++ }
+        }
+        scope.launch {
+            catalogVersion.drop(1).debounce(CARRY_OVER_DEBOUNCE_MS).collect { carryOver() }
         }
         scope.launch { runReminders() }
         // A new guide can move a program: its reminder follows (PLAN §4.3.4 → Guide changes).
@@ -184,6 +220,22 @@ class AppController(val platform: Platform, val log: Log) {
             }
         }
         scope.launch { platform.updater?.check() }
+    }
+
+    /** Library, resume and watched rows move to the copy of their title that today's sources have. */
+    private suspend fun carryOver() {
+        runCatching { watch.carryOver(vod) }
+            .onSuccess { if (it > 0) log.info("Carry-over: $it titles moved to another source") }
+            .onFailure { if (it is kotlinx.coroutines.CancellationException) throw it; log.warn("Carry-over failed: ${it.message}") }
+    }
+
+    /**
+     * Followed series whose provider detail is over a day old are fetched again (PLAN §4.3.13), so the
+     * New episode badge and Next up see new episodes. Done by the device with or without the NAS.
+     */
+    private suspend fun refreshFollowedSeries() {
+        runCatching { com.signal.data.NewEpisodes.refresh(watch.current(), vod, vodDetails) }
+            .onFailure { if (it is kotlinx.coroutines.CancellationException) throw it; log.warn("Series refresh failed: ${it.message}") }
     }
 
     /** Sources not refreshed in 24 hours refresh in the background on launch (PLAN §6). */
@@ -487,6 +539,7 @@ class AppController(val platform: Platform, val log: Log) {
         val away = settings.raw(Settings.Key.BACKGROUNDED_AT)?.toLongOrNull()?.let { Clock.System.now().toEpochMilliseconds() - it }
         settings.put(Settings.Key.BACKGROUNDED_AT, null)
         scope.launch { catchUpReminders() }
+        scope.launch { refreshFollowedSeries() }
         if (away != null && away > AWAY_RESETS_TO_HOME_MS && navigator.current != Route.Setup) {
             navigator.resetTo(Route.Home)
         } else if (away != null && navigator.current == Route.VodPlayer) {
@@ -510,6 +563,8 @@ class AppController(val platform: Platform, val log: Log) {
         /** A NAS guide older than this is ignored, and the device builds its own: the nightly run must have stopped. */
         const val NAS_GUIDE_MAX_AGE_MS = 36 * 60 * 60_000L
         const val NAS_GUIDE_CHECK_MS = 30 * 60_000L
+        /** A refresh writes the catalog source by source: carry-over waits for it to settle. */
+        const val CARRY_OVER_DEBOUNCE_MS = 5_000L
         /** A burst of edits (a move, a rename) goes as one sync. */
         const val SYNC_DEBOUNCE_MS = 2_000L
         /** While the event stream is down (PLAN §9.2). */

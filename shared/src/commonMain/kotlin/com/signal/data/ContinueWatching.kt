@@ -29,14 +29,22 @@ object ContinueWatching {
 
     suspend fun build(state: WatchRepository.State, vod: VodRepository, details: VodDetailRepository, now: Long): List<Card> {
         val cards = ArrayList<Card>()
+        val followed = state.followedSeries()
+        // Each row is played from whichever enabled source has the title today (PLAN §4.3.11 → Across providers).
         val items = HashMap<String, VodItem?>()
-        suspend fun item(id: String) = items.getOrPut(id) { vod.item(id) }
+        suspend fun movie(p: WatchRepository.Position) = items.getOrPut(p.key) { vod.resolve(p.key, VodKind.MOVIE, p.vodItemId, p.title, null) }
+        suspend fun series(key: String, vodItemId: String) = items.getOrPut(key) {
+            vod.resolve(key, VodKind.SERIES, vodItemId, followed[key]?.title, followed[key]?.year)
+        }
 
         // Started, not finished.
         for (p in state.positions.values) {
             if (now - p.updatedAt > MAX_AGE_MS || p.key in state.watched) continue
-            val it = item(p.vodItemId) ?: continue
-            val episode = if (p.kind == "EPISODE") details.cachedSeries(it)?.episodes?.firstOrNull { e -> e.id == p.episodeId } else null
+            val it = (if (p.kind == "EPISODE") p.seriesKey?.let { k -> series(k, p.vodItemId) } else movie(p)) ?: continue
+            // Another source's copy has its own episode IDs: the same season and number is the same episode.
+            val episode = if (p.kind == "EPISODE") details.cachedSeries(it)?.episodes?.let { list ->
+                list.firstOrNull { e -> e.id == p.episodeId } ?: list.firstOrNull { e -> e.season == p.season && e.episode == p.episode }
+            } else null
             if (p.kind == "EPISODE" && episode == null) continue
             cards += Card(p.key, VodRepository.displayName(it), episode?.let { e -> "${e.code} · ${e.title}" }, p.fraction, it, episode, p.seriesKey, p.updatedAt)
         }
@@ -47,7 +55,7 @@ object ContinueWatching {
             .groupBy { it.seriesKey!! }.mapValues { (_, w) -> w.maxBy { it.watchedAt } }
         for ((seriesKey, last) in lastBySeries) {
             if (seriesKey in state.hidden || seriesKey in inProgress || now - last.watchedAt > MAX_AGE_MS) continue
-            val series = item(last.vodItemId)?.takeIf { it.kind == VodKind.SERIES } ?: continue
+            val series = series(seriesKey, last.vodItemId) ?: continue
             val detail = details.cachedSeries(series) ?: continue
             val next = detail.after(last.season!!, last.episode!!) ?: continue
             val key = ItemKeys.episode(seriesKey, next)

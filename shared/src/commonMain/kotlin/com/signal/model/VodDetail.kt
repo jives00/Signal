@@ -32,6 +32,8 @@ data class Episode(
     val containerExt: String? = null,
     /** A direct URL, for the Demo source. */
     val url: String? = null,
+    /** Epoch seconds, from Xtream's `added`; 0 when unknown. Drives the New episode badge (PLAN §4.3.7). */
+    val addedAt: Long = 0,
 ) {
     val code: String get() = "S$season E$episode"
 }

@@ -28,6 +28,8 @@ data class VodItem(
     val url: String? = null,
     /** Order in the provider's list. */
     val position: Int = 0,
+    /** For matching titles across sources and with the guide ([com.signal.match.VodTitles.nameKey]). */
+    val titleKey: String = "",
 )
 
 data class VodCategory(val sourceId: String, val kind: VodKind, val categoryId: String, val name: String, val position: Int)

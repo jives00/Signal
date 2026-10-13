@@ -10,6 +10,9 @@ object NasVodPaths {
     fun meta(itemId: String) = "/device/vod/meta/${itemId.encodeURLPath()}"
     /** Images the companion caches and resizes for TV: `/images/tmdb/<size>/<file>`. Open on the home network and Tailscale. */
     const val IMAGES = "/images/tmdb"
+    /** A provider's poster for a title TMDB has none for, cached and resized: `/images/provider/<item id>`. Open like [IMAGES]. */
+    const val PROVIDER_IMAGES = "/images/provider"
+    fun providerImage(itemId: String) = "$PROVIDER_IMAGES/${itemId.encodeURLPath()}"
 
     private fun String.encodeURLPath() = buildString {
         for (b in this@encodeURLPath.encodeToByteArray()) {

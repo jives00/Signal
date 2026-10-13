@@ -22,12 +22,22 @@ class VodDetailRepository(
     private val io: CoroutineDispatcher,
     private val log: Log,
 ) {
+    /** Bumped when fresh detail is stored: Continue watching and the New episode badges rebuild. */
+    val updates = kotlinx.coroutines.flow.MutableStateFlow(0)
+
+    /** True when [item]'s cached detail is missing or older than [maxAgeMs]. Demo detail is generated, never stale. */
+    suspend fun isStale(item: VodItem, maxAgeMs: Long): Boolean = withContext(io) {
+        if (sources.byId(item.sourceId)?.kind != SourceKind.XTREAM) return@withContext false
+        val cached = db.watchQueries.infoFor(item.id).executeAsOneOrNull() ?: return@withContext true
+        Clock.System.now().toEpochMilliseconds() - cached.fetched_at >= maxAgeMs
+    }
+
     private suspend fun body(item: VodItem, maxAgeMs: Long, fetch: suspend () -> String): String? = withContext(io) {
         val cached = db.watchQueries.infoFor(item.id).executeAsOneOrNull()
         val now = Clock.System.now().toEpochMilliseconds()
         if (cached != null && now - cached.fetched_at < maxAgeMs) return@withContext cached.body
         runCatching { fetch() }
-            .onSuccess { db.watchQueries.putInfo(item.id, now, it) }
+            .onSuccess { db.watchQueries.putInfo(item.id, now, it); updates.value++ }
             .onFailure { log.warn("Detail for ${VodRepository.displayName(item)} failed: ${it.message}") }
             .getOrNull() ?: cached?.body
     }

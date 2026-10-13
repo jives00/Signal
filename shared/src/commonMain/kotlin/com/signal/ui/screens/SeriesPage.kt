@@ -96,9 +96,11 @@ fun SeriesPage(route: Route.SeriesDetail) {
     val meta by produceState<com.signal.nas.VodMeta?>(null, item) { item?.let { value = app.vodEnrichment.meta(it) } }
     val detail = remember(provided, meta) { com.signal.data.VodEnrichment.merge(provided, meta, app.nas::imageUrl) }
     val state by app.watchState.collectAsState()
-    var season by remember(route.itemId) { mutableStateOf<Int?>(null) }
+    var season by remember(route) { mutableStateOf(route.season) }
     val primary = remember { FocusRequester() }
     val firstEpisode = remember { FocusRequester() }
+    // The episode Find in Series asked for (PLAN §4.3.4), focused once the detail is in.
+    val targetEpisode = remember { FocusRequester() }
     val returnTo = remember { FocusRequester() }
     val listState = rememberLazyListState()
     var leftHasFocus by remember { mutableStateOf(false) }
@@ -109,7 +111,7 @@ fun SeriesPage(route: Route.SeriesDetail) {
     val d = detail
     val seriesKey = ItemKeys.series(it, d?.tmdbId ?: it.tmdbId)
     val next = d?.let { seriesNext(seriesKey, it, state) }
-    val shownSeason = season ?: next?.episode?.season ?: d?.seasons?.firstOrNull()
+    val shownSeason = season?.takeIf { s -> d == null || s in d.seasons } ?: next?.episode?.season ?: d?.seasons?.firstOrNull()
     val episodes = shownSeason?.let { s -> d?.inSeason(s) }.orEmpty()
     val inLibrary = state.inLibrary(seriesKey) || state.inLibrary(ItemKeys.of(it))
 
@@ -159,8 +161,15 @@ fun SeriesPage(route: Route.SeriesDetail) {
         }
     })
 
-    // Once the detail is in: the primary button, Play or Continue, else Add to Library.
-    LaunchedEffect(route.itemId, d != null, next != null) { if (d != null) primary.requestFocusWhenReady() }
+    // Once the detail is in: the episode asked for, else the primary button (Play or Continue, else Add to Library).
+    val targetIndex = if (route.episode != null && shownSeason == route.season) episodes.indexOfFirst { e -> e.episode == route.episode } else -1
+    LaunchedEffect(route, d != null, next != null) {
+        if (d == null) return@LaunchedEffect
+        if (targetIndex >= 0) {
+            listState.requestScrollToItem(targetIndex)
+            (if (targetIndex == 0) firstEpisode else targetEpisode).requestFocusWhenReady()
+        } else primary.requestFocusWhenReady()
+    }
 
     Row(Modifier.fillMaxSize()) {
         LazyColumn(
@@ -184,7 +193,7 @@ fun SeriesPage(route: Route.SeriesDetail) {
             item {
                 if (next != null) {
                     SButton(next.label, { play(next.episode) }, Modifier.fillMaxWidth(), primary = true, focusRequester = primary, fillWidth = true,
-                        onOptions = { app.panel.open(VodMenus.item(app, it, state), returnTo) })
+                        onOptions = { VodMenus.open(app, it, state, returnTo, seriesKey) })
                 } else if (d != null) {
                     SText("No episodes from the source yet.", 24, color = c.muted)
                 }
@@ -193,7 +202,7 @@ fun SeriesPage(route: Route.SeriesDetail) {
                 SButton(if (inLibrary) "In Library" else "Add to Library",
                     { app.scope.launch { if (inLibrary) app.watch.removeFromLibrary(seriesKey) else app.watch.addToLibrary(it, seriesKey) } },
                     Modifier.fillMaxWidth(), focusRequester = if (d != null && next == null) primary else null, fillWidth = true,
-                    onOptions = { app.panel.open(VodMenus.item(app, it, state), returnTo) })
+                    onOptions = { VodMenus.open(app, it, state, returnTo, seriesKey) })
             }
             itemsIndexed(d?.seasons.orEmpty()) { _, s ->
                 ListRow("Season $s", detail = d?.inSeason(s)?.size?.toString(), selected = s == shownSeason,
@@ -209,7 +218,7 @@ fun SeriesPage(route: Route.SeriesDetail) {
                 itemsIndexed(episodes, key = { _, e -> e.id }) { i, e ->
                     val key = ItemKeys.episode(seriesKey, e)
                     EpisodeRow(e, watched = key in state.watched, progress = state.positions[key]?.fraction,
-                        focusRequester = if (i == 0) firstEpisode else null, onSelect = { play(e) }, onOptions = { app.panel.open(episodeMenu(e), returnTo) })
+                        focusRequester = if (i == 0) firstEpisode else if (i == targetIndex) targetEpisode else null, onSelect = { play(e) }, onOptions = { app.panel.open(episodeMenu(e), returnTo) })
                     HDivider()
                 }
             }

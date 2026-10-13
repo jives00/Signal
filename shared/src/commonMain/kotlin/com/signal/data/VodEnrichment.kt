@@ -56,7 +56,6 @@ class VodEnrichment(
                     items.forEachIndexed { i, item -> db.vodQueries.insertShelf(kind, "$GENRE$genre", i.toLong(), item) }
                 }
             }
-            vod.enrichmentChanged()
         }
         settings.put(Settings.Key.VOD_INDEX_VERSION, index.version.toString())
         val moved = rekey(index)

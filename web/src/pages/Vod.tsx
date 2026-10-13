@@ -1,19 +1,37 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { Link } from "react-router-dom";
-import { clearVodMatch, getVodItems, getVodStatus, runVod, searchTmdb, setVodMatch, tmdbImage, type VodQuery } from "../admin";
+import { addToLibrary, clearVodMatch, getLibrary, getVodItems, removeFromLibrary, getVodStatus, runVod, searchTmdb, setVodMatch, tmdbImage, type VodQuery } from "../admin";
 import { ago, size } from "../api";
-import { useToast } from "../context";
-import type { TmdbCandidate, VodRow, VodRows, VodStatus } from "../schema";
+import { ApplyTo, profileNames, useProfiles, useToast } from "../context";
+import type { LibraryRow, TmdbCandidate, VodRow, VodRows, VodStatus } from "../schema";
 
 const PAGE = 100;
 const statusLabel: Record<VodRow["status"], string> = { matched: "Matched", manual: "Fixed by hand", unmatched: "No match", pending: "Not tried yet" };
 
 /**
- * Movies & Series (PLAN §4.3.12): how far TMDB matching has got, the catalog with each title's match,
- * and Fix match for the ones it got wrong. Matches are household-wide.
+ * Movies & Series (PLAN §4.3.11–4.3.12): the catalog with TMDB matching, and each profile's Library.
  */
 export default function Vod() {
-  const { say } = useToast();
+  const [tab, setTab] = useState<"catalog" | "library">("catalog");
+  return (
+    <div className="page">
+      <h1>Movies &amp; Series</h1>
+      <div className="tabs" role="tablist">
+        <button role="tab" aria-selected={tab === "catalog"} className={tab === "catalog" ? "on" : ""} onClick={() => setTab("catalog")}>Catalog</button>
+        <button role="tab" aria-selected={tab === "library"} className={tab === "library" ? "on" : ""} onClick={() => setTab("library")}>Library</button>
+      </div>
+      {tab === "catalog" ? <Catalog /> : <Library />}
+    </div>
+  );
+}
+
+/**
+ * How far TMDB matching has got, the catalog with each title's match, and Fix match for the ones it
+ * got wrong (matches are household-wide). Add to Library goes to the profiles in Apply to.
+ */
+function Catalog() {
+  const { say, save } = useToast();
+  const { applyTo, profiles } = useProfiles();
   const [status, setStatus] = useState<VodStatus | null>(null);
   const [page, setPage] = useState<VodRows | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -46,8 +64,7 @@ export default function Vod() {
 
   const pending = status ? status.titles - status.matched - status.manual - status.unmatched : 0;
   return (
-    <div className="page">
-      <h1>Movies &amp; Series</h1>
+    <>
       {status && !status.keySet && (
         <p className="detail">Matching needs a TMDB API key: add one in <Link to="/settings">Settings → Companion</Link>. Until then the TVs show the provider's own posters and categories.</p>
       )}
@@ -89,6 +106,7 @@ export default function Vod() {
       </div>
 
       {fixing && <FixMatch row={fixing} onDone={done} onCancel={() => setFixing(null)} />}
+      <ApplyTo />
 
       {error && <p className="error-text">{error}</p>}
       {page && (
@@ -107,7 +125,10 @@ export default function Vod() {
                       {r.tmdbId ? <>{r.tmdbTitle ?? `#${r.tmdbId}`}{r.tmdbYear ? ` (${r.tmdbYear})` : ""}</> : <span className="detail">{statusLabel[r.status]}</span>}
                       {r.status === "manual" && <span className="tag quiet">Fixed</span>}
                     </td>
-                    <td className="actions"><button onClick={() => setFixing(r)}>Fix match</button></td>
+                    <td className="actions">
+                      <button onClick={() => save(`Added to the Library of ${profileNames(applyTo, profiles)}`, () => addToLibrary([r.itemId], applyTo))}>Add to Library</button>
+                      <button onClick={() => setFixing(r)}>Fix match</button>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -121,7 +142,7 @@ export default function Vod() {
           )}
         </>
       )}
-    </div>
+    </>
   );
 }
 
@@ -176,5 +197,44 @@ function FixMatch({ row, onDone, onCancel }: { row: VodRow; onDone: () => void; 
         <button className="link" onClick={onCancel}>Cancel</button>
       </div>
     </div>
+  );
+}
+
+/**
+ * The shown profile's Library (PLAN §4.3.11): what the TVs show first in Movies and Series. Titles no
+ * source has any more stay, marked unavailable, until removed.
+ */
+function Library() {
+  const { profile, profiles } = useProfiles();
+  const { save } = useToast();
+  const [rows, setRows] = useState<LibraryRow[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const load = useCallback(() => {
+    getLibrary(profile).then((r) => { setRows(r); setError(null); }).catch((e: Error) => setError(e.message));
+  }, [profile]);
+  useEffect(load, [load]);
+
+  return (
+    <>
+      <p className="detail">Added on the TV, or with Add to Library in the catalog. Shown for {profileNames([profile], profiles)}.</p>
+      {error && <p className="error-text">{error}</p>}
+      {rows && rows.length === 0 && <p className="detail">Nothing in the Library.</p>}
+      {rows && rows.length > 0 && (
+        <table className="table">
+          <thead><tr><th>Title</th><th>Kind</th><th>Year</th><th>Added</th><th /></tr></thead>
+          <tbody>
+            {rows.map((r) => (
+              <tr key={r.key}>
+                <td>{r.title}{!r.available && <span className="tag warn">Unavailable</span>}</td>
+                <td>{r.kind === "MOVIE" ? "Movie" : "Series"}</td>
+                <td>{r.year ?? ""}</td>
+                <td>{r.addedAt ? new Date(r.addedAt).toLocaleDateString([], { month: "short", day: "numeric", year: "numeric" }) : ""}</td>
+                <td className="actions"><button onClick={() => save("Removed from the Library", () => removeFromLibrary(r.key, profile), load)}>Remove</button></td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </>
   );
 }

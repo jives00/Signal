@@ -1,0 +1,18 @@
+[
+    {
+        "key": "tmdb:movie:603",
+        "kind": "MOVIE",
+        "title": "The Matrix",
+        "year": 1999,
+        "addedAt": 1760000000000,
+        "available": true
+    },
+    {
+        "key": "src:s:9",
+        "kind": "SERIES",
+        "title": "Home Video",
+        "year": null,
+        "addedAt": 1760000000000,
+        "available": false
+    }
+]

@@ -244,6 +244,38 @@ class AdminEdits(private val companion: Companion) {
         return run(batch)
     }
 
+    // ---- Library (PLAN §4.3.11: "the web admin can list it and remove items from it") -------------------
+
+    /**
+     * Adds catalog titles to the Library of each profile in "Apply to", under the same key a TV would
+     * use: the TMDB ID when the title is matched, else its item ID. Titles already there are skipped.
+     */
+    suspend fun addToLibrary(items: List<com.signal.model.VodItem>, tmdbIds: Map<String, Long>, profiles: List<String>): EditResult {
+        val batch = Batch(view(profiles.first()))
+        val now = now()
+        for (p in profiles) {
+            val have = view(p).library.map { it.id }.toSet()
+            for (item in items) {
+                val key = com.signal.data.ItemKeys.of(item.copy(tmdbId = tmdbIds[item.id] ?: item.tmdbId))
+                if (key in have) continue
+                batch.ops += AdminOp(
+                    SyncType.LIBRARY_ITEM, key, SyncScope.PROFILE, p,
+                    fields(
+                        "kind" to item.kind.name, "vod_item_id" to item.id, "title" to com.signal.data.VodRepository.displayName(item),
+                        "year" to item.year?.toLong(), "poster_url" to item.posterUrl, "added_at" to now,
+                    ),
+                )
+            }
+        }
+        return run(batch)
+    }
+
+    suspend fun removeFromLibrary(keys: List<String>, profile: String): EditResult {
+        val batch = Batch(view(profile))
+        for (key in keys) batch.ops += AdminOp(SyncType.LIBRARY_ITEM, key, SyncScope.PROFILE, profile, deleted = true)
+        return run(batch)
+    }
+
     // ---- Sources and EPG sources (household) ------------------------------------------------------------
 
     /** Adds or edits a source. An empty password on an edit keeps the stored one. */

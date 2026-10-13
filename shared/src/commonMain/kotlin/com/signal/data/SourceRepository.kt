@@ -14,6 +14,7 @@ import com.signal.model.LiveFormat
 import com.signal.model.ProviderStream
 import com.signal.model.Source
 import com.signal.model.SourceKind
+import com.signal.parse.JsonArrayObjects
 import com.signal.parse.M3uParser
 import com.signal.parse.XtreamParser
 import com.signal.platform.SecretBox
@@ -21,10 +22,12 @@ import io.ktor.client.HttpClient
 import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.request.parameter
+import io.ktor.client.request.prepareGet
 import io.ktor.client.statement.HttpResponse
 import io.ktor.client.statement.bodyAsChannel
 import io.ktor.client.statement.bodyAsText
 import io.ktor.http.isSuccess
+import io.ktor.utils.io.readAvailable
 import io.ktor.utils.io.readLine
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.flow.Flow
@@ -89,11 +92,6 @@ class SourceRepository(
                 db.streamQueries.deleteForSource(source.id)
                 val removeEmoji = true
                 loaded.streams.forEach { s -> db.streamQueries.insert(s.toRow(removeEmoji)) }
-                loaded.vod?.let { vod ->
-                    db.vodQueries.deleteAllForSource(source.id)
-                    vod.categories.forEach { db.vodQueries.insertCategory(it.toRow()) }
-                    vod.items.forEach { db.vodQueries.insertItem(it.toRow()) }
-                }
                 db.sourceQueries.markRefreshed(
                     Clock.System.now().toEpochMilliseconds(),
                     loaded.expiresAt,
@@ -101,7 +99,9 @@ class SourceRepository(
                     source.id,
                 )
             }
-            log.info("Refreshed ${source.name}: ${loaded.streams.size} streams" + (loaded.vod?.let { v -> ", ${v.items.count { it.kind == VodKind.MOVIE }} movies, ${v.items.count { it.kind == VodKind.SERIES }} series" } ?: ""))
+            // Movies and series after the channels: a failure there keeps the channels and the old catalog.
+            val vod = refreshVod(source, loaded.vod)
+            log.info("Refreshed ${source.name}: ${loaded.streams.size} streams" + (vod?.let { (m, s) -> ", $m movies, $s series" } ?: ""))
             loaded.streams.size
         }.onFailure { e ->
             log.warn("Refresh of ${source.name} failed: ${e.message}")
@@ -171,17 +171,76 @@ class SourceRepository(
         if (!account.authenticated) error("Login failed: check the username and password")
         val categories = XtreamParser.categories(call("get_live_categories"))
         val streams = XtreamParser.liveStreams(source, call("get_live_streams"), categories)
-        // Movies and series (PLAN §4.3.6–4.3.7). Not every provider has them, and a failure here
-        // mustn't fail the live channels: it keeps what was cached before.
-        val vod = runCatching {
-            val movieCats = XtreamParser.categories(call("get_vod_categories"))
-            val seriesCats = XtreamParser.categories(call("get_series_categories"))
-            val movies = XtreamParser.vodStreams(source, call("get_vod_streams"))
-            val series = XtreamParser.series(source, call("get_series"))
-            fun cats(m: Map<String, String>, kind: VodKind) = m.entries.mapIndexed { i, (id, name) -> VodCategory(source.id, kind, id, name, i) }
-            Vod(cats(movieCats, VodKind.MOVIE) + cats(seriesCats, VodKind.SERIES), movies + series)
-        }.onFailure { log.warn("Movies and series from ${source.name} failed: ${it.message}") }.getOrNull()
-        return Loaded(streams, account.expiresAt, account.maxConnections, vod)
+        return Loaded(streams, account.expiresAt, account.maxConnections)
+    }
+
+    /**
+     * Movies and series (PLAN §4.3.6–4.3.7), after the channels. A provider's lists can be hundreds of
+     * thousands of titles (75 MB of JSON), so they stream into staging a batch at a time and swap in
+     * whole once all have arrived. Null when the source has none, or they failed: that keeps the old
+     * catalog. Returns the movie and series counts.
+     */
+    private suspend fun refreshVod(source: Source, demo: Vod?): Pair<Int, Int>? {
+        if (source.kind == SourceKind.M3U) return null
+        return runCatching {
+            db.vodQueries.clearStaging(source.id)
+            var movies = 0
+            var series = 0
+            val batch = ArrayList<VodItem>(STAGING_BATCH)
+            fun flush() {
+                if (batch.isEmpty()) return
+                db.transaction { batch.forEach { db.vodQueries.insertStaging(it.toStagingRow()) } }
+                batch.clear()
+            }
+            fun add(item: VodItem) {
+                batch += item
+                if (item.kind == VodKind.MOVIE) movies++ else series++
+                if (batch.size >= STAGING_BATCH) flush()
+            }
+            val categories = if (demo != null) {
+                demo.items.forEach(::add)
+                demo.categories
+            } else {
+                fun cats(m: Map<String, String>, kind: VodKind) = m.entries.mapIndexed { i, (id, name) -> VodCategory(source.id, kind, id, name, i) }
+                val movieCats = XtreamParser.categories(xtream(source, "get_vod_categories"))
+                val seriesCats = XtreamParser.categories(xtream(source, "get_series_categories"))
+                streamList(source, "get_vod_streams") { obj, i -> XtreamParser.movie(source, obj, i)?.let(::add) }
+                streamList(source, "get_series") { obj, i -> XtreamParser.seriesItem(source, obj, i)?.let(::add) }
+                cats(movieCats, VodKind.MOVIE) + cats(seriesCats, VodKind.SERIES)
+            }
+            flush()
+            db.transaction {
+                db.vodQueries.swapInStaging(source.id)
+                categories.forEach { db.vodQueries.insertCategory(it.toRow()) }
+            }
+            movies to series
+        }.onFailure {
+            if (it is kotlinx.coroutines.CancellationException) throw it
+            runCatching { db.vodQueries.clearStaging(source.id) }
+            log.warn("Movies and series from ${source.name} failed: ${it.message}")
+        }.getOrNull()
+    }
+
+    /** A `player_api.php` list read as it downloads, one object at a time ([JsonArrayObjects]). */
+    private suspend fun streamList(source: Source, action: String, onObject: (kotlinx.serialization.json.JsonObject, Int) -> Unit) {
+        // prepareGet + execute: a plain get would buffer the whole body before handing it over.
+        http.prepareGet(source.url.trimEnd('/') + "/player_api.php") {
+            parameter("username", source.username)
+            parameter("password", source.password)
+            parameter("action", action)
+            source.headers.forEach { (k, v) -> header(k, v) }
+        }.execute { response ->
+            response.ensureOk(source)
+            var i = 0
+            val splitter = JsonArrayObjects { text -> XtreamParser.objectOf(text)?.let { onObject(it, i++) } }
+            val channel = response.bodyAsChannel()
+            val buf = ByteArray(64 * 1024)
+            while (true) {
+                val n = channel.readAvailable(buf, 0, buf.size)
+                if (n < 0) break
+                if (n > 0) splitter.feed(buf, n)
+            }
+        }
     }
 
     /** One Xtream `player_api.php` call with the source's login, for detail pages (get_vod_info, get_series_info). */
@@ -222,9 +281,12 @@ class SourceRepository(
 
     private fun VodCategory.toRow() = com.signal.db.user.Vod_category(sourceId, kind.name, categoryId, CharacterCleanup.clean(name, true).ifEmpty { name }, position.toLong())
 
-    private fun VodItem.toRow() = com.signal.db.user.Vod_item(
-        id, sourceId, kind.name, providerId, name, categoryId, posterUrl, year?.toLong(), rating, addedAt, tmdbId, containerExt, plot, url, position.toLong(),
-    )
+    private fun VodItem.toStagingRow(): com.signal.db.user.Vod_item_staging {
+        val (titleKey, searchName) = VodRepository.keys(name)
+        return com.signal.db.user.Vod_item_staging(
+            id, sourceId, kind.name, providerId, name, categoryId, posterUrl, year?.toLong(), rating, addedAt, tmdbId, containerExt, plot, url, position.toLong(), titleKey, searchName,
+        )
+    }
 
     private fun ProviderStream.toRow(removeEmoji: Boolean) = com.signal.db.user.Stream(
         id = id,
@@ -240,4 +302,9 @@ class SourceRepository(
         url = url,
         headers = if (headers.isEmpty()) null else Json.encodeToString(headers),
     )
+
+    private companion object Limits {
+        /** Titles written to staging per transaction. */
+        const val STAGING_BATCH = 1_000
+    }
 }

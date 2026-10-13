@@ -55,9 +55,10 @@ class VodPlayback(
     /** Autoplay's "Still watching?" counter (PLAN §4.3.9): episodes in a row with no key pressed. */
     var unattendedEpisodes = 0
 
-    suspend fun playMovie(item: VodItem, fromStart: Boolean = false) {
+    /** [asKey] overrides the item's own: Play from… plays another source's copy under the title's key, so resume carries. */
+    suspend fun playMovie(item: VodItem, fromStart: Boolean = false, asKey: String? = null) {
         val detail = details.movie(item)
-        val key = ItemKeys.movie(item, detail?.tmdbId ?: item.tmdbId)
+        val key = asKey ?: ItemKeys.movie(item, detail?.tmdbId ?: item.tmdbId)
         val start = if (fromStart) 0 else watch.current().positions[key]?.positionMs ?: 0
         if (fromStart) watch.clearPosition(key)
         val source = sources.byId(item.sourceId) ?: return

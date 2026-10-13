@@ -1,5 +1,6 @@
 package com.signal.ui.menus
 
+import androidx.compose.ui.focus.FocusRequester
 import com.signal.app.AppController
 import com.signal.app.Route
 import com.signal.data.ItemKeys
@@ -26,12 +27,20 @@ fun runtime(seconds: Int): String {
 }
 
 /**
- * The VOD item menu (PLAN §4.2, §4.3.6): Library, watched state, and Play from start for movies.
- * [state] is the watch state now; the menu doesn't wait on the database.
+ * The VOD item menu (PLAN §4.2, §4.3.6, §4.3.8): Library, watched state, Play from start, and Play
+ * from… when more than one source has the movie. [state] is the watch state now; the menu doesn't
+ * wait on the database. [copies] are the movie's copies in each source, preferred first.
  */
 object VodMenus {
-    fun item(app: AppController, item: VodItem, state: WatchRepository.State): PanelPage.Actions {
-        val key = ItemKeys.of(item)
+    /** Looks up the other sources' copies (an in-memory lookup), then opens the menu. */
+    fun open(app: AppController, item: VodItem, state: WatchRepository.State, returnTo: FocusRequester, key: String = ItemKeys.of(item)) {
+        app.scope.launch {
+            val copies = if (item.kind == VodKind.MOVIE) app.vod.copies(item) else listOf(item)
+            app.panel.open(item(app, item, state, copies, key), returnTo)
+        }
+    }
+
+    fun item(app: AppController, item: VodItem, state: WatchRepository.State, copies: List<VodItem> = listOf(item), key: String = ItemKeys.of(item)): PanelPage.Actions {
         val inLibrary = state.inLibrary(key)
         val launch = { block: suspend () -> Unit -> app.scope.launch { block() }; Unit }
         val actions = buildList {
@@ -47,17 +56,32 @@ object VodMenus {
                 })
                 add(PanelAction("Play from start") {
                     launch {
-                        app.vodPlayback.playMovie(item, fromStart = true)
+                        app.vodPlayback.playMovie(copies.first(), fromStart = true, asKey = key)
                         app.navigator.go(Route.VodPlayer)
                     }
                     null
                 })
+                if (copies.size > 1) add(PanelAction("Play from…") { playFrom(app, copies, key) })
             } else {
                 add(PanelAction("Mark series watched") { seriesWatched(app, item, true); null })
                 add(PanelAction("Mark series unwatched") { seriesWatched(app, item, false); null })
             }
         }
         return PanelPage.Actions(com.signal.data.VodRepository.displayName(item), actions)
+    }
+
+    /** Each source with the movie, the preferred one first (PLAN §4.3.8 → Stream choice). Resume carries across them. */
+    private fun playFrom(app: AppController, copies: List<VodItem>, key: String): PanelPage {
+        val names = app.sourceList.value.associate { it.id to it.name }
+        return PanelPage.Actions("Play from…", copies.mapIndexed { i, copy ->
+            PanelAction(names[copy.sourceId] ?: copy.sourceId, detail = if (i == 0) "Preferred" else null) {
+                app.scope.launch {
+                    app.vodPlayback.playMovie(copy, asKey = key)
+                    app.navigator.go(Route.VodPlayer)
+                }
+                null
+            }
+        })
     }
 
     /** Every episode of a series watched or unwatched (PLAN §4.3.7). */

@@ -1,6 +1,6 @@
 package com.signal.server
 
-import com.signal.data.VodRepository
+import com.signal.match.VodTitles
 import com.signal.model.VodItem
 import com.signal.model.VodKind
 import com.signal.nas.EpisodeMeta
@@ -118,25 +118,13 @@ object TmdbParse {
     private fun JsonObject.arr(k: String) = (this[k] as? JsonArray)?.jsonArray
 }
 
-/** Catalog names into TMDB search queries (PLAN §4.3.12: "normalized title and year"). */
+/** Catalog names into TMDB search queries (PLAN §4.3.12: "normalized title and year"); the rules are shared with the app in [VodTitles]. */
 object TitleNormalizer {
-    private val prefix = Regex("""^\s*(?:[A-Z]{2,3}|4K|UHD|FHD|HD|VOD)\s*[-|:•]\s*""")
-    private val bracketed = Regex("""[(\[][^)\]]*[)\]]""")
-    private val year = Regex("""[(\[]\s*((?:19|20)\d{2})\s*[)\]]|\b((?:19|20)\d{2})\s*$""")
-    private val quality = Regex("""\b(?:4K|UHD|FHD|HD|SD|HDR|HEVC|x265|H\.?265|1080p|720p|2160p|MULTI|SUB|DUB|VOSTFR)\b""", RegexOption.IGNORE_CASE)
+    fun query(name: String): String = VodTitles.query(name)
 
-    /** The query: language and quality tags, bracketed parts and a trailing year removed. */
-    fun query(name: String): String {
-        var s = VodRepository.displayName(VodItem(id = "", sourceId = "", kind = VodKind.MOVIE, providerId = "", name = name, categoryId = ""))
-        repeat(2) { s = s.replace(prefix, "") }
-        s = s.replace(bracketed, " ").replace(quality, " ").replace(Regex("""\s+(?:19|20)\d{2}\s*$"""), " ")
-        return s.replace(Regex("""\s+"""), " ").trim().ifEmpty { name.trim() }
-    }
+    fun year(item: VodItem): Int? = VodTitles.year(item)
 
-    fun year(item: VodItem): Int? = item.year ?: year.find(item.name)?.let { m -> (m.groupValues[1].ifEmpty { m.groupValues[2] }).toIntOrNull() }
-
-    /** For comparing titles: lower case letters and digits only, "&" as "and". */
-    fun key(s: String): String = s.lowercase().replace("&", "and").filter { it.isLetterOrDigit() }
+    fun key(s: String): String = VodTitles.key(s)
 
     /**
      * The search result to take, or null: an exact title match within a year either way, else the

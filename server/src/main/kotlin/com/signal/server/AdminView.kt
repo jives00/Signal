@@ -70,6 +70,7 @@ class AdminView(items: List<SyncItem>, val profileId: String) {
     /** By "sourceId|groupName". */
     val groupOverrides: Map<String, JsonObject> = p(SyncType.GROUP_OVERRIDE).associate { it.id to it.fields }
     val reminders: List<SyncItem> = p(SyncType.REMINDER)
+    val library: List<SyncItem> = p(SyncType.LIBRARY_ITEM)
 
     val groupSort: GroupSort get() = profileSettings[Settings.Key.GROUP_SORT.id]?.let { runCatching { GroupSort.valueOf(it) }.getOrNull() } ?: GroupSort.PROVIDER
     val channelSort: ChannelSort get() = profileSettings[Settings.Key.CHANNEL_SORT.id]?.let { runCatching { ChannelSort.valueOf(it) }.getOrNull() } ?: ChannelSort.PROVIDER

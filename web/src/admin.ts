@@ -166,5 +166,10 @@ export const searchTmdb = (kind: string, q: string, year?: number | null) =>
 export const setVodMatch = (itemId: string, tmdbId: number | null) => send<void>(`/api/vod/items/${enc(itemId)}/match`, { method: "PUT", body: JSON.stringify({ tmdbId }) });
 export const clearVodMatch = (itemId: string) => send<void>(`/api/vod/items/${enc(itemId)}/match`, { method: "DELETE" });
 export const runVod = () => send<void>("/api/vod/run", { method: "POST" });
+
+// ---- Library (PLAN §4.3.11) ----
+export const getLibrary = (profile: string) => read(S.LibraryRow.array(), `/api/library?${q(profile)}`);
+export const addToLibrary = (itemIds: string[], profiles: string[]) => post("/api/library", { itemIds, profiles });
+export const removeFromLibrary = (key: string, profile: string) => del(`/api/library/${enc(key)}?${q(profile)}`);
 /** The companion's cached copy of a TMDB image. */
 export const tmdbImage = (size: "w500" | "w780" | "backdrop", path: string | null) => (path ? `/images/tmdb/${size}${path}` : null);

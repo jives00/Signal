@@ -65,6 +65,60 @@ class ImageCache(
         }
     }
 
+    /**
+     * A provider's poster, for titles TMDB has no poster for (PLAN §4.3.12: "or the provider when TMDB
+     * has none"): fetched once, stored as a JPEG at most 500 wide under a name made from its URL. Null
+     * when it can't be fetched or read; the TV then tries the provider's URL itself.
+     */
+    suspend fun provider(url: String): File? {
+        if (!url.startsWith("http://") && !url.startsWith("https://")) return null
+        val name = sha256(url).take(40) + ".jpg"
+        val file = File(File(dir, PROVIDER), name)
+        if (file.isFile) {
+            file.setLastModified(System.currentTimeMillis())
+            return file
+        }
+        val lock = inFlight.computeIfAbsent("$PROVIDER/$name") { Mutex() }
+        return lock.withLock {
+            try {
+                if (file.isFile) return@withLock file
+                val r = runCatching { http.get(url) }.getOrNull() ?: return@withLock null
+                if (!r.status.isSuccess()) return@withLock null
+                val bytes = r.readRawBytes()
+                val out = withContext(Dispatchers.IO) { jpeg(bytes, POSTER_WIDTH) } ?: return@withLock null
+                withContext(Dispatchers.IO) {
+                    file.parentFile.mkdirs()
+                    val tmp = File(file.parentFile, "$name.part")
+                    tmp.writeBytes(out)
+                    tmp.renameTo(file)
+                    if (total.get() >= 0) total.addAndGet(out.size.toLong())
+                }
+                evictIfNeeded()
+                file
+            } finally {
+                inFlight.remove("$PROVIDER/$name")
+            }
+        }
+    }
+
+    /** Any image ImageIO reads, as a JPEG no wider than [maxWidth]; null if it can't be read. */
+    private fun jpeg(bytes: ByteArray, maxWidth: Int): ByteArray? = runCatching {
+        val src = ImageIO.read(ByteArrayInputStream(bytes)) ?: return null
+        val width = minOf(src.width, maxWidth)
+        val height = (src.height.toLong() * width / src.width).toInt().coerceAtLeast(1)
+        val dst = BufferedImage(width, height, BufferedImage.TYPE_INT_RGB)
+        dst.createGraphics().apply {
+            setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BICUBIC)
+            setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_QUALITY)
+            drawImage(src, 0, 0, width, height, null)
+            dispose()
+        }
+        java.io.ByteArrayOutputStream().also { ImageIO.write(dst, "jpg", it) }.toByteArray()
+    }.getOrNull()
+
+    private fun sha256(s: String): String =
+        java.security.MessageDigest.getInstance("SHA-256").digest(s.toByteArray()).joinToString("") { "%02x".format(it) }
+
     /** Scaled down to [width] as a JPEG, or null if it's already that small or can't be read. */
     private fun resized(bytes: ByteArray, width: Int): ByteArray? = runCatching {
         val src = ImageIO.read(ByteArrayInputStream(bytes)) ?: return null
@@ -86,7 +140,7 @@ class ImageCache(
         return total.get()
     }
 
-    private fun files(): List<File> = SIZES.flatMap { File(dir, it).listFiles()?.filter { f -> f.isFile && !f.name.endsWith(".part") }.orEmpty() }
+    private fun files(): List<File> = (SIZES + PROVIDER).flatMap { File(dir, it).listFiles()?.filter { f -> f.isFile && !f.name.endsWith(".part") }.orEmpty() }
 
     private suspend fun evictIfNeeded() {
         if (size() <= limitBytes()) return
@@ -113,5 +167,8 @@ class ImageCache(
         /** TMDB file names: "/abc123.jpg" without the slash. Nothing that could leave the directory. */
         val NAME = Regex("""[A-Za-z0-9_-]{1,64}\.(jpg|png|webp|svg)""")
         const val BACKDROP_WIDTH = 1920
+        /** Provider posters, beside TMDB's sizes. */
+        const val PROVIDER = "provider"
+        const val POSTER_WIDTH = 500
     }
 }
