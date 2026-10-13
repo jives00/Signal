@@ -124,6 +124,25 @@ class LiveTvKeyMapTest {
         eventually("closed") { focusedProgram() == "channel" }
     }
 
+    @Test fun reopeningStartsOverOnTheFirstGroupAndThePlayingChannel() = keyMapTest {
+        guide()
+        val header = focusedChannel()
+        val firstGroup = current!!.groupName
+        press(RemoteAction.Left)
+        press(RemoteAction.Left)
+        press(RemoteAction.Down)
+        val next = focusedText()!!
+        val nextTitle = app.groups.value.map { it.group.title }.filter { next.startsWith(it) }.maxBy { it.length }
+        press(RemoteAction.Select)
+        eventually("the other group") { shows("Today · $nextTitle") }
+        // The page is kept alive between visits (PLAN §8 → milestone 5), but each opening starts over (§4.3.2).
+        ui.runOnIdle { app.navigator.go(Route.Home) }
+        heroFocused()
+        ui.runOnIdle { app.navigator.go(Route.LiveTv) }
+        eventually("the first group again") { shows("Today · $firstGroup") && !shows("Today · $nextTitle") }
+        eventually("on the playing channel") { focusedText()?.contains(" · ") == true && focusedChannel() == header }
+    }
+
     @Test fun groupPanelLongPressOpensTheGroupMenu() = keyMapTest {
         guide()
         val group = current!!.groupName

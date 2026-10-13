@@ -51,11 +51,14 @@ fun VideoBox(modifier: Modifier = Modifier, aspect: AspectMode = AspectMode.FIT,
     val owner = remember { Any() }
     val currentAspect = rememberUpdatedState(aspect)
     DisposableEffect(layer) { onDispose { layer.release(owner) } }
+    // A hidden kept-alive page gives up the video, and never claims it while hidden.
+    val active = LocalPageActive.current
+    DisposableEffect(active) { onDispose { if (active) layer.release(owner) } }
 
     val playing = state.status == PlaybackState.Status.PLAYING || state.status == PlaybackState.Status.BUFFERING
     Box(
         (if (playing) modifier else modifier.background(c.videoGround))
-            .onGloballyPositioned { layer.claim(owner, it.boundsInRoot(), currentAspect.value) },
+            .onGloballyPositioned { if (active) layer.claim(owner, it.boundsInRoot(), currentAspect.value) },
         contentAlignment = Alignment.Center,
     ) {
         when (state.status) {

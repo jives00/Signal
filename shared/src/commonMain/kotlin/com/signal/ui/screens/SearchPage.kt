@@ -38,8 +38,6 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import coil3.compose.AsyncImage
-import coil3.compose.SubcomposeAsyncImage
 import com.signal.app.AppController
 import com.signal.app.Route
 import com.signal.data.ItemKeys
@@ -115,7 +113,8 @@ fun SearchPage() {
     val watch by app.watchState.collectAsState()
     val newEpisodes by app.newEpisodes.collectAsState()
 
-    LaunchedEffect(Unit) { field.requestFocusWhenReady() }
+    // Kept alive between visits (KeptPage): the field takes focus each time Search opens.
+    com.signal.ui.components.OnPageShown { field.requestFocusWhenReady() }
     // A request while Search is already open (Find from a program Search opened).
     LaunchedEffect(Unit) {
         app.searchRequest.collect { r ->
@@ -147,7 +146,8 @@ fun SearchPage() {
         recents = (listOf(q.trim()) + recents.filter { !it.equals(q.trim(), ignoreCase = true) }).take(10)
         saveRecents(app, recents)
     }
-    DisposableEffect(Unit) { onDispose { saveSearch(queryNow.value) } }
+    // Leaving saves the search and starts the next visit fresh, on the recent searches (PLAN §4.3.14).
+    com.signal.ui.components.OnPageHidden { saveSearch(queryNow.value); query = "" }
 
     fun openChannel(ch: Channel) {
         saveSearch(query)
@@ -333,12 +333,7 @@ private fun VodCard(item: VodItem, progress: Float?, newEpisode: Boolean, first:
         val muted = if (focused) c.onAccent else c.muted
         Row(Modifier.fillMaxWidth().height(136.dp).background(if (focused) c.accent else c.surface).padding(12.dp)) {
             Box(Modifier.width(75.dp).height(112.dp).background(c.neutral300)) {
-                item.posterUrl?.takeIf { it.isNotBlank() }?.let { url ->
-                    SubcomposeAsyncImage(
-                        model = url, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize(),
-                        error = { item.fallbackPosterUrl?.let { f -> AsyncImage(model = f, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize()) } },
-                    )
-                }
+                com.signal.ui.components.ImageOrPlaceholder(item.posterUrl, item.fallbackPosterUrl, ContentScale.Crop, Modifier.fillMaxSize()) {}
             }
             Column(Modifier.padding(start = 16.dp).weight(1f)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {

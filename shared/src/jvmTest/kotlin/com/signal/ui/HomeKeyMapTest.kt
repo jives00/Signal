@@ -46,6 +46,20 @@ class HomeKeyMapTest {
         assertEquals(favorites[1].key, current?.key)
     }
 
+    @Test fun liveTvCarriesTheHomeStreamOver() = keyMapTest {
+        heroFocused()
+        eventually("the hero playing") { platform.player.played.isNotEmpty() }
+        val plays = platform.player.played.size
+        ui.runOnIdle { app.navigator.go(Route.LiveTv) }
+        liveTvReady()
+        // The same stream, never stopped and started again: that rebuffers and jumps (user, 2026-10-13).
+        assertEquals(plays, platform.player.played.size)
+        assertTrue(platform.player.state.value.status == com.signal.player.PlaybackState.Status.PLAYING)
+        ui.runOnIdle { app.navigator.go(Route.Home) }
+        heroFocused()
+        assertEquals(plays, platform.player.played.size, "and back again")
+    }
+
     @Test fun withNoFavoritesTheRowOffersToAddThem() = keyMapTest {
         heroFocused()
         press(RemoteAction.Down)

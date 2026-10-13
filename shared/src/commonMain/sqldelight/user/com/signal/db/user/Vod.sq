@@ -132,6 +132,10 @@ WHERE i.kind = ? ORDER BY i.added_at DESC, i.position LIMIT ?;
 countForKind:
 SELECT count(*) FROM vod_item i JOIN source src ON src.id = i.source_id AND src.enabled = 1 WHERE i.kind = ?;
 
+-- An Xtream source with no titles: its movies and series failed to load, or never have.
+countForSource:
+SELECT count(*) FROM vod_item WHERE source_id = ?;
+
 itemById:
 SELECT i.*, t.tmdb_id AS nas_tmdb, t.poster AS nas_poster FROM vod_item i
 LEFT JOIN vod_tmdb t ON t.item_id = i.id

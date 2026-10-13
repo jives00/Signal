@@ -33,7 +33,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import coil3.compose.SubcomposeAsyncImage
 import com.signal.input.remoteItem
 import com.signal.model.initials
 import com.signal.ui.theme.SignalSizes
@@ -181,16 +180,42 @@ fun LogoTile(name: String, logoUrl: String?, width: Int, height: Int, modifier: 
         val initials = @Composable {
             SText(name.initials(), (height * 0.4f).toInt().coerceAtLeast(20), weight = FontWeight.ExtraBold, color = if (onAccent) c.onAccent else c.secondaryText)
         }
-        if (logoUrl.isNullOrBlank()) initials() else {
-            SubcomposeAsyncImage(
-                model = logoUrl,
-                contentDescription = null,
-                contentScale = ContentScale.Fit,
-                modifier = Modifier.fillMaxSize().padding(4.dp),
-                loading = { initials() },
-                error = { initials() },
-            )
-        }
+        ImageOrPlaceholder(logoUrl, null, ContentScale.Fit, Modifier.fillMaxSize().padding(4.dp), placeholder = initials)
+    }
+}
+
+/**
+ * An image with an optional fallback URL, and [placeholder] shown until one of them loads (or when
+ * both fail). It avoids `SubcomposeAsyncImage`, which subcomposes every image: in the guide's channel
+ * column and the poster grids that cost 50 ms or more per frame on the Shield (PLAN §8 → milestone 5).
+ */
+@Composable
+fun ImageOrPlaceholder(
+    url: String?,
+    fallbackUrl: String?,
+    contentScale: ContentScale,
+    imageModifier: Modifier,
+    /** False: nothing while loading, and [placeholder] only with no image or when it fails. Saves a text layout per poster. */
+    placeholderWhileLoading: Boolean = true,
+    placeholder: @Composable () -> Unit,
+) {
+    var model by remember(url, fallbackUrl) { mutableStateOf(url?.takeIf { it.isNotBlank() } ?: fallbackUrl?.takeIf { it.isNotBlank() }) }
+    var loaded by remember(url, fallbackUrl) { mutableStateOf(false) }
+    var failed by remember(url, fallbackUrl) { mutableStateOf(false) }
+    if (model == null || failed || (!loaded && placeholderWhileLoading)) placeholder()
+    model?.let { m ->
+        coil3.compose.AsyncImage(
+            model = m,
+            contentDescription = null,
+            contentScale = contentScale,
+            modifier = imageModifier,
+            onSuccess = { loaded = true },
+            onError = {
+                loaded = false
+                val fallback = fallbackUrl?.takeIf { it.isNotBlank() }
+                if (fallback != null && m != fallback) model = fallback else failed = true
+            },
+        )
     }
 }
 

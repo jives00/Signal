@@ -38,7 +38,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import coil3.compose.SubcomposeAsyncImage
 import com.signal.app.Route
 import com.signal.data.VodRepository
 import com.signal.data.VodSort
@@ -123,6 +122,10 @@ fun VodBrowsePage(kind: VodKind) {
     var gridHasFocus by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     val returnTo = remember(kind) { FocusRequester() }
+    val gridFocus = remember(kind) { FocusRequester() }
+    // The poster last focused, to return to after its page (the grid's own restorer forgets it while hidden).
+    var lastPoster by remember(kind) { mutableStateOf(-1) }
+    val returnPoster = remember(kind) { FocusRequester() }
 
     fun focusGrid() {
         if (items.isEmpty()) return
@@ -148,10 +151,25 @@ fun VodBrowsePage(kind: VodKind) {
         app.navigator.go(if (item.kind == VodKind.MOVIE) Route.MovieDetail(item.id) else Route.SeriesDetail(item.id))
     }
 
-    // The column is lazy: its first row may not exist yet when the page appears (see requestFocusWhenReady).
-    LaunchedEffect(kind) { firstShelf.requestFocusWhenReady() }
+    // The page is kept alive between visits (KeptPage). Back from a title returns to its poster; from
+    // the nav bar, the column takes focus, on the shelf it was on. The column is lazy: its first row
+    // may not exist yet when the page first appears (see requestFocusWhenReady).
+    var shownBefore by remember(kind) { mutableStateOf(false) }
+    var leftFromGrid by remember(kind) { mutableStateOf(false) }
+    com.signal.ui.components.OnPageShown(kind) {
+        when {
+            !shownBefore -> firstShelf.requestFocusWhenReady()
+            leftFromGrid && lastPoster in items.indices -> {
+                gridState.requestScrollToItem(lastPoster)
+                (if (lastPoster == 0) firstPoster else returnPoster).requestFocusWhenReady()
+            }
+            else -> chrome.contentFocus.requestFocusWhenReady()
+        }
+        shownBefore = true
+    }
+    com.signal.ui.components.OnPageHidden { leftFromGrid = gridHasFocus }
     // A new shelf or sort starts at the top, not where the last one was scrolled to.
-    LaunchedEffect(shelf.key, sort) { gridState.requestScrollToItem(0) }
+    LaunchedEffect(shelf.key, sort) { lastPoster = -1; gridState.requestScrollToItem(0) }
 
     TopLevelPage(route, chrome) {
         Row(Modifier.fillMaxSize()) {
@@ -231,7 +249,7 @@ fun VodBrowsePage(kind: VodKind) {
                     LazyVerticalGrid(
                         columns = GridCells.Fixed(6),
                         state = gridState,
-                        modifier = Modifier.fillMaxSize().onFocusChanged { gridHasFocus = it.hasFocus }.focusRestorer(firstPoster),
+                        modifier = Modifier.fillMaxSize().onFocusChanged { gridHasFocus = it.hasFocus }.focusRequester(gridFocus).focusRestorer(firstPoster),
                         horizontalArrangement = Arrangement.spacedBy(28.dp),
                         verticalArrangement = Arrangement.spacedBy(32.dp),
                     ) {
@@ -239,7 +257,8 @@ fun VodBrowsePage(kind: VodKind) {
                             val key = com.signal.data.ItemKeys.of(item)
                             PosterTile(
                                 item,
-                                focusRequester = if (i == 0) firstPoster else null,
+                                focusRequester = if (i == 0) firstPoster else if (i == lastPoster) returnPoster else null,
+                                onFocused = { lastPoster = i },
                                 onSelect = { open(item) },
                                 onOptions = if (item.id.startsWith(UNAVAILABLE)) null else ({ com.signal.ui.menus.VodMenus.open(app, item, watch, returnTo) }),
                                 // Watched shows full, a resume position its fraction (PLAN §4.3.6 → Poster grid).
@@ -277,31 +296,19 @@ fun PosterTile(
     progress: Float? = null,
     unavailable: Boolean = false,
     newEpisode: Boolean = false,
+    onFocused: (() -> Unit)? = null,
 ) {
     val c = SignalTheme.colors
     val name = VodRepository.displayName(item)
-    Focusable(Modifier.fillMaxWidth(), onSelect = onSelect, onOptions = onOptions, focusRequester = focusRequester) { focused ->
+    Focusable(Modifier.fillMaxWidth(), onSelect = onSelect, onOptions = onOptions, focusRequester = focusRequester, onFocused = onFocused) { focused ->
         Column {
             Box(Modifier.fillMaxWidth().border(4.dp, if (focused) c.accent else Color.Transparent).padding(8.dp)) {
                 Box(Modifier.fillMaxWidth().aspectRatio(2f / 3f).background(c.neutral300), contentAlignment = Alignment.Center) {
                     val placeholder = @Composable {
                         SText(name, 24, Modifier.padding(16.dp), weight = FontWeight.ExtraBold, color = c.secondaryText, maxLines = 4)
                     }
-                    if (item.posterUrl.isNullOrBlank()) placeholder() else {
-                        SubcomposeAsyncImage(
-                            model = item.posterUrl,
-                            contentDescription = null,
-                            contentScale = ContentScale.Crop,
-                            modifier = Modifier.fillMaxSize(),
-                            loading = { placeholder() },
-                            // The companion's copy failed (it's out of reach): the provider's own poster.
-                            error = {
-                                val fallback = item.fallbackPosterUrl
-                                if (fallback.isNullOrBlank()) placeholder()
-                                else SubcomposeAsyncImage(model = fallback, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize(), error = { placeholder() })
-                            },
-                        )
-                    }
+                    // The companion's copy first; if it fails (out of reach), the provider's own poster.
+                    com.signal.ui.components.ImageOrPlaceholder(item.posterUrl, item.fallbackPosterUrl, ContentScale.Crop, Modifier.fillMaxSize(), placeholderWhileLoading = false, placeholder = placeholder)
                     if (progress != null && progress > 0f) {
                         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.BottomStart) {
                             com.signal.ui.components.ProgressBar(progress, height = 6)

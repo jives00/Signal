@@ -179,6 +179,7 @@ class AppController(val platform: Platform, val log: Log) {
             // Titles cached before Search and matching keys existed (user.db 7 → 8) get them now.
             runCatching { vod.fillMissingKeys() }.onSuccess { if (it > 0) log.info("VOD: keyed $it cached titles") }
             refreshStaleSources()
+            sources.all().forEach { sources.refreshVodIfMissing(it.id) }
             refreshFollowedSeries()
             // Sources from before milestone 2 get their guides here too.
             sources.all().forEach { epg.ensureForSource(it) }

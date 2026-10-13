@@ -123,6 +123,28 @@ class VodRepositoryTest {
         assertEquals(0L, db.vodQueries.needsKeys(10).executeAsList().size.toLong())
     }
 
+    @Test fun aSourceWhoseMoviesFailedGetsThemOnLaunch(): Unit = runBlocking {
+        var vodWorks = false
+        val http = HttpClient(MockEngine { req ->
+            when (req.url.parameters["action"]) {
+                null -> respond("""{"user_info":{"auth":1}}""")
+                "get_live_categories", "get_series_categories", "get_series" -> respond("[]")
+                "get_live_streams" -> respond("""[{"stream_id":1,"name":"News 24"}]""")
+                "get_vod_categories" -> respond("[]")
+                "get_vod_streams" -> if (vodWorks) respond("""[{"stream_id":7,"name":"Heat (1995)"}]""") else respondError(HttpStatusCode.InternalServerError)
+                else -> respondError(HttpStatusCode.NotFound)
+            }
+        })
+        val sources = SourceRepository(db, http, box, Dispatchers.IO, Log { _, _ -> })
+        sources.save(xtream)
+        sources.refresh("x").getOrThrow()
+        assertEquals(0L, vod.count(VodKind.MOVIE).first(), "the channels refreshed, the movies didn't")
+        vodWorks = true
+        assertEquals(1 to 0, sources.refreshVodIfMissing("x"))
+        assertEquals(1L, vod.count(VodKind.MOVIE).first())
+        assertEquals(null, sources.refreshVodIfMissing("x"), "nothing to do once it has titles")
+    }
+
     @Test fun titlesCachedBeforeTheKeysGetThem(): Unit = runBlocking {
         sources().save(xtream)
         db.vodQueries.insertItem(com.signal.db.user.Vod_item("x:v:1", "x", "MOVIE", "1", "EN - Heat (1995)", "1", null, 1995, null, 0, null, null, null, null, 0, "", ""))

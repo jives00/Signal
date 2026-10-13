@@ -116,7 +116,9 @@ fun LiveTvPage() {
 
     // The clock the grid runs on: ended programs drop off and the now line moves.
     var now by remember { mutableLongStateOf(Clock.System.now().toEpochMilliseconds()) }
-    LaunchedEffect(Unit) {
+    // Only while shown: the page is kept alive (KeptPage), and a hidden guide shouldn't recompose.
+    com.signal.ui.components.OnPageShown {
+        now = Clock.System.now().toEpochMilliseconds()
         while (true) {
             delay(30_000)
             now = Clock.System.now().toEpochMilliseconds()
@@ -130,14 +132,17 @@ fun LiveTvPage() {
     // The program area's left edge. It starts at now (PLAN §4.3.2 → Time window).
     var windowStart by remember { mutableLongStateOf(now) }
 
-    // Opens on Favorites every time; with no favorites, the first visible group (PLAN §4.3.2).
-    LaunchedEffect(groups.isNotEmpty()) {
-        if (group != null || groups.isEmpty()) return@LaunchedEffect
+    // Opens on Favorites every time; with no favorites, the first visible group (PLAN §4.3.2). Full
+    // screen's Back opens on its own group instead. On every showing: the page is kept alive (KeptPage).
+    var opened by remember { mutableStateOf(0) }
+    com.signal.ui.components.OnPageShown(groups.isNotEmpty()) {
+        if (groups.isEmpty()) return@OnPageShown
         val favoriteCount = groups.firstOrNull { it.group == ChannelGroup.Favorites }?.count ?: 0
         group = app.liveTvGroup
             ?: if (favoriteCount > 0) ChannelGroup.Favorites
             else groups.firstOrNull { it.group is ChannelGroup.Provider }?.group ?: ChannelGroup.Favorites
         app.liveTvGroup = null
+        opened++
     }
     val loaded = channelsOf(app, group)
     val channels = move.arrange(MoveState.Kind.CHANNEL, loaded.orEmpty()) { it.key }
@@ -146,13 +151,15 @@ fun LiveTvPage() {
     val loadedNow = rememberUpdatedState(loaded)
     val rowsNow = rememberUpdatedState(rows)
 
-    LaunchedEffect(Unit) {
+    com.signal.ui.components.OnPageShown {
         // The preview plays the last played channel, the same as the Home hero (PLAN §4.3.2).
         if (app.playback.current.value == null) app.playback.startingChannel()?.let { app.playback.tune(it, fullScreen = false) }
         else app.playback.resumeIfStopped()
     }
-    DisposableEffect(Unit) {
-        onDispose { if (app.navigator.current !is Route.FullScreen) app.playback.stop() }
+    com.signal.ui.components.OnPageHidden {
+        panelOpen = false
+        // Into Home or full screen the stream carries on (PLAN §4.3.1: no rebuffer between them).
+        if (!app.navigator.current.showsVideo) app.playback.stop()
     }
 
     fun scrollToRow(row: Int) {
@@ -162,12 +169,18 @@ fun LiveTvPage() {
         else if (row >= first + visible) list.requestScrollToItem(row - visible + 1)
     }
 
+    val pageActiveNow = rememberUpdatedState(com.signal.ui.components.LocalPageActive.current)
     fun focusGrid() {
+        if (!pageActiveNow.value) return
         scope.launch { gridFocus.requestFocusWhenReady() }
     }
 
-    // On a group change: the channel that was playing full screen, else the playing channel, else the first row; at now.
-    LaunchedEffect(loaded != null, group) {
+    // On opening and on a group change: the channel that was playing full screen, else the playing
+    // channel, else the first row; at now.
+    // Never while hidden: a kept-alive guide would take focus from the page that's showing.
+    val pageActive = com.signal.ui.components.LocalPageActive.current
+    LaunchedEffect(loaded != null, group, opened, pageActive) {
+        if (!pageActive) return@LaunchedEffect
         val l = loaded ?: return@LaunchedEffect
         val target = app.liveTvFocusKey ?: current?.key
         app.liveTvFocusKey = null

@@ -47,7 +47,7 @@ class VodDetailRepository(
         if (source.kind == SourceKind.DEMO) return DemoVod.movieDetail(item)
         if (source.kind != SourceKind.XTREAM) return null
         return body(item, MAX_AGE_MS) { sources.xtream(source, "get_vod_info", "vod_id" to item.providerId) }
-            ?.let { runCatching { XtreamParser.movieDetail(it) }.getOrNull() }
+            ?.let { parse { XtreamParser.movieDetail(it) } }
     }
 
     /** [maxAgeMs] lower for series in the Library or Continue watching (PLAN §4.3.13: new episodes). */
@@ -56,7 +56,7 @@ class VodDetailRepository(
         if (source.kind == SourceKind.DEMO) return DemoVod.seriesDetail(item)
         if (source.kind != SourceKind.XTREAM) return null
         return body(item, maxAgeMs) { sources.xtream(source, "get_series_info", "series_id" to item.providerId) }
-            ?.let { runCatching { XtreamParser.seriesDetail(source, it) }.getOrNull() }
+            ?.let { parse { XtreamParser.seriesDetail(source, it) } }
     }
 
     /** The cached series detail only, never fetched: for building Continue watching quickly. */
@@ -65,6 +65,12 @@ class VodDetailRepository(
         if (source.kind == SourceKind.DEMO) return@withContext DemoVod.seriesDetail(item)
         db.watchQueries.infoFor(item.id).executeAsOneOrNull()?.body?.let { runCatching { XtreamParser.seriesDetail(source, it) }.getOrNull() }
     }
+
+    /**
+     * Parsing off the UI thread: a series' detail can be hundreds of KB, and the pages ask from their
+     * composition's coroutine (PLAN §8 → milestone 5). Default, not [io], so it doesn't queue behind the database.
+     */
+    private suspend fun <T> parse(block: () -> T): T? = withContext(kotlinx.coroutines.Dispatchers.Default) { runCatching(block).getOrNull() }
 
     companion object {
         const val MAX_AGE_MS = 7 * 24 * 60 * 60_000L

@@ -61,8 +61,34 @@ class VodKeyMapTest {
         eventually("resumed from 2:00") { platform.player.state.value.request?.startPositionMs == 120_000L }
     }
 
+    @Test fun backFromATitleReturnsToItsPoster() = keyMapTest(start = Route.Movies) {
+        focusedStartsWith("Recently added")
+        eventually("the posters loaded") { shows("300 titles") }
+        press(RemoteAction.Right)
+        eventually("a poster focused") { focusedText()?.startsWith("Recently added") == false }
+        press(RemoteAction.Right, 2)
+        eventually("the third poster") { focusedText() != null }
+        val poster = focusedText()
+        press(RemoteAction.Select)
+        eventually("the movie page") { app.navigator.current is Route.MovieDetail }
+        press(RemoteAction.Back)
+        route(Route.Movies)
+        // The page was kept, not rebuilt (PLAN §8 → milestone 5): focus is back on the same poster.
+        eventually("the same poster") { focusedText() == poster }
+        // Left through the nav bar, Movies opens on the column.
+        press(RemoteAction.Back)
+        focusedStartsWith("Recently added")
+        press(RemoteAction.Back)
+        focusedStartsWith("Movies")
+        ui.runOnIdle { app.navigator.go(Route.Series) }
+        focusedStartsWith("Recently added")
+        ui.runOnIdle { app.navigator.go(Route.Movies) }
+        focusedStartsWith("Recently added")
+    }
+
     @Test fun anEpisodeAutoplaysTheNextOne() = keyMapTest(start = Route.Series) {
         focusedStartsWith("Recently added")
+        eventually("the posters loaded") { shows("60 titles") }
         press(RemoteAction.Right)
         eventually("a poster focused") { focusedText()?.startsWith("Recently added") == false }
         press(RemoteAction.Select)

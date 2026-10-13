@@ -221,6 +221,16 @@ class SourceRepository(
         }.getOrNull()
     }
 
+    /**
+     * Movies and series alone, for an Xtream source that has none: a refresh whose lists failed (0.2.2 ran
+     * out of memory on large catalogs) left the channels fresh, so the 24-hour refresh won't retry them.
+     */
+    suspend fun refreshVodIfMissing(id: String): Pair<Int, Int>? = withContext(io) {
+        val source = byId(id)?.takeIf { it.enabled && it.kind == SourceKind.XTREAM } ?: return@withContext null
+        if (db.vodQueries.countForSource(source.id).executeAsOne() > 0) return@withContext null
+        refreshVod(source, null)?.also { (m, s) -> log.info("Loaded ${source.name}'s movies and series: $m movies, $s series") }
+    }
+
     /** A `player_api.php` list read as it downloads, one object at a time ([JsonArrayObjects]). */
     private suspend fun streamList(source: Source, action: String, onObject: (kotlinx.serialization.json.JsonObject, Int) -> Unit) {
         // prepareGet + execute: a plain get would buffer the whole body before handing it over.

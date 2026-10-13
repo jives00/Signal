@@ -66,12 +66,15 @@ fun HomePage() {
         // The hero has focus and autoplays as soon as Home opens (PLAN §4.3.1 → Focus). Focus first:
         // finding the channel reads the database.
         chrome.focusContent()
-        app.playback.startingChannel()?.let { app.playback.tune(it, fullScreen = false, group = groupFor(it)) }
+        // A channel already playing (from Live TV's preview) carries on: retuning rebuffers and jumps.
+        val playing = app.playback.current.value != null && app.platform.player.state.value.status != com.signal.player.PlaybackState.Status.IDLE
+        if (!playing) app.playback.startingChannel()?.let { app.playback.tune(it, fullScreen = false, group = groupFor(it)) }
     }
     DisposableEffect(Unit) {
-        // Leaving Home stops the preview, except into full screen, which carries the player over.
-        // Continue watching starts a movie before going to the VOD player, so that's left alone too.
-        onDispose { if (app.navigator.current !is Route.FullScreen && app.navigator.current != Route.VodPlayer) app.playback.stop() }
+        // Leaving Home stops the preview, except into a screen that shows video (Live TV, full screen),
+        // which carries the player over. Continue watching starts a movie before going to the VOD player,
+        // so that's left alone too.
+        onDispose { if (!app.navigator.current.showsVideo && app.navigator.current != Route.VodPlayer) app.playback.stop() }
     }
 
     TopLevelPage(Route.Home, chrome) {

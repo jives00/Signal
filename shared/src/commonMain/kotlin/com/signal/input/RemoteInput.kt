@@ -143,8 +143,10 @@ fun RemoteHandler(
     val dispatcher = LocalRemoteDispatcher.current
     val current = rememberUpdatedState(handler)
     val owner = remember { Any() }
-    DisposableEffect(dispatcher, enabled, priority) {
-        if (enabled) dispatcher.push(owner, priority) { current.value(it) }
+    // A kept-alive page that's hidden handles nothing (see LocalPageActive).
+    val active = com.signal.ui.components.LocalPageActive.current
+    DisposableEffect(dispatcher, enabled, active, priority) {
+        if (enabled && active) dispatcher.push(owner, priority) { current.value(it) }
         onDispose { dispatcher.remove(owner) }
     }
 }

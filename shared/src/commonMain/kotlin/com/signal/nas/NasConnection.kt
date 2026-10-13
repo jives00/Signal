@@ -259,7 +259,9 @@ class NasConnection(
         if (!isPaired) return null
         val response = call { base -> http.get(base + NasVodPaths.meta(itemId)) { asDevice() } } ?: return null
         if (!response.status.isSuccess()) return null
-        return runCatching { json.decodeFromString<VodMeta>(response.bodyAsText()) }.getOrNull()
+        val body = response.bodyAsText()
+        // Off the UI thread: the series page asks from its composition (PLAN §8 → milestone 5).
+        return withContext(kotlinx.coroutines.Dispatchers.Default) { runCatching { json.decodeFromString<VodMeta>(body) }.getOrNull() }
     }
 
     /** Where images come from right now: the companion that answered last, or null to use TMDB's CDN. */

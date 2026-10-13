@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.key
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
@@ -17,6 +18,7 @@ import com.signal.input.LocalRemoteDispatcher
 import com.signal.input.RemoteAction
 import com.signal.input.RemoteInput
 import com.signal.ui.components.LocalVideoLayer
+import com.signal.ui.components.KeptPage
 import com.signal.ui.components.VideoLayer
 import com.signal.ui.components.VideoLayerHost
 import com.signal.ui.panel.SidePanelHost
@@ -56,13 +58,26 @@ fun SignalApp(app: AppController) {
                     // The one video view, under every screen (see VideoLayer).
                     VideoLayerHost(videoLayer, app.platform.player)
                     if (app.ready) {
-                        when (val route = app.navigator.current) {
+                        val route = app.navigator.current
+                        // Live TV, Movies, Series and Search stay composed once visited, hidden while another
+                        // screen shows, so reopening them doesn't rebuild them (PLAN §8 → milestone 5).
+                        val kept = remember { LinkedHashSet<Route>() }
+                        if (route in KEPT_ALIVE) kept += route
+                        for (page in kept) key(page) {
+                            KeptPage(active = page == route) {
+                                when (page) {
+                                    Route.LiveTv -> LiveTvPage()
+                                    Route.Search -> SearchPage()
+                                    Route.Movies -> com.signal.ui.screens.VodBrowsePage(com.signal.model.VodKind.MOVIE)
+                                    Route.Series -> com.signal.ui.screens.VodBrowsePage(com.signal.model.VodKind.SERIES)
+                                    else -> {}
+                                }
+                            }
+                        }
+                        if (route !in KEPT_ALIVE) when (route) {
                             Route.Setup -> SetupScreen()
                             Route.Home -> HomePage()
-                            Route.LiveTv -> LiveTvPage()
-                            Route.Search -> SearchPage()
-                            Route.Movies -> com.signal.ui.screens.VodBrowsePage(com.signal.model.VodKind.MOVIE)
-                            Route.Series -> com.signal.ui.screens.VodBrowsePage(com.signal.model.VodKind.SERIES)
+                            Route.LiveTv, Route.Search, Route.Movies, Route.Series -> {}
                             is Route.MovieDetail -> com.signal.ui.screens.MovieDetailPage(route)
                             is Route.SeriesDetail -> com.signal.ui.screens.SeriesPage(route)
                             Route.VodPlayer -> com.signal.ui.screens.VodPlayerScreen()
@@ -77,3 +92,6 @@ fun SignalApp(app: AppController) {
         }
     }
 }
+
+/** The pages kept composed once visited (see [KeptPage]): the ones that took 100–150 ms frames to build. */
+private val KEPT_ALIVE: Set<Route> = setOf(Route.LiveTv, Route.Movies, Route.Series, Route.Search)
