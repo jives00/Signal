@@ -90,7 +90,17 @@ class GuideJobTest {
     // These wait for real guide builds. testApplication allows 60 s in all, which a busy CI runner
     // ran out of during a release, while CI and the image build shared it.
     private fun guideBuildTest(block: suspend ApplicationTestBuilder.() -> Unit) =
-        runTestWithRealTime(timeout = 3.minutes) { runTestApplication(block = block) }
+        runTestWithRealTime(timeout = 5.minutes) { runTestApplication(block = block) }
+
+    /** Polls [check] until it returns a value, for up to 2.5 minutes of real time: one Demo build is ~15 s locally. */
+    private suspend fun <T : Any> waitFor(what: String, check: suspend () -> T?): T {
+        val deadline = System.currentTimeMillis() + 150_000
+        while (System.currentTimeMillis() < deadline) {
+            check()?.let { return it }
+            delay(100)
+        }
+        error(what)
+    }
 
     private val json = Json { ignoreUnknownKeys = true }
     private val dataDir = Files.createTempDirectory("signal-data").toFile()
@@ -131,13 +141,10 @@ class GuideJobTest {
         assertEquals(HttpStatusCode.OK, push.status)
 
         // A synced EPG source starts a build at once.
-        var meta: NasGuideMeta? = null
-        var tries = 0
-        while (meta == null && tries++ < 600) {
+        val m = waitFor("No guide was built") {
             val r = client.get(NasGuidePaths.META) { header(HttpHeaders.Authorization, bearer(key)) }
-            if (r.status == HttpStatusCode.OK) meta = json.decodeFromString<NasGuideMeta>(r.bodyAsText()) else delay(100)
+            if (r.status == HttpStatusCode.OK) json.decodeFromString<NasGuideMeta>(r.bodyAsText()) else null
         }
-        val m = meta ?: error("No guide was built")
         assertEquals(GuideStore.SCHEMA, m.schema)
         assertTrue(m.programs > 0)
         assertEquals(null, m.outcomes.getValue("epg-demo").error)
@@ -164,13 +171,10 @@ class GuideJobTest {
         // Sources → Refresh now: one EPG source, by ID.
         assertEquals(HttpStatusCode.NotFound, client.post("/api/guide/build?epg=nope").status)
         assertEquals(HttpStatusCode.Accepted, client.post("/api/guide/build?epg=epg-demo").status)
-        var again: NasGuideMeta? = null
-        tries = 0
-        while (again == null && tries++ < 600) {
-            val r = json.decodeFromString<NasGuideMeta>(client.get(NasGuidePaths.META) { header(HttpHeaders.Authorization, bearer(key)) }.bodyAsText())
-            if (r.builtAt != m.builtAt) again = r else delay(100)
+        val a = waitFor("Refresh now didn't rebuild") {
+            json.decodeFromString<NasGuideMeta>(client.get(NasGuidePaths.META) { header(HttpHeaders.Authorization, bearer(key)) }.bodyAsText())
+                .takeIf { it.builtAt != m.builtAt }
         }
-        val a = again ?: error("Refresh now didn't rebuild")
         assertEquals(a.builtAt, a.outcomes.getValue("epg-demo").refreshedAt)
     }
 
@@ -186,13 +190,9 @@ class GuideJobTest {
             contentType(ContentType.Application.Json)
             setBody(json.encodeToString(PushRequest.serializer(), two))
         }
-        suspend fun builtAfter(at: Long): NasGuideMeta {
-            repeat(600) {
-                val r = client.get(NasGuidePaths.META) { header(HttpHeaders.Authorization, bearer(key)) }
-                if (r.status == HttpStatusCode.OK) json.decodeFromString<NasGuideMeta>(r.bodyAsText()).let { if (it.builtAt > at && !companion.guide.running) return it }
-                delay(100)
-            }
-            error("No guide was built")
+        suspend fun builtAfter(at: Long): NasGuideMeta = waitFor("No guide was built") {
+            val r = client.get(NasGuidePaths.META) { header(HttpHeaders.Authorization, bearer(key)) }
+            if (r.status == HttpStatusCode.OK) json.decodeFromString<NasGuideMeta>(r.bodyAsText()).takeIf { it.builtAt > at && !companion.guide.running } else null
         }
         val first = builtAfter(0)
         assertEquals(HttpStatusCode.Accepted, client.post("/api/guide/build?epg=epg-b").status)
