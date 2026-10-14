@@ -31,7 +31,11 @@ import io.ktor.http.ContentType
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.contentType
+import io.ktor.server.testing.ApplicationTestBuilder
+import io.ktor.server.testing.runTestApplication
 import io.ktor.server.testing.testApplication
+import io.ktor.test.dispatcher.runTestWithRealTime
+import kotlin.time.Duration.Companion.minutes
 import kotlinx.coroutines.delay
 import kotlinx.serialization.json.Json
 import java.nio.file.Files
@@ -83,6 +87,11 @@ class GuideScheduleTest {
 }
 
 class GuideJobTest {
+    // These wait for real guide builds. testApplication allows 60 s in all, which a busy CI runner
+    // ran out of during a release, while CI and the image build shared it.
+    private fun guideBuildTest(block: suspend ApplicationTestBuilder.() -> Unit) =
+        runTestWithRealTime(timeout = 3.minutes) { runTestApplication(block = block) }
+
     private val json = Json { ignoreUnknownKeys = true }
     private val dataDir = Files.createTempDirectory("signal-data").toFile()
 
@@ -108,7 +117,7 @@ class GuideJobTest {
         listOf(SyncItem(SyncType.EPG_SOURCE, "epg-demo", SyncScope.HOUSEHOLD, fields = SyncFields.epgSource(EpgSource(id = "epg-demo", name = "Demo guide", kind = EpgKind.DEMO, sourceId = "demo"), 0))),
     )
 
-    @Test fun aDevicesInputsBuildAGuideItCanDownload() = testApplication {
+    @Test fun aDevicesInputsBuildAGuideItCanDownload() = guideBuildTest {
         val companion = companion()
         application { signalModule(companion) }
         val key = client.pair()
@@ -165,7 +174,7 @@ class GuideJobTest {
         assertEquals(a.builtAt, a.outcomes.getValue("epg-demo").refreshedAt)
     }
 
-    @Test fun refreshingOneEpgSourceCopiesTheOthers() = testApplication {
+    @Test fun refreshingOneEpgSourceCopiesTheOthers() = guideBuildTest {
         val companion = companion()
         application { signalModule(companion) }
         val key = client.pair()
