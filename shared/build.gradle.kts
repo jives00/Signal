@@ -57,6 +57,7 @@ kotlin {
             implementation(libs.compose.components.resources)
             implementation(libs.coil.compose)
             implementation(libs.coil.network.ktor3)
+            implementation(libs.coil.svg)
             api(libs.kotlinx.coroutines.core)
             implementation(libs.kotlinx.datetime)
             implementation(libs.kotlinx.serialization.json)

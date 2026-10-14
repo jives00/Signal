@@ -19,6 +19,9 @@ import kotlinx.coroutines.withTimeoutOrNull
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.platform.LocalFocusManager
+import coil3.ImageLoader
+import coil3.compose.setSingletonImageLoaderFactory
+import coil3.svg.SvgDecoder
 import com.signal.app.AppController
 import com.signal.app.Route
 import com.signal.input.LocalRemoteDispatcher
@@ -43,6 +46,10 @@ val LocalApp = staticCompositionLocalOf<AppController> { error("No AppController
 /** Root of the app on every platform: theme, key layer, routes and the shared side panel. */
 @Composable
 fun SignalApp(app: AppController) {
+    // Coil's default loader has no SVG decoder; logo URLs can point at SVGs (custom logos, some providers).
+    setSingletonImageLoaderFactory { context ->
+        ImageLoader.Builder(context).components { add(SvgDecoder.Factory()) }.build()
+    }
     SignalTheme {
         RemoteInput(app.dispatcher) {
             val videoLayer = remember { VideoLayer() }
