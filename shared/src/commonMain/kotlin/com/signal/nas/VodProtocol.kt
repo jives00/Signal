@@ -4,8 +4,14 @@ import kotlinx.serialization.Serializable
 
 /** VOD enrichment from the companion (PLAN §4.3.12). Device endpoints, all with the device's key. */
 object NasVodPaths {
-    /** GET → [VodIndex]. */
+    /** GET → [VodIndex], all in one body. Kept for app versions before [INDEX_PAGE]. */
     const val INDEX = "/device/vod/index"
+    /**
+     * GET → [VodIndexPage]: the index a page at a time, since at the real catalog's size one body is tens
+     * of MB (PLAN §8 → milestone 5). `page` from 0; page 0 takes `have` (304 when unchanged), and the
+     * later pages take page 0's `version` (409 when the index changed in between: start again).
+     */
+    const val INDEX_PAGE = "/device/vod/index/page"
     /** GET → [VodMeta] for one catalog title; 404 when it isn't matched. */
     fun meta(itemId: String) = "/device/vod/meta/${itemId.encodeURLPath()}"
     /** Images the companion caches and resizes for TV: `/images/tmdb/<size>/<file>`. Open on the home network and Tailscale. */
@@ -38,6 +44,69 @@ data class VodIndex(
     /** "MOVIE" → genre → item IDs. */
     val genres: Map<String, Map<String, List<String>>> = emptyMap(),
 )
+
+/** One page of the index: some of its matches, then shelf rows, in the order [VodIndexPager] lays them out. */
+@Serializable
+data class VodIndexPage(
+    val version: Long,
+    val page: Int,
+    val pages: Int,
+    val matches: List<VodIndexMatch> = emptyList(),
+    val shelves: List<VodShelfRow> = emptyList(),
+)
+
+/** A catalog title's TMDB ID, and its poster's file path when TMDB has one. */
+@Serializable
+data class VodIndexMatch(val item: String, val tmdbId: Long, val poster: String? = null)
+
+/** A title's place on a shelf. [shelf] is the device's key: "list:trending", "genre:Action". */
+@Serializable
+data class VodShelfRow(val kind: String, val shelf: String, val position: Int, val item: String)
+
+/**
+ * [index] as flat rows, matches first, then lists, then genres, cut into pages of [pageSize] rows.
+ * Built once per index version on the companion; the device stores each page as it arrives.
+ */
+class VodIndexPager(val index: VodIndex, private val pageSize: Int = PAGE_ROWS) {
+    private val matches: List<VodIndexMatch> by lazy {
+        index.tmdbIds.map { (item, id) -> VodIndexMatch(item, id, index.posters[item]) }
+    }
+    private val shelves: List<VodShelfRow> by lazy {
+        val rows = ArrayList<VodShelfRow>()
+        for ((key, items) in index.lists) {
+            val kind = key.substringBefore(':')
+            items.forEachIndexed { i, item -> rows += VodShelfRow(kind, LIST + key.substringAfter(':'), i, item) }
+        }
+        for ((kind, genres) in index.genres) for ((genre, items) in genres) {
+            items.forEachIndexed { i, item -> rows += VodShelfRow(kind, GENRE + genre, i, item) }
+        }
+        rows
+    }
+
+    val pages: Int get() = (matches.size + shelves.size).let { if (it == 0) 1 else (it - 1) / pageSize + 1 }
+
+    /** Null past the last page. */
+    fun page(page: Int): VodIndexPage? {
+        if (page !in 0 until pages) return null
+        val from = page * pageSize
+        val to = from + pageSize
+        return VodIndexPage(
+            version = index.version,
+            page = page,
+            pages = pages,
+            matches = matches.subList(from.coerceAtMost(matches.size), to.coerceAtMost(matches.size)),
+            shelves = shelves.subList((from - matches.size).coerceIn(0, shelves.size), (to - matches.size).coerceIn(0, shelves.size)),
+        )
+    }
+
+    companion object {
+        /** About 1 MB of JSON at most: a few seconds' parse on the Shield at worst, off the UI thread. */
+        const val PAGE_ROWS = 10_000
+        /** The device's shelf keys (`VodEnrichment`'s): a TMDB list, or a genre. */
+        const val LIST = "list:"
+        const val GENRE = "genre:"
+    }
+}
 
 /** One title's enriched metadata (PLAN §4.3.8 → Information). Image fields are TMDB file paths. */
 @Serializable

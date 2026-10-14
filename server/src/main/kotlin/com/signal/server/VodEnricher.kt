@@ -234,6 +234,15 @@ class VodEnricher(
         return index
     }
 
+    @Volatile private var pager: com.signal.nas.VodIndexPager? = null
+
+    /** [index] cut into pages for `/device/vod/index/page`, kept until the index changes. */
+    suspend fun indexPager(): com.signal.nas.VodIndexPager {
+        val index = index()
+        pager?.takeIf { it.index === index }?.let { return it }
+        return com.signal.nas.VodIndexPager(index).also { pager = it }
+    }
+
     /** One title's metadata, fetched again if older than 7 days (PLAN §4.3.13). Null when not matched. */
     suspend fun meta(item: VodItem): VodMeta? {
         val m = store().match(item.id)?.takeIf { it.tmdbId != null && it.status != VodMatch.UNMATCHED } ?: return null

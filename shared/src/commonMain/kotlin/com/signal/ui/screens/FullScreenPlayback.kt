@@ -57,7 +57,9 @@ import com.signal.ui.components.requestFocusWhenReady
 import com.signal.ui.theme.SignalSizes
 import com.signal.ui.theme.SignalTheme
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 
 private enum class Overlay { NONE, INFO, CHANNEL_LIST }
 
@@ -112,10 +114,30 @@ fun FullScreenPlayback(route: Route.FullScreen) {
     val groupChannels by remember(app.playback.currentGroup, current) { app.channels.channels(app.playback.currentGroup) }.collectAsState(emptyList())
     NumberJump(groupChannels) { ch -> app.playback.tune(ch, fullScreen = true); bannerTick++ }
 
+    // The channel list stays built once opened, and is built ahead after 2 s without a key: opening it
+    // built both lists from scratch, 50–100 ms frames on the Shield (PLAN §8 → milestone 5).
+    var listKept by remember { mutableStateOf(false) }
+    var listWarm by remember { mutableStateOf(false) }
+    LaunchedEffect(overlay) { if (overlay == Overlay.CHANNEL_LIST) listKept = true }
+    LaunchedEffect(Unit) {
+        app.dispatcher.awaitQuiet(2_000)
+        if (listKept) return@LaunchedEffect
+        listKept = true
+        listWarm = true
+        val inputs = app.dispatcher.inputs.value
+        withTimeoutOrNull(3_000) { app.dispatcher.inputs.first { it != inputs } }
+        listWarm = false
+    }
+
     Box(Modifier.fillMaxSize()) {
         VideoBox(Modifier.fillMaxSize(), aspect = aspect)
         val ch = current
         if (ch != null) {
+            if (listKept || overlay == Overlay.CHANNEL_LIST) {
+                com.signal.ui.components.KeptPage(active = overlay == Overlay.CHANNEL_LIST, warm = listWarm) {
+                    ChannelListOverlay(onClose = { overlay = Overlay.NONE }, onTuned = { bannerTick++ })
+                }
+            }
             when (overlay) {
                 Overlay.INFO -> InfoBar(
                     channel = ch,
@@ -126,7 +148,7 @@ fun FullScreenPlayback(route: Route.FullScreen) {
                     onZap = ::zap,
                     onRecall = { app.playback.recall() },
                 )
-                Overlay.CHANNEL_LIST -> ChannelListOverlay(onClose = { overlay = Overlay.NONE }, onTuned = { bannerTick++ })
+                Overlay.CHANNEL_LIST -> {} // Kept, above.
                 Overlay.NONE -> if (bannerTick > 0) ZapBanner(ch, bannerTick, onOpenInfo = { overlay = Overlay.INFO })
             }
         }
@@ -324,7 +346,19 @@ private fun ChannelListOverlay(onClose: () -> Unit, onTuned: () -> Unit) {
     val scope = rememberCoroutineScope()
     val focusManager = LocalFocusManager.current
 
-    LaunchedEffect(channels != null, shownGroup) {
+    // Kept built while hidden (KeptPage): each opening starts on the playing channel's group, and only a
+    // shown list takes focus.
+    var opened by remember { mutableStateOf(0) }
+    com.signal.ui.components.OnPageShown {
+        shownGroup = app.playback.currentGroup
+        opened++
+    }
+    // Closing only hides it: its focused row would keep focus, and OK would tune it. Give focus back to
+    // the key layer, as when the list was taken away.
+    com.signal.ui.components.OnPageHidden { focusManager.clearFocus(force = true) }
+    val active = com.signal.ui.components.LocalPageActive.current
+    LaunchedEffect(channels != null, shownGroup, opened, active) {
+        if (!active) return@LaunchedEffect
         val list = channels ?: return@LaunchedEffect
         val i = list.indexOfFirst { it.stream.id == current?.stream?.id }.coerceAtLeast(0)
         if (list.isNotEmpty()) {

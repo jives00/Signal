@@ -7,8 +7,14 @@ import kotlin.test.assertTrue
 
 /** Movies and Series browse (PLAN §4.3.6–4.3.7, §12.1): the category column, the poster grid, Back. */
 class VodKeyMapTest {
+    /** The shelf and the categories load from the database after the page appears; under a full test run, after the first key could. */
+    private suspend fun KeyMapScope.pageLoaded() = eventually("the posters and categories") {
+        shows("Categories") && !shows("No movies here.") && !shows("No series here.")
+    }
+
     @Test fun columnGridAndBack() = keyMapTest(start = Route.Movies) {
         focusedStartsWith("Recently added")
+        pageLoaded()
         assertTrue(shows("300 titles"))
         // Right goes into the grid, on the first poster.
         press(RemoteAction.Right)
@@ -25,6 +31,7 @@ class VodKeyMapTest {
 
     @Test fun focusingACategoryShowsIt() = keyMapTest(start = Route.Series) {
         focusedStartsWith("Recently added")
+        pageLoaded()
         press(RemoteAction.Down)
         focusedStartsWith("Drama Series")
         eventually("the category's titles") { shows("12 titles") }
@@ -32,6 +39,7 @@ class VodKeyMapTest {
 
     @Test fun longPressSortsTheShelf() = keyMapTest(start = Route.Movies) {
         focusedStartsWith("Recently added")
+        pageLoaded()
         press(RemoteAction.Options)
         focusedStartsWith("Recently added") // the Sort panel's first choice
         press(RemoteAction.Down)
@@ -43,6 +51,7 @@ class VodKeyMapTest {
     @Test fun aMovieOpensPlaysAndResumes() = keyMapTest(start = Route.Movies) {
         // The Library is empty, so the page starts on Recently added.
         focusedStartsWith("Recently added")
+        pageLoaded()
         press(RemoteAction.Right)
         eventually("a poster focused") { focusedText()?.startsWith("Recently added") == false }
         press(RemoteAction.Select)
@@ -63,6 +72,7 @@ class VodKeyMapTest {
 
     @Test fun backFromATitleReturnsToItsPoster() = keyMapTest(start = Route.Movies) {
         focusedStartsWith("Recently added")
+        pageLoaded()
         eventually("the posters loaded") { shows("300 titles") }
         press(RemoteAction.Right)
         eventually("a poster focused") { focusedText()?.startsWith("Recently added") == false }
@@ -88,6 +98,7 @@ class VodKeyMapTest {
 
     @Test fun anEpisodeAutoplaysTheNextOne() = keyMapTest(start = Route.Series) {
         focusedStartsWith("Recently added")
+        pageLoaded()
         eventually("the posters loaded") { shows("60 titles") }
         press(RemoteAction.Right)
         eventually("a poster focused") { focusedText()?.startsWith("Recently added") == false }

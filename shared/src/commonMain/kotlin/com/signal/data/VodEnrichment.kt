@@ -7,6 +7,9 @@ import com.signal.model.VodItem
 import com.signal.model.VodKind
 import com.signal.nas.NasConnection
 import com.signal.nas.VodIndex
+import com.signal.nas.VodIndexMatch
+import com.signal.nas.VodIndexPage
+import com.signal.nas.VodIndexPager
 import com.signal.nas.TmdbImages
 import com.signal.nas.VodMeta
 import kotlinx.coroutines.CoroutineDispatcher
@@ -32,46 +35,74 @@ class VodEnrichment(
     private val json = Json { ignoreUnknownKeys = true }
     private val lock = Mutex()
 
-    /** Fetches the index unless it's unchanged. True when something new was stored. */
+    /**
+     * Fetches the index unless it's unchanged, a page at a time (PLAN §8 → milestone 5). True when
+     * something new was stored. The version is saved only after the last page, so an index cut short
+     * (a page failed, or it changed on the NAS meanwhile) is fetched from the start next time; what
+     * arrived is kept until then, since each row is right on its own.
+     */
     suspend fun sync(): Boolean = lock.withLock {
         val connection = nas() ?: return false
         val have = settings.raw(Settings.Key.VOD_INDEX_VERSION)?.toLongOrNull()
-        when (val r = connection.vodIndex(have)) {
-            is NasConnection.IndexResult.Fresh -> { store(r.index); true }
-            else -> false
+        val first = when (val r = connection.vodIndexPage(0, have = have)) {
+            is NasConnection.IndexPageResult.Fresh -> r.page
+            // A companion from before paging: the whole index in one body.
+            NasConnection.IndexPageResult.NotSupported -> return when (val whole = connection.vodIndex(have)) {
+                is NasConnection.IndexResult.Fresh -> { store(whole.index); true }
+                else -> false
+            }
+            else -> return false
         }
+        settings.put(Settings.Key.VOD_INDEX_VERSION, null)
+        withContext(io) { db.vodQueries.clearEnrichment() }
+        var matched = storePage(first)
+        var moved = rekey(first.matches)
+        for (p in 1 until first.pages) {
+            val page = (connection.vodIndexPage(p, version = first.version) as? NasConnection.IndexPageResult.Fresh)?.page
+            if (page == null) {
+                log.warn("VOD index ${first.version}: stopped at page ${p + 1} of ${first.pages}; starting again next time")
+                return true
+            }
+            matched += storePage(page)
+            moved += rekey(page.matches)
+        }
+        settings.put(Settings.Key.VOD_INDEX_VERSION, first.version.toString())
+        log.info("VOD index ${first.version}: $matched matched in ${first.pages} pages" + if (moved > 0) ", $moved titles moved to TMDB keys" else "")
+        true
     }
 
-    /** Replaces the stored index, then moves watch data onto the new TMDB keys. */
+    /** Replaces the stored index with [index], all at once: the companions before paging, and tests. */
     suspend fun store(index: VodIndex) {
-        withContext(io) {
-            db.transaction {
-                db.vodQueries.clearEnrichment()
-                for ((item, id) in index.tmdbIds) db.vodQueries.insertTmdb(item, id, index.posters[item])
-                for ((key, items) in index.lists) {
-                    val kind = key.substringBefore(':')
-                    items.forEachIndexed { i, item -> db.vodQueries.insertShelf(kind, "$LIST${key.substringAfter(':')}", i.toLong(), item) }
-                }
-                for ((kind, genres) in index.genres) for ((genre, items) in genres) {
-                    items.forEachIndexed { i, item -> db.vodQueries.insertShelf(kind, "$GENRE$genre", i.toLong(), item) }
-                }
-            }
-        }
+        val pager = VodIndexPager(index, pageSize = Int.MAX_VALUE)
+        val page = pager.page(0)!!
+        withContext(io) { db.vodQueries.clearEnrichment() }
+        storePage(page)
         settings.put(Settings.Key.VOD_INDEX_VERSION, index.version.toString())
-        val moved = rekey(index)
+        val moved = rekey(page.matches)
         log.info("VOD index ${index.version}: ${index.tmdbIds.size} matched, ${index.lists.size} lists" + if (moved > 0) ", $moved titles moved to TMDB keys" else "")
+    }
+
+    /** Adds one page's rows in one transaction. Returns how many matches it held. */
+    private suspend fun storePage(page: VodIndexPage): Int = withContext(io) {
+        db.transaction {
+            for (m in page.matches) db.vodQueries.insertTmdb(m.item, m.tmdbId, m.poster)
+            for (s in page.shelves) db.vodQueries.insertShelf(s.kind, s.shelf, s.position.toLong(), s.item)
+        }
+        page.matches.size
     }
 
     /**
      * Library, resume and watched rows still keyed by a source's item ID move to the TMDB key once the
      * companion matches the title (PLAN §5.4), so they survive a provider switch. Sync pushes the moves.
      */
-    private suspend fun rekey(index: VodIndex): Int = withContext(io) {
+    private suspend fun rekey(matches: List<VodIndexMatch>): Int = withContext(io) {
+        if (matches.isEmpty()) return@withContext 0
+        val tmdbIds = matches.associate { it.item to it.tmdbId }
         val keys = db.watchQueries.itemKeyed().executeAsList().mapNotNull { it.item_key }.toSet()
         var moved = 0
         db.transaction {
             for (old in keys) {
-                val id = index.tmdbIds[old] ?: continue
+                val id = tmdbIds[old] ?: continue
                 val kind = if (old.contains(":s:")) VodKind.SERIES else VodKind.MOVIE
                 val new = if (kind == VodKind.SERIES) "tmdb:tv:$id" else "tmdb:movie:$id"
                 db.watchQueries.rekeyLibrary(new, old)
@@ -96,8 +127,8 @@ class VodEnrichment(
     }
 
     companion object {
-        const val LIST = "list:"
-        const val GENRE = "genre:"
+        const val LIST = VodIndexPager.LIST
+        const val GENRE = VodIndexPager.GENRE
         /** vod_info rows for the companion's metadata, beside the provider's under the bare item ID. */
         const val META_PREFIX = "nas:"
 

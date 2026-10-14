@@ -73,7 +73,8 @@ fun VideoBox(modifier: Modifier = Modifier, aspect: AspectMode = AspectMode.FIT,
         }
     }
     // Aspect changes don't move the box, so re-claim with the new aspect directly.
-    LaunchedEffect(aspect) { layer.bounds?.let { layer.claim(owner, it, aspect) } }
+    // Not while hidden: a page built in idle time (KeptPage's warm) would take the video from the one showing.
+    LaunchedEffect(aspect, active) { if (active) layer.bounds?.let { layer.claim(owner, it, aspect) } }
 }
 
 /** Nothing for short stalls; a spinner after about 1 second (PLAN §4.3.3). */

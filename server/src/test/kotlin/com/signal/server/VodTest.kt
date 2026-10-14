@@ -145,6 +145,18 @@ class VodTest {
         assertEquals(HttpStatusCode.NotModified, client.get("${NasVodPaths.INDEX}?have=${index.version}") { header(HttpHeaders.Authorization, "Bearer $key") }.status)
         assertEquals(HttpStatusCode.Unauthorized, client.get(NasVodPaths.INDEX).status)
 
+        // The same index a page at a time: page 0 says how many, the rest need its version.
+        val auth: io.ktor.client.request.HttpRequestBuilder.() -> Unit = { header(HttpHeaders.Authorization, "Bearer $key") }
+        val first: com.signal.nas.VodIndexPage = json.decodeFromString(client.get("${NasVodPaths.INDEX_PAGE}?page=0", auth).bodyAsText())
+        assertEquals(index.version, first.version)
+        assertEquals(1, first.pages, "a small index is one page")
+        assertEquals(27205L, first.matches.single { it.item == "p:v:3" }.tmdbId)
+        assertTrue(first.shelves.any { it.shelf == "list:trending" && it.kind == "MOVIE" })
+        assertEquals(HttpStatusCode.NotModified, client.get("${NasVodPaths.INDEX_PAGE}?page=0&have=${index.version}", auth).status)
+        assertEquals(HttpStatusCode.Conflict, client.get("${NasVodPaths.INDEX_PAGE}?page=1&version=${index.version + 1}", auth).status)
+        assertEquals(HttpStatusCode.NotFound, client.get("${NasVodPaths.INDEX_PAGE}?page=1&version=${index.version}", auth).status)
+        assertEquals(HttpStatusCode.Unauthorized, client.get("${NasVodPaths.INDEX_PAGE}?page=0").status)
+
         val meta: VodMeta = json.decodeFromString(client.get(NasVodPaths.meta("p:s:1")) { header(HttpHeaders.Authorization, "Bearer $key") }.bodyAsText())
         assertEquals("Breaking Bad", meta.title)
         assertEquals("Vince Gilligan", meta.director)

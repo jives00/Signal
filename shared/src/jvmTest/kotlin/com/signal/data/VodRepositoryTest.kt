@@ -96,6 +96,29 @@ class VodRepositoryTest {
         assertEquals(1L, vod.count(VodKind.MOVIE).first(), "the cached movies stay")
     }
 
+    @Test fun emptyListsKeepTheOldCatalog(): Unit = runBlocking {
+        var empty = false
+        val http = HttpClient(MockEngine { req ->
+            when (req.url.parameters["action"]) {
+                null -> respond("""{"user_info":{"auth":1}}""")
+                "get_live_categories", "get_vod_categories", "get_series_categories" -> respond("[]")
+                "get_live_streams" -> respond("""[{"stream_id":1,"name":"News 24"}]""")
+                "get_vod_streams" -> respond(if (empty) "[]" else """[{"stream_id":7,"name":"Heat (1995)"}]""")
+                "get_series" -> respond(if (empty) "[]" else """[{"series_id":5,"name":"The Wire"}]""")
+                else -> respondError(HttpStatusCode.NotFound)
+            }
+        })
+        val sources = SourceRepository(db, http, box, Dispatchers.IO, Log { _, _ -> })
+        sources.save(xtream)
+        sources.refresh("x").getOrThrow()
+        assertEquals(1L, vod.count(VodKind.MOVIE).first())
+        // The provider sends `[]` for both lists, but the live channels as usual.
+        empty = true
+        assertEquals(1, sources.refresh("x").getOrThrow(), "live channels still refresh")
+        assertEquals(1L, vod.count(VodKind.MOVIE).first(), "the movies stay")
+        assertEquals(1L, vod.count(VodKind.SERIES).first(), "and the series")
+    }
+
     @Test fun aStreamedListThatBreaksPartWayKeepsTheOldCatalog(): Unit = runBlocking {
         var broken = false
         val http = HttpClient(MockEngine { req ->

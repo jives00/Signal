@@ -83,6 +83,7 @@ class ExoVideoPlayer(context: Context) : VideoPlayer {
             )
             setHandleAudioBecomingNoisy(true)
             addListener(Listener())
+            addAnalyticsListener(ZapTiming())
             // Many TS streams don't declare a frame rate, so measure it from the frames (on the
             // playback thread) for the info bar.
             setVideoFrameMetadataListener { presentationTimeUs, _, format, _ ->
@@ -99,9 +100,58 @@ class ExoVideoPlayer(context: Context) : VideoPlayer {
             }
         }
 
+    // When play() was called, and the stages since: the time to first frame for PLAN §10 (zap under 1 s).
+    private var playStartedAt = 0L
+    private val stages = StringBuilder()
+
+    /** Logs where a tune's time goes: data in, the video format known, the decoder ready, the first frame. */
+    private inner class ZapTiming : androidx.media3.exoplayer.analytics.AnalyticsListener {
+        private fun mark(stage: String) {
+            if (playStartedAt == 0L) return
+            stages.append(stage).append(" +").append(android.os.SystemClock.elapsedRealtime() - playStartedAt).append("ms, ")
+        }
+        override fun onLoadStarted(time: androidx.media3.exoplayer.analytics.AnalyticsListener.EventTime, load: androidx.media3.exoplayer.source.LoadEventInfo, media: androidx.media3.exoplayer.source.MediaLoadData) {
+            if (stages.isEmpty()) mark("request")
+        }
+        override fun onDownstreamFormatChanged(time: androidx.media3.exoplayer.analytics.AnalyticsListener.EventTime, media: androidx.media3.exoplayer.source.MediaLoadData) {
+            if (media.trackType == C.TRACK_TYPE_VIDEO && "format" !in stages) mark("format")
+        }
+        override fun onVideoDecoderInitialized(time: androidx.media3.exoplayer.analytics.AnalyticsListener.EventTime, decoderName: String, initializedTimestampMs: Long, initializationDurationMs: Long) {
+            mark("decoder")
+        }
+        override fun onRenderedFirstFrame(time: androidx.media3.exoplayer.analytics.AnalyticsListener.EventTime, output: Any, renderTimeMs: Long) {
+            if (playStartedAt == 0L) return
+            mark("first frame")
+            android.util.Log.i("Signal", "Zap timing: ${stages.toString().trimEnd(',', ' ')}")
+            playStartedAt = 0L
+        }
+    }
+
+    /** The HTTP side of the timing: the response (after any redirects), then the first bytes. Called on the loader thread. */
+    private val transferTiming = object : androidx.media3.datasource.TransferListener {
+        @Volatile private var bytesSeen = true
+        private fun mark(stage: String) {
+            val started = playStartedAt
+            if (started == 0L) return
+            val ms = android.os.SystemClock.elapsedRealtime() - started
+            main.post { if (playStartedAt == started) stages.append(stage).append(" +").append(ms).append("ms, ") }
+        }
+        override fun onTransferInitializing(source: androidx.media3.datasource.DataSource, dataSpec: androidx.media3.datasource.DataSpec, isNetwork: Boolean) = Unit
+        override fun onTransferStart(source: androidx.media3.datasource.DataSource, dataSpec: androidx.media3.datasource.DataSpec, isNetwork: Boolean) {
+            bytesSeen = false
+            mark("response")
+        }
+        override fun onBytesTransferred(source: androidx.media3.datasource.DataSource, dataSpec: androidx.media3.datasource.DataSpec, isNetwork: Boolean, bytesTransferred: Int) {
+            if (!bytesSeen) { bytesSeen = true; mark("first bytes") }
+        }
+        override fun onTransferEnd(source: androidx.media3.datasource.DataSource, dataSpec: androidx.media3.datasource.DataSpec, isNetwork: Boolean) = Unit
+    }
+
     override fun play(request: PlayRequest) {
         this.request = request
         autoRetried = false
+        playStartedAt = android.os.SystemClock.elapsedRealtime()
+        stages.clear()
         fpsMeter = FrameRateMeter()
         measuredFps = null
         val http = DefaultHttpDataSource.Factory()
@@ -110,6 +160,7 @@ class ExoVideoPlayer(context: Context) : VideoPlayer {
             .setReadTimeoutMs(20_000)
             .setUserAgent(request.headers["User-Agent"] ?: DEFAULT_USER_AGENT)
             .setDefaultRequestProperties(request.headers - "User-Agent")
+            .setTransferListener(transferTiming)
         val source = DefaultMediaSourceFactory(http).createMediaSource(liveItem(request))
         // On-demand resumes where it left off (PLAN §4.3.8); live always starts at the live edge.
         if (!request.isLive && request.startPositionMs > 0) exo.setMediaSource(source, request.startPositionMs) else exo.setMediaSource(source)

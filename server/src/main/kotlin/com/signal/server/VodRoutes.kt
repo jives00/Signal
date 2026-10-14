@@ -59,6 +59,20 @@ fun Route.vodDeviceRoutes(companion: Companion) {
         if (call.request.queryParameters["have"]?.toLongOrNull() == index.version) call.respond(HttpStatusCode.NotModified)
         else call.respond(index)
     }
+    // The same index a page at a time (PLAN §8 → milestone 5): one body was tens of MB at 233k titles.
+    get(NasVodPaths.INDEX_PAGE) {
+        call.device(companion) ?: return@get
+        if (companion.tmdbStore == null) return@get call.respondText("The database isn't connected yet.", status = HttpStatusCode.ServiceUnavailable)
+        val pager = companion.vod.indexPager()
+        val page = call.request.queryParameters["page"]?.toIntOrNull() ?: 0
+        val q = call.request.queryParameters
+        when {
+            page == 0 && q["have"]?.toLongOrNull() == pager.index.version -> call.respond(HttpStatusCode.NotModified)
+            page > 0 && q["version"]?.toLongOrNull() != pager.index.version ->
+                call.respondText("The index changed since page 0. Start again.", status = HttpStatusCode.Conflict)
+            else -> pager.page(page)?.let { call.respond(it) } ?: call.respondText("No such page.", status = HttpStatusCode.NotFound)
+        }
+    }
 
     get("/device/vod/meta/{id}") {
         call.device(companion) ?: return@get

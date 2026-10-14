@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- The profile build only: lets simpleperf profile it from the shell (PLAN §8 → milestone 5). -->
+    <application>
+        <profileable android:shell="true" />
+    </application>
+</manifest>

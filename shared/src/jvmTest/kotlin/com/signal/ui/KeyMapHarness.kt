@@ -158,7 +158,17 @@ class KeyMapScope(val ui: ComposeUiTest, val app: AppController, val platform: T
     suspend fun focusedStartsWith(prefix: String) = eventually("focus on \"$prefix\"") { focusedText()?.startsWith(prefix) == true }
 
     fun shows(text: String): Boolean = ui.runOnUiThread {
-        ui.onAllNodes(androidx.compose.ui.test.hasText(text, substring = true), useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty()
+        ui.onAllNodes(androidx.compose.ui.test.hasText(text, substring = true), useUnmergedTree = true).fetchSemanticsNodes().any { it.isOnScreen() }
+    }
+
+    /** Not inside anything unplaced: a kept-alive page or list that's hidden still has its semantics nodes. */
+    private fun SemanticsNode.isOnScreen(): Boolean {
+        var info: androidx.compose.ui.layout.LayoutInfo? = layoutInfo
+        while (info != null) {
+            if (!info.isPlaced) return false
+            info = info.parentInfo
+        }
+        return true
     }
 
     /** Saves the screen to build/screenshots/[name].png, for looking at a layout. */

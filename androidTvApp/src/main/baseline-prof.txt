@@ -1,0 +1,15 @@
+# Signal's baseline profile (PLAN §8 → milestone 5). ART compiles these ahead of time, so startup and the
+# first visit to each page run compiled code rather than the interpreter. On the Shield, with pages built
+# in idle time, the first Live TV visit went from 150 ms frames to under 30 ms fully compiled.
+# Broad rules, not a recorded journey: everything the UI thread runs. The libraries' own profiles are merged in too.
+# A sideloaded APK gets this through ProfileInstaller on first launch, then the system's background compile.
+HSPLcom/signal/**->**(**)**
+Lcom/signal/**;
+HSPLandroidx/compose/**->**(**)**
+Landroidx/compose/**;
+HSPLcoil3/**->**(**)**
+Lcoil3/**;
+HSPLkotlinx/coroutines/**->**(**)**
+Lkotlinx/coroutines/**;
+HSPLandroidx/media3/**->**(**)**
+Landroidx/media3/**;

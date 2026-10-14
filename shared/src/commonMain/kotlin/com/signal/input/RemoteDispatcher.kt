@@ -1,5 +1,9 @@
 package com.signal.input
 
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+
 /**
  * Routes an action to whoever should handle it (PLAN §12.3):
  * 0. A prompt (priority [Priority.PROMPT]) sees every action first, OK included.
@@ -38,6 +42,19 @@ class RemoteDispatcher {
 
     var onDefault: (RemoteAction) -> Boolean = { false }
 
+    private val _inputs = MutableStateFlow(0L)
+    /** Counts every action dispatched, so idle work can wait for the remote to go quiet ([awaitQuiet]). */
+    val inputs: StateFlow<Long> = _inputs
+
+    /** Returns once no action has been dispatched for [millis]. */
+    suspend fun awaitQuiet(millis: Long) {
+        while (true) {
+            val seen = _inputs.value
+            delay(millis)
+            if (_inputs.value == seen) return
+        }
+    }
+
     /**
      * Gives focus back to the key layer's root. The platform calls it when a key went unhandled:
      * with nothing focused, Compose delivers no keys at all, and the remote would be dead.
@@ -70,6 +87,7 @@ class RemoteDispatcher {
     }
 
     fun dispatch(action: RemoteAction): Boolean {
+        _inputs.value++
         // A prompt (the reminder's) gets every key first, OK included, without taking focus (PLAN §12.2).
         val ordered = handlers.toList().asReversed()
         for (entry in ordered) {

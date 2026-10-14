@@ -88,6 +88,8 @@ private const val HALF_HOUR = 30 * MINUTE
 private const val DAY = 24 * 60 * MINUTE
 /** Program cells narrower than this (design units) show no text. */
 private const val MIN_TEXT_WIDTH = 72f
+/** Rows beyond the next one scrolled to whose programs are loaded ahead (a screen holds about 7). */
+private const val PREFETCH_ROWS = 8
 
 /**
  * Live TV, the guide (PLAN §4.3.2, handoff screen 2). One screen-level focus position (a row and a
@@ -109,7 +111,16 @@ fun LiveTvPage() {
     var panelOpen by remember { mutableStateOf(false) }
     val gridFocus = remember { FocusRequester() }
     var gridHasFocus by remember { mutableStateOf(false) }
-    val list = rememberLazyListState()
+    // The guide jumps row by row (requestScrollToItem), which never prefetches: each row coming in was
+    // composed and measured inside the frame that showed it. The cache window keeps the next rows
+    // composed, built between frames (PLAN §8 → milestone 5).
+    @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+    val list = rememberLazyListState(
+        cacheWindow = androidx.compose.foundation.lazy.layout.LazyLayoutCacheWindow(
+            ahead = (GuideGeometry.ROW_HEIGHT * 2).dp,
+            behind = GuideGeometry.ROW_HEIGHT.dp,
+        ),
+    )
     val rows = remember(guideState) { GuideRows(app, scope) }
     val reminderList by app.reminderList.collectAsState()
     val reminderKeys = remember(reminderList) { reminderList.mapTo(HashSet()) { "${it.userChannelId}|${it.title}|${it.start}" } }
@@ -135,15 +146,19 @@ fun LiveTvPage() {
     // Opens on Favorites every time; with no favorites, the first visible group (PLAN §4.3.2). Full
     // screen's Back opens on its own group instead. On every showing: the page is kept alive (KeptPage).
     var opened by remember { mutableStateOf(0) }
+    fun openingGroup(): ChannelGroup {
+        val favoriteCount = groups.firstOrNull { it.group == ChannelGroup.Favorites }?.count ?: 0
+        return if (favoriteCount > 0) ChannelGroup.Favorites
+        else groups.firstOrNull { it.group is ChannelGroup.Provider }?.group ?: ChannelGroup.Favorites
+    }
     com.signal.ui.components.OnPageShown(groups.isNotEmpty()) {
         if (groups.isEmpty()) return@OnPageShown
-        val favoriteCount = groups.firstOrNull { it.group == ChannelGroup.Favorites }?.count ?: 0
-        group = app.liveTvGroup
-            ?: if (favoriteCount > 0) ChannelGroup.Favorites
-            else groups.firstOrNull { it.group is ChannelGroup.Provider }?.group ?: ChannelGroup.Favorites
+        group = app.liveTvGroup ?: openingGroup()
         app.liveTvGroup = null
         opened++
     }
+    // Built while hidden (KeptPage's warm): the group it will most likely open on, so its rows are ready.
+    LaunchedEffect(groups.isNotEmpty()) { if (group == null && groups.isNotEmpty()) group = openingGroup() }
     val loaded = channelsOf(app, group)
     val channels = move.arrange(MoveState.Kind.CHANNEL, loaded.orEmpty()) { it.key }
     // The key handlers below run later, from the dispatcher: they read these, never a composition's copy.
@@ -208,6 +223,10 @@ fun LiveTvPage() {
         }
         focusRow = target
         scrollToRow(target)
+        // The rows about to scroll in get their programs now, so they lay out once, already filled,
+        // instead of empty and again a frame or two later.
+        val ahead = if (delta > 0) target + 1..target + PREFETCH_ROWS else target - PREFETCH_ROWS until target
+        for (r in ahead) all.getOrNull(r)?.let { rowsNow.value.request(it, now) }
     }
 
     /** Keeps [p] inside the window, scrolling time as little as possible, never before now. */
@@ -366,7 +385,8 @@ fun LiveTvPage() {
                                 now = now,
                                 rowFocused = gridHasFocus && i == focusRow,
                                 channelFocused = gridHasFocus && i == focusRow && onChannelColumn,
-                                focusTime = focusTime,
+                                // Only the focused row uses it: the others then skip recomposing on Left/Right.
+                                focusTime = if (i == focusRow) focusTime else 0L,
                                 playing = current?.stream?.id == ch.stream.id,
                                 moving = move.movingKey == ch.key,
                                 hasReminder = { p -> ch.userChannelId != null && "${ch.userChannelId}|${p.title}|${p.start}" in reminderKeys },

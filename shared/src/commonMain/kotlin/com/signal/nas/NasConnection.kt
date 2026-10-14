@@ -254,6 +254,41 @@ class NasConnection(
         }
     }
 
+    sealed interface IndexPageResult {
+        data class Fresh(val page: VodIndexPage) : IndexPageResult
+        data object Unchanged : IndexPageResult
+        /** The index changed between pages: start again later. */
+        data object Changed : IndexPageResult
+        /** A companion from before paging: use [vodIndex]. */
+        data object NotSupported : IndexPageResult
+        data object Failed : IndexPageResult
+    }
+
+    /** Page [page] of the VOD index: page 0 unless it's still version [have], the rest of [version] only. */
+    suspend fun vodIndexPage(page: Int, have: Long? = null, version: Long? = null): IndexPageResult {
+        if (!isPaired) return IndexPageResult.Failed
+        val response = call(SYNC_TIMEOUT_MS) { base ->
+            http.get(base + NasVodPaths.INDEX_PAGE) {
+                asDevice()
+                url.parameters.append("page", page.toString())
+                have?.let { url.parameters.append("have", it.toString()) }
+                version?.let { url.parameters.append("version", it.toString()) }
+            }
+        } ?: return IndexPageResult.Failed
+        return when {
+            response.status == HttpStatusCode.NotModified -> IndexPageResult.Unchanged
+            response.status == HttpStatusCode.Conflict -> IndexPageResult.Changed
+            response.status == HttpStatusCode.NotFound && page == 0 -> IndexPageResult.NotSupported
+            response.status.isSuccess() -> {
+                val body = response.bodyAsText()
+                // Up to about 1 MB: parsed off the UI thread.
+                withContext(kotlinx.coroutines.Dispatchers.Default) { runCatching { IndexPageResult.Fresh(json.decodeFromString<VodIndexPage>(body)) } }
+                    .getOrDefault(IndexPageResult.Failed)
+            }
+            else -> IndexPageResult.Failed
+        }
+    }
+
     /** One title's enriched metadata; null when it isn't matched or the NAS is out of reach. */
     suspend fun vodMeta(itemId: String): VodMeta? {
         if (!isPaired) return null

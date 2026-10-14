@@ -63,7 +63,18 @@ class AndroidPlatform(private val context: Context) : Platform {
         }
     }
 
-    override fun systemUses24HourClock(): Boolean = DateFormat.is24HourFormat(context)
+    // Read from system settings, and asked for by every guide cell's time and every clock: a short cache.
+    @Volatile private var uses24Hour = false
+    @Volatile private var uses24HourReadAt = 0L
+
+    override fun systemUses24HourClock(): Boolean {
+        val now = android.os.SystemClock.uptimeMillis()
+        if (uses24HourReadAt == 0L || now - uses24HourReadAt > 10_000) {
+            uses24Hour = DateFormat.is24HourFormat(context)
+            uses24HourReadAt = now
+        }
+        return uses24Hour
+    }
 
     override fun exitApp() {
         activity?.get()?.finish()

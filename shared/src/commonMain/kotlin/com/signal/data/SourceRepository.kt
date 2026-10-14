@@ -209,6 +209,11 @@ class SourceRepository(
                 cats(movieCats, VodKind.MOVIE) + cats(seriesCats, VodKind.SERIES)
             }
             flush()
+            // Providers answer the big lists with an empty `[]` at times (the user's did on 2026-10-13, while
+            // its live list came through). That's a failed refresh, not an emptied catalog.
+            if (movies + series == 0 && db.vodQueries.countForSource(source.id).executeAsOne() > 0) {
+                error("no movies or series in the answer; keeping the ones from before")
+            }
             db.transaction {
                 db.vodQueries.swapInStaging(source.id)
                 categories.forEach { db.vodQueries.insertCategory(it.toRow()) }
@@ -245,11 +250,17 @@ class SourceRepository(
             val splitter = JsonArrayObjects { text -> XtreamParser.objectOf(text)?.let { onObject(it, i++) } }
             val channel = response.bodyAsChannel()
             val buf = ByteArray(64 * 1024)
+            var bytes = 0L
+            var first = 0.toByte()
             while (true) {
                 val n = channel.readAvailable(buf, 0, buf.size)
                 if (n < 0) break
+                if (n > 0 && first == 0.toByte()) first = (0 until n).firstOrNull { !buf[it].toInt().toChar().isWhitespace() }?.let { buf[it] } ?: 0
+                bytes += n
                 if (n > 0) splitter.feed(buf, n)
             }
+            // Never the body itself: an Xtream error answer can carry the login.
+            if (i == 0) log.warn("$action from ${source.name}: no titles in $bytes bytes (starts with '${first.toInt().toChar()}', ${response.status.value})")
         }
     }
 

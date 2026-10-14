@@ -153,6 +153,44 @@ class FullScreenKeyMapTest {
         eventually("Down moves through it") { focusedText()?.first()?.isDigit() == true }
     }
 
+    /** The list stays built once opened (milestone 5): closed, it takes no keys, and it reopens on the playing channel. */
+    @Test fun channelListKeptClosedTakesNoKeysAndReopensOnThePlayingChannel() = keyMapTest {
+        toFullScreen()
+        val start = current!!
+        press(RemoteAction.Left)
+        eventually("on the playing channel") { focusedText()?.contains(start.displayName) == true }
+        press(RemoteAction.Down)
+        eventually("moved") { focusedText()?.contains(start.displayName) == false }
+        press(RemoteAction.Back)
+        eventually("list closed") { !shows("Groups") }
+        // OK opens the info bar, not the row that was focused in the hidden list.
+        press(RemoteAction.Select)
+        eventually("info bar") { shows("Aspect ratio") }
+        assertEquals(start.key, current?.key, "nothing tuned")
+        press(RemoteAction.Back)
+        eventually("info bar closed") { !shows("Aspect ratio") }
+        // Up/Down zap again, and the list reopens on the new channel.
+        press(RemoteAction.Down)
+        eventually("zapped") { current?.key != start.key }
+        val now = current!!
+        press(RemoteAction.Left)
+        eventually("reopened on the new channel") { focusedText()?.contains(now.displayName) == true }
+    }
+
+    /** Built ahead after 2 s without a key, it stays out of the way until Left. */
+    @Test fun channelListBuiltInIdleTimeTakesNothing() = keyMapTest {
+        toFullScreen()
+        val start = current!!
+        ui.mainClock.advanceTimeBy(6_000)
+        settle()
+        assertFalse(shows("Groups"))
+        press(RemoteAction.Down)
+        eventually("Down still zaps") { current?.key != start.key }
+        val now = current!!
+        press(RemoteAction.Left)
+        eventually("opens on the playing channel") { focusedText()?.contains(now.displayName) == true }
+    }
+
     @Test fun channelListBackClosesAndLongPressOpensTheMenu() = keyMapTest {
         toFullScreen()
         val start = current!!

@@ -5,10 +5,17 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.staticCompositionLocalOf
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.withTimeoutOrNull
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.platform.LocalFocusManager
@@ -63,8 +70,25 @@ fun SignalApp(app: AppController) {
                         // screen shows, so reopening them doesn't rebuild them (PLAN §8 → milestone 5).
                         val kept = remember { LinkedHashSet<Route>() }
                         if (route in KEPT_ALIVE) kept += route
+                        // Pages not visited yet are built in idle time, so a first visit opens like a revisit.
+                        var warming by remember { mutableStateOf<Route?>(null) }
+                        warming?.let { kept += it }
+                        LaunchedEffect(Unit) {
+                            for (page in KEPT_ALIVE) {
+                                if (page in kept) continue
+                                snapshotFlow { app.navigator.current }.first { it != Route.Setup }
+                                app.dispatcher.awaitQuiet(WARM_AFTER_IDLE_MS)
+                                if (page in kept) continue
+                                warming = page
+                                app.log.info("Warm ${page::class.simpleName}")
+                                // Long enough for its data to arrive and compose; the next key ends it early.
+                                val inputs = app.dispatcher.inputs.value
+                                withTimeoutOrNull(WARM_WINDOW_MS) { app.dispatcher.inputs.first { it != inputs } }
+                                warming = null
+                            }
+                        }
                         for (page in kept) key(page) {
-                            KeptPage(active = page == route) {
+                            KeptPage(active = page == route, warm = page == warming) {
                                 when (page) {
                                     Route.LiveTv -> LiveTvPage()
                                     Route.Search -> SearchPage()
@@ -95,3 +119,7 @@ fun SignalApp(app: AppController) {
 
 /** The pages kept composed once visited (see [KeptPage]): the ones that took 100–150 ms frames to build. */
 private val KEPT_ALIVE: Set<Route> = setOf(Route.LiveTv, Route.Movies, Route.Series, Route.Search)
+
+/** How long the remote must be quiet before the next unvisited page is built, one page at a time. */
+private const val WARM_AFTER_IDLE_MS = 2_000L
+private const val WARM_WINDOW_MS = 3_000L

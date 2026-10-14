@@ -193,11 +193,14 @@ fun Wordmark() {
 @Composable
 fun ClockText(size: Int, modifier: Modifier = Modifier, withDate: Boolean = false, color: Color = SignalTheme.colors.text) {
     val app = LocalApp.current
-    var now by remember { mutableStateOf(nowLocal()) }
-    LaunchedEffect(Unit) {
-        while (true) {
-            now = nowLocal()
-            delay(1000L - Clock.System.now().toEpochMilliseconds() % 1000L)
+    // To the minute, so it recomposes once a minute; and not at all on a hidden kept-alive page,
+    // where each page's clock was ticking every second (PLAN §8 → milestone 5).
+    var now by remember { mutableStateOf(nowMinute()) }
+    val active = LocalPageActive.current
+    LaunchedEffect(active) {
+        while (active) {
+            now = nowMinute()
+            delay(60_000L - Clock.System.now().toEpochMilliseconds() % 60_000L)
         }
     }
     val use24 = app.settings.bool(Settings.Key.CLOCK_24H, app.platform.systemUses24HourClock())
@@ -210,6 +213,8 @@ fun ClockText(size: Int, modifier: Modifier = Modifier, withDate: Boolean = fals
 }
 
 fun nowLocal(): LocalDateTime = Clock.System.now().toLocalDateTime(TimeZone.currentSystemDefault())
+
+private fun nowMinute(): LocalDateTime = nowLocal().let { LocalDateTime(it.year, it.month, it.day, it.hour, it.minute) }
 
 fun formatTime(hour: Int, minute: Int, use24: Boolean): String = if (use24) {
     "${hour.toString().padStart(2, '0')}:${minute.toString().padStart(2, '0')}"
