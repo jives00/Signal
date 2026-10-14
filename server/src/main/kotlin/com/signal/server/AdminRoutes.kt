@@ -398,6 +398,7 @@ fun Route.adminPageRoutes(companion: Companion) {
         }
     }
     put("/settings") { val r = call.receive<SettingRequest>(); call.edit { edits.putSetting(r.scope, r.key, r.value, targets(r.profiles)) } }
+    post("/cleanup/preview") { val r = call.receive<CleanupPreviewRequest>(); call.answer { channels.cleanupPreview(call.profile(), r.rules) } }
     put("/settings/companion") {
         val v = call.receive<CompanionSettingsView>()
         val error = companion.settings.save(v)

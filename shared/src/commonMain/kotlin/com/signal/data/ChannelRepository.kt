@@ -3,6 +3,7 @@ package com.signal.data
 import app.cash.sqldelight.coroutines.asFlow
 import app.cash.sqldelight.coroutines.mapToList
 import com.signal.db.user.UserDatabase
+import com.signal.match.NameCleanup
 import com.signal.model.Channel
 import com.signal.model.ChannelGroup
 import com.signal.model.ChannelSort
@@ -52,6 +53,7 @@ class ChannelRepository(
         merge(settings.changes().map { }, db.listsQueries.favoriteKeys(profile).asFlow().map { }),
     ) { groups, overrides, playlists, sources, _ ->
         val overrideByKey = overrides.associateBy { it.source_id to it.group_name }
+        val cleanup = settings.nameCleanup()
         val enabledSources = sources.filter { it.enabled == 1L }
         val sourceNames = sources.associate { it.id to it.name }
         val multiSource = enabledSources.size > 1
@@ -60,7 +62,7 @@ class ChannelRepository(
             val o = overrideByKey[g.source_id to g.group_name]
             Triple(
                 GroupEntry(
-                    group = ChannelGroup.Provider(g.source_id, g.group_name, o?.custom_name ?: g.group_name),
+                    group = ChannelGroup.Provider(g.source_id, g.group_name, o?.custom_name ?: groupTitle(cleanup, g.group_name)),
                     count = g.channel_count.toInt(),
                     sourceName = if (multiSource) sourceNames[g.source_id] else null,
                     hidden = o?.hidden == 1L,
@@ -111,7 +113,10 @@ class ChannelRepository(
                 }
             }
         }
-        is ChannelGroup.Playlist -> db.listsQueries.playlistChannels(group.id).asFlow().mapToList(io).map { rows ->
+        is ChannelGroup.Playlist -> combine(
+            db.listsQueries.playlistChannels(group.id).asFlow().mapToList(io),
+            settings.changes(),
+        ) { rows, _ ->
             rows.map { r ->
                 channel(
                     stream = r.stream(), displayName = r.display_name, userChannelId = r.item_user_channel_id, customName = r.custom_name,
@@ -308,7 +313,8 @@ class ChannelRepository(
 
     /** User channels with more than one playable stream, and those streams: small, so it's kept live for menus. */
     fun multiLinked(): Flow<Map<String, List<LinkedStream>>> = db.userChannelQueries.multiLinked().asFlow().mapToList(io).map { rows ->
-        rows.groupBy({ it.user_channel_id }) { LinkedStream(it.user_channel_id, it.stream_id, it.preferred == 1L, it.display_name, it.group_name, it.source_name) }
+        val cleanup = settings.nameCleanup()
+        rows.groupBy({ it.user_channel_id }) { LinkedStream(it.user_channel_id, it.stream_id, it.preferred == 1L, cleanup.apply(it.display_name), it.group_name, it.source_name) }
     }
 
     /** Picks the stream a user channel plays, for every device (household, PLAN §9.1). */
@@ -378,13 +384,16 @@ class ChannelRepository(
     ): Channel = Channel(
         stream = stream,
         userChannelId = userChannelId,
-        displayName = customName ?: displayName,
+        // A rename wins over cleanup rules (PLAN §4.3.2 → Name cleanup rules).
+        displayName = customName ?: settings.nameCleanup().apply(displayName),
         // Until the user sets one: the provider's number, else the position in the source (PLAN §4.2).
         number = customNumber?.toInt() ?: stream.providerNumber ?: (stream.position + 1),
         logoUrl = customLogo ?: stream.logoUrl,
         isFavorite = favorite,
         isHidden = hidden == 1L,
     )
+
+    private fun groupTitle(cleanup: NameCleanup, name: String) = if (cleanup.groups) cleanup.apply(name) else name
 
     private fun rowStream(
         id: String, sourceId: String, providerId: String, rawName: String, groupName: String,

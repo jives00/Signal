@@ -85,6 +85,15 @@ export const getSettings = (profile: string) => read(S.SettingsView, `/api/setti
 export const putSetting = (scope: "household" | "profile", key: string, value: string | null, profiles: string[]) => put("/api/settings", { scope, key, value, profiles });
 export const putCompanionSettings = (v: S.CompanionSettingsView) => send<void>("/api/settings/companion", { method: "PUT", body: JSON.stringify(v) });
 
+/** Name cleanup rules as the `name_cleanup` setting stores them (shared/match/NameCleanup.kt). */
+export interface NameCleanupRules {
+  presets: string[];
+  custom: { text: string; at: "START" | "END" | "ANYWHERE"; regex?: boolean }[];
+  groups: boolean;
+}
+export const previewCleanup = (rules: NameCleanupRules, profile: string) =>
+  send<unknown>(`/api/cleanup/preview?${q(profile)}`, { method: "POST", body: JSON.stringify({ rules }) }).then((r) => S.CleanupPreview.parse(r));
+
 // ---- Devices & profiles ----
 export const ownProfile = (deviceId: string) => send<unknown>(`/api/devices/${enc(deviceId)}/own-profile`, { method: "POST" });
 export const copySections = (from: string, to: string[], sections: string[], replace: boolean) => post("/api/profiles/copy", { from, to, sections, replace });

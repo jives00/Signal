@@ -1,0 +1,23 @@
+{
+    "presets": [
+        {
+            "id": "COUNTRY",
+            "label": "Country codes at the start",
+            "example": "US: ESPN → ESPN"
+        }
+    ],
+    "channels": 1000,
+    "channelsChanged": 400,
+    "groups": 50,
+    "groupsChanged": 0,
+    "channelSamples": [
+        {
+            "before": "US: ESPN FHD",
+            "after": "ESPN"
+        }
+    ],
+    "groupSamples": [],
+    "invalidRules": [
+        "(unclosed"
+    ]
+}

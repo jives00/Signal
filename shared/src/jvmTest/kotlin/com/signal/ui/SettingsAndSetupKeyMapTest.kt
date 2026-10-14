@@ -2,6 +2,7 @@ package com.signal.ui
 
 import com.signal.app.Route
 import com.signal.input.RemoteAction
+import com.signal.match.NameCleanup
 import kotlinx.coroutines.launch
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -94,6 +95,39 @@ class SettingsAndSetupKeyMapTest {
         press(RemoteAction.Select)
         eventually("numbers shown") { app.showNumbers.value }
         assertEquals("${ch.number}  ${ch.displayName}", app.channelLabel(ch))
+    }
+
+    @Test fun nameCleanupPresetsAndOwnRules() = keyMapTest(start = Route.Settings) {
+        focusedStartsWith("Sources")
+        press(RemoteAction.Down)
+        focusedStartsWith("Channels & groups")
+        press(RemoteAction.Right)
+        focusedStartsWith("Group order")
+        press(RemoteAction.Down, times = 2)
+        focusedStartsWith("Country codes at the start")
+        press(RemoteAction.Select)
+        eventually("the preset's panel") { panelTitle == "Country codes at the start" }
+        focusedStartsWith("On")
+        press(RemoteAction.Select)
+        eventually("country codes on") {
+            NameCleanup.Preset.COUNTRY in app.settings.nameCleanup().presets && focusedText()?.startsWith("Country codes at the start") == true
+        }
+
+        // Past the other presets to "Add text to remove": at the end, "hd".
+        press(RemoteAction.Down, times = 4)
+        focusedStartsWith("Add text to remove")
+        press(RemoteAction.Select)
+        eventually("where to remove it") { panelTitle == "Remove text from names" }
+        press(RemoteAction.Down)
+        focusedStartsWith("At the end")
+        press(RemoteAction.Select)
+        typeInFocusedField(" hd ")
+        press(RemoteAction.Down)
+        focusedStartsWith("Add")
+        press(RemoteAction.Select)
+        eventually("the rule saved") { app.settings.nameCleanup().custom == listOf(NameCleanup.Rule("hd", NameCleanup.At.END)) }
+        eventually("the rule listed") { shows("Remove \"hd\" at the end") }
+        assertEquals("ESPN", app.settings.nameCleanup().apply("US: ESPN HD"))
     }
 
     @Test fun theStartPageOpensWhereSet() = keyMapTest {

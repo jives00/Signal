@@ -10,6 +10,7 @@ import lists from "./contract/lists.json";
 import overview from "./contract/overview.json";
 import queue from "./contract/queue.json";
 import settings from "./contract/settings.json";
+import cleanupPreview from "./contract/cleanup-preview.json";
 import settingsFile from "./contract/settings-file.json";
 import sources from "./contract/sources.json";
 import links from "./contract/links.json";
@@ -28,6 +29,7 @@ const cases: [string, ZodTypeAny, unknown][] = [
   ["lists", S.ListsView, lists],
   ["queue", S.QueueView, queue],
   ["settings", S.SettingsView, settings],
+  ["cleanup-preview", S.CleanupPreview, cleanupPreview],
   ["overview", S.Overview, overview],
   ["switch", S.SwitchView, switchView],
   ["links", S.LinkView.array(), links],

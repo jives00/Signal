@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -31,6 +32,7 @@ import com.signal.app.StartPage
 import com.signal.data.Settings
 import com.signal.input.RemoteAction
 import com.signal.input.RemoteHandler
+import com.signal.match.NameCleanup
 import com.signal.model.ChannelGroup
 import com.signal.model.ChannelSort
 import com.signal.model.GroupSort
@@ -192,6 +194,7 @@ private fun ChannelsSection(app: AppController, returnTo: FocusRequester) {
     val allGroups by remember { app.channels.groups(includeHidden = true) }.collectAsState(emptyList())
     val hiddenGroups = allGroups.filter { it.hidden }
     var tick by remember { mutableStateOf(0) }
+    val cleanup = remember(tick) { app.settings.nameCleanup() }
     LazyColumn(Modifier.width(1100.dp)) {
         item { SectionTitle("Order") }
         item {
@@ -210,6 +213,7 @@ private fun ChannelsSection(app: AppController, returnTo: FocusRequester) {
                 }, subtitle = "Favorites and playlists always keep their manual order."), returnTo)
             })
         }
+        nameCleanupRows(app, cleanup, returnTo) { tick++ }
         item { SectionTitle("Hidden channels") }
         if (hiddenChannels.isEmpty()) item { ListRow("None", enabled = false, onSelect = null) }
         items(hiddenChannels, key = { "c:" + it.key }) { ch ->
@@ -221,6 +225,54 @@ private fun ChannelsSection(app: AppController, returnTo: FocusRequester) {
             ListRow(g.group.title, detail = "Restore", onSelect = { app.scope.launch { app.channels.setGroupHidden(g.group as ChannelGroup.Provider, false) } })
         }
     }
+}
+
+/**
+ * Name cleanup rules (PLAN §4.3.2): common patterns to switch on, plus the user's own text to remove
+ * at the start or end of names. The web admin has the same rules with a live preview.
+ */
+private fun LazyListScope.nameCleanupRows(app: AppController, cleanup: NameCleanup, returnTo: FocusRequester, changed: () -> Unit) {
+    fun save(c: NameCleanup) { app.settings.put(Settings.Key.NAME_CLEANUP, c.encode()); changed() }
+    item { SectionTitle("Name cleanup") }
+    items(NameCleanup.Preset.entries, key = { "preset:${it.name}" }) { p ->
+        val on = p in cleanup.presets
+        ListRow(p.label, detail = if (on) "On" else "Off", onSelect = {
+            app.panel.open(PanelPage.Actions(p.label, listOf(
+                PanelAction("On", selected = on) { save(cleanup.copy(presets = cleanup.presets + p)); null },
+                PanelAction("Off", selected = !on) { save(cleanup.copy(presets = cleanup.presets - p)); null },
+            ), subtitle = p.example), returnTo)
+        })
+    }
+    items(cleanup.custom.withIndex().toList(), key = { "rule:${it.index}:${it.value.at}:${it.value.text}" }) { (i, rule) ->
+        // Through the panel, so focus has somewhere to go back to when the row disappears.
+        // Regex rules are made in the web admin; the TV lists them so they can be deleted.
+        val what = if (rule.regex) "pattern ${rule.text}" else "\"${rule.text}\""
+        ListRow("Remove $what ${atLabel(rule.at)}", detail = "Delete", onSelect = {
+            app.panel.open(PanelPage.Confirm("Delete rule", "Names will show $what ${atLabel(rule.at)} again.", "Delete") {
+                save(cleanup.copy(custom = cleanup.custom.filterIndexed { j, _ -> j != i }))
+            }, returnTo)
+        })
+    }
+    item(key = "rule:add") {
+        ListRow("Add text to remove", onSelect = {
+            app.panel.open(PanelPage.Actions("Remove text from names", NameCleanup.At.entries.map { at ->
+                PanelAction(atLabel(at).replaceFirstChar { it.uppercase() }) {
+                    PanelPage.TextInput("Text to remove ${atLabel(at)}", "", confirmLabel = "Add") { text ->
+                        if (text.isNotBlank()) save(cleanup.copy(custom = cleanup.custom + NameCleanup.Rule(text.trim(), at)))
+                    }
+                }
+            }, subtitle = "Matched ignoring case. * is any text and ? one character, so |*| removes |US| and |UK|."), returnTo)
+        })
+    }
+    item(key = "cleanup-groups") {
+        ListRow("Clean group names too", detail = if (cleanup.groups) "On" else "Off", onSelect = { save(cleanup.copy(groups = !cleanup.groups)) })
+    }
+}
+
+private fun atLabel(at: NameCleanup.At) = when (at) {
+    NameCleanup.At.START -> "at the start"
+    NameCleanup.At.END -> "at the end"
+    NameCleanup.At.ANYWHERE -> "anywhere"
 }
 
 private fun groupSortLabel(s: GroupSort) = when (s) {

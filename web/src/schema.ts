@@ -161,6 +161,17 @@ export const SettingsView = z.object({
   companion: CompanionSettingsView,
 });
 
+export const CleanupPreview = z.object({
+  presets: z.array(z.object({ id: z.string(), label: z.string(), example: z.string() })),
+  channels: z.number(),
+  channelsChanged: z.number(),
+  groups: z.number(),
+  groupsChanged: z.number(),
+  channelSamples: z.array(z.object({ before: z.string(), after: z.string() })),
+  groupSamples: z.array(z.object({ before: z.string(), after: z.string() })),
+  invalidRules: z.array(z.string()).default([]),
+});
+
 export const JobRun = z.object({
   id: z.number(),
   job: z.string(),
@@ -210,6 +221,7 @@ export type ManualMapping = z.infer<typeof ManualMapping>;
 export type ReminderView = z.infer<typeof ReminderView>;
 export type SettingsView = z.infer<typeof SettingsView>;
 export type CompanionSettingsView = z.infer<typeof CompanionSettingsView>;
+export type CleanupPreview = z.infer<typeof CleanupPreview>;
 export type JobRun = z.infer<typeof JobRun>;
 export type Overview = z.infer<typeof Overview>;
 export type SnapshotSummary = z.infer<typeof SnapshotSummary>;

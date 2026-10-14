@@ -2,6 +2,7 @@ package com.signal.server
 
 import com.signal.data.Settings
 import com.signal.guide.GuideResolver
+import com.signal.match.NameCleanup
 import com.signal.match.SearchText
 import com.signal.model.ChannelSort
 import com.signal.model.EpgSource
@@ -36,6 +37,7 @@ class AdminView(items: List<SyncItem>, val profileId: String) {
     val householdSettings: Map<String, String> = h(SyncType.SETTING).mapNotNull { s -> s.fields.str("value")?.let { s.id to it } }.toMap()
     val profileSettings: Map<String, String> = p(SyncType.SETTING).mapNotNull { s -> s.fields.str("value")?.let { s.id to it } }.toMap()
     val defaultEpgId: String? = GuideResolver.defaultId(householdSettings[Settings.Key.DEFAULT_EPG_SOURCE.id], epgSources)
+    val nameCleanup: NameCleanup = NameCleanup.parse(profileSettings[Settings.Key.NAME_CLEANUP.id])
 
     class Link(val userChannelId: String, val streamId: String, val preferred: Boolean)
     private val links = h(SyncType.CHANNEL_LINK).mapNotNull { l ->
@@ -121,6 +123,24 @@ data class ChannelRow(
 @Serializable
 data class ChannelPage(val total: Int, val offset: Int, val rows: List<ChannelRow>)
 
+/** Name cleanup's live preview (PLAN §4.3.18 → Name cleanup): unsaved rules against the real names. */
+@Serializable data class CleanupPreviewRequest(val rules: NameCleanup)
+@Serializable data class CleanupPresetView(val id: String, val label: String, val example: String)
+@Serializable data class CleanupSample(val before: String, val after: String)
+@Serializable
+data class CleanupPreview(
+    val presets: List<CleanupPresetView>,
+    val channels: Int,
+    val channelsChanged: Int,
+    val groups: Int,
+    val groupsChanged: Int,
+    /** Changed names spread across the list, distinct, before and after. */
+    val channelSamples: List<CleanupSample>,
+    val groupSamples: List<CleanupSample>,
+    /** Regex rules that don't compile, as typed; the TV skips them. */
+    val invalidRules: List<String> = emptyList(),
+)
+
 data class ChannelFilter(
     val query: String? = null,
     val sourceId: String? = null,
@@ -175,7 +195,7 @@ class AdminChannels(private val companion: Companion) {
             sourceName = view.sources.firstOrNull { it.first.id == s.sourceId }?.first?.name ?: s.sourceId,
             group = s.groupName,
             rawName = s.rawName,
-            name = customName ?: s.displayName,
+            name = customName ?: view.nameCleanup.apply(s.displayName),
             number = customNumber ?: s.providerNumber ?: (s.position + 1),
             logo = cp?.str("custom_logo") ?: s.logoUrl,
             tvgId = s.tvgId,
@@ -208,6 +228,26 @@ class AdminChannels(private val companion: Companion) {
     /** Streams in the order the app shows them: source order, then provider position. */
     fun orderedStreams(view: AdminView): List<CatalogStream> =
         companion.catalog.streams.filter { it.sourceId in view.sourceOrder }.sortedWith(compareBy({ view.sourceOrder[it.sourceId] }, { it.position }))
+
+    fun cleanupPreview(profileId: String, rules: NameCleanup, samples: Int = 80): CleanupPreview {
+        val streams = orderedStreams(view(profileId))
+        fun changes(names: List<String>) = names.mapNotNull { n -> rules.apply(n).takeIf { it != n }?.let { CleanupSample(n, it) } }
+        fun spread(l: List<CleanupSample>) = if (l.size <= samples) l else List(samples) { l[it * l.size / samples] }
+        val channels = streams.map { it.displayName }
+        val channelChanges = changes(channels)
+        val groups = streams.map { it.groupName }.distinct()
+        val groupChanges = if (rules.groups) changes(groups) else emptyList()
+        return CleanupPreview(
+            presets = NameCleanup.Preset.entries.map { CleanupPresetView(it.name, it.label, it.example) },
+            channels = channels.size,
+            channelsChanged = channelChanges.size,
+            groups = groups.size,
+            groupsChanged = groupChanges.size,
+            channelSamples = spread(channelChanges.distinctBy { it.before }),
+            groupSamples = spread(groupChanges),
+            invalidRules = rules.invalidRules().map { it.text },
+        )
+    }
 
     fun page(profileId: String, filter: ChannelFilter, offset: Int, limit: Int, now: Long): ChannelPage {
         val view = view(profileId)

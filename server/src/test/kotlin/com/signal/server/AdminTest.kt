@@ -119,6 +119,26 @@ class AdminTest {
         assertEquals(0, client.channels("customized=true").rows().size)
     }
 
+    @Test fun nameCleanupPreviewsThenChangesDisplayedNamesOnly() = testApplication {
+        application { signalModule(companion) }
+        client.demo()
+        val row = client.channels("limit=50").rows().first { ' ' in it.s("name")!! }
+        val name = row.s("name")!!
+        val rules = """{"custom":[{"text":"${name.substringAfterLast(' ')}","at":"END"}]}"""
+
+        val preview = obj(client.send("POST", "/api/cleanup/preview?profile=main", """{"rules":$rules}"""))
+        assertTrue(preview["channelsChanged"]!!.jsonPrimitive.int > 0)
+        assertTrue(preview["channelSamples"]!!.jsonArray.any { it.jsonObject.s("before") == name && it.jsonObject.s("after") == name.substringBeforeLast(' ') })
+        assertEquals(4, preview["presets"]!!.jsonArray.size)
+        // A preview saves nothing.
+        assertEquals(name, obj(client.send("GET", "/api/channels/${row.s("streamId")}?profile=main")).s("name"))
+
+        client.send("PUT", "/api/settings", """{"scope":"profile","key":"name_cleanup","value":${Json.encodeToString(rules)},"profiles":["main"]}""")
+        val cleaned = obj(client.send("GET", "/api/channels/${row.s("streamId")}?profile=main"))
+        assertEquals(name.substringBeforeLast(' '), cleaned.s("name"))
+        assertEquals(row.s("rawName"), cleaned.s("rawName"))
+    }
+
     @Test fun groupsHideRenameAndMoveSwitchesToManual() = testApplication {
         application { signalModule(companion) }
         client.demo()

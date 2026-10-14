@@ -60,6 +60,10 @@ class ContractTest {
         )
         check("settings", SettingsView.serializer(), SettingsView(mapOf("default_epg_source" to "epg:src"), mapOf("clock_24h" to "true"), CompanionSettingsView("03:00", "America/Chicago", 30, 90, "main", true, null, 20)))
         check(
+            "cleanup-preview", CleanupPreview.serializer(),
+            CleanupPreview(listOf(CleanupPresetView("COUNTRY", "Country codes at the start", "US: ESPN → ESPN")), 1000, 400, 50, 0, listOf(CleanupSample("US: ESPN FHD", "ESPN")), emptyList(), listOf("(unclosed")),
+        )
+        check(
             "overview", Overview.serializer(),
             Overview(listOf(source), Coverage(900, 1000), 2, 0, listOf(job), listOf(Device("d1", "Living room", "SHIELD", "0.3.0", 1, 2, "main", 3)), "0.3.0", 4),
         )

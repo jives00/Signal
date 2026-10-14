@@ -3,6 +3,7 @@ package com.signal.data
 import app.cash.sqldelight.coroutines.asFlow
 import app.cash.sqldelight.coroutines.mapToList
 import com.signal.db.user.UserDatabase
+import com.signal.match.NameCleanup
 import com.signal.model.ChannelSort
 import com.signal.model.GroupSort
 import kotlinx.coroutines.CoroutineScope
@@ -42,6 +43,8 @@ class Settings(private val db: UserDatabase, private val io: CoroutineDispatcher
         SHOW_LOGOS(Scope.PROFILE, "show_logos"),
         SHOW_NAMES(Scope.PROFILE, "show_names"),
         REMOVE_EMOJI(Scope.PROFILE, "remove_emoji"),
+        // Name cleanup rules as JSON (NameCleanup); unset is none.
+        NAME_CLEANUP(Scope.PROFILE, "name_cleanup"),
         DEFAULT_EPG_SOURCE(Scope.HOUSEHOLD, "default_epg_source"),
         REMINDER_LEAD_MINUTES(Scope.PROFILE, "reminder_lead_minutes"),
         REMINDER_AUTO_SWITCH(Scope.PROFILE, "reminder_auto_switch"),
@@ -143,6 +146,16 @@ class Settings(private val db: UserDatabase, private val io: CoroutineDispatcher
     /** Emits the whole settings table on every change; cheap, since it's a few dozen rows. */
     fun changes(): Flow<Map<String, String>> =
         db.settingQueries.all().asFlow().mapToList(io).map { rows -> rows.associate { "${it.scope}/${it.key}" to it.value_ } }
+
+    // Parsed once per value: it's read for every channel a list builds.
+    private var cleanupCache: Pair<String?, NameCleanup> = null to NameCleanup.NONE
+
+    fun nameCleanup(): NameCleanup {
+        val raw = raw(Key.NAME_CLEANUP)
+        return synchronized(this) {
+            cleanupCache.takeIf { it.first == raw }?.second ?: NameCleanup.parse(raw).also { cleanupCache = raw to it }
+        }
+    }
 
     fun groupSort(): GroupSort = raw(Key.GROUP_SORT)?.let { runCatching { GroupSort.valueOf(it) }.getOrNull() } ?: GroupSort.PROVIDER
     fun channelSort(): ChannelSort = raw(Key.CHANNEL_SORT)?.let { runCatching { ChannelSort.valueOf(it) }.getOrNull() } ?: ChannelSort.PROVIDER

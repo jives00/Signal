@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { getSettings, putCompanionSettings, putSetting } from "../admin";
 import { ApplyTo, profileNames, useProfiles, useToast } from "../context";
 import type { CompanionSettingsView, SettingsView } from "../schema";
+import NameCleanup from "./NameCleanup";
 
 /** A profile setting the TV has, with its choices (PLAN §4.3.15). [null] is the TV's own default. */
 const profileSettings: { section: string; key: string; label: string; options: [string | null, string][] }[] = [
@@ -62,6 +63,8 @@ export default function Settings() {
           </div>
         </section>
       ))}
+
+      <NameCleanup saved={data.profile["name_cleanup"]} onSaved={load} />
 
       <section className="section">
         <h2 className="section-title">Guide data</h2>

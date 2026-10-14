@@ -3,6 +3,7 @@ package com.signal.data
 import app.cash.sqldelight.driver.jdbc.sqlite.JdbcSqliteDriver
 import com.signal.db.user.UserDatabase
 import com.signal.demo.DemoData
+import com.signal.match.NameCleanup
 import com.signal.model.ChannelGroup
 import com.signal.model.Source
 import com.signal.model.SourceKind
@@ -72,6 +73,21 @@ class ChannelRepositoryTest {
         val news = channels.channelsNow(ChannelGroup.Provider("s1", "News", "News"))
         assertEquals("Charlie HD", news.single().displayName)
         assertEquals("Charlie ᴴᴰ", news.single().stream.rawName)
+    }
+
+    @Test
+    fun nameCleanupRulesChangeDisplayedNamesButARenameWins() = runBlocking {
+        setup()
+        val sports = ChannelGroup.Provider("s1", "Sports", "Sports")
+        settings.put(Settings.Key.NAME_CLEANUP, NameCleanup(setOf(NameCleanup.Preset.COUNTRY, NameCleanup.Preset.QUALITY)).encode())
+        assertEquals(listOf("Alpha", "Bravo"), channels.channelsNow(sports).map { it.displayName })
+        assertEquals("US: Alpha HD", channels.channelsNow(sports).first().stream.rawName)
+        assertEquals("Charlie", channels.channelsNow(ChannelGroup.Provider("s1", "News", "News")).single().displayName)
+
+        channels.rename(channels.channelsNow(sports).first(), "US: My Alpha HD")
+        assertEquals("US: My Alpha HD", channels.channelsNow(sports).first().displayName)
+        // Group names only change when asked.
+        assertEquals(listOf("Favorites", "Sports", "News"), channels.groups().first().map { it.group.title })
     }
 
     @Test
