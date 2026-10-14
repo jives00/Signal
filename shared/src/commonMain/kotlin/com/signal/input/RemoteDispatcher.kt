@@ -61,6 +61,12 @@ class RemoteDispatcher {
      */
     var recoverFocus: () -> Unit = {}
 
+    /**
+     * True when the key layer's root itself holds focus: nothing on screen does. Keys still arrive,
+     * but a direction has nowhere to move from, so pages put focus back in their content.
+     */
+    var rootFocused: Boolean = false
+
     fun push(owner: Any, priority: Int = Priority.SCREEN, handler: Handler) {
         handlers.removeAll { it.owner === owner }
         handlers += Entry(owner, priority, seq++, handler)

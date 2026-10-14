@@ -110,6 +110,17 @@ class MainActivity : ComponentActivity() {
         return super.onKeyDown(keyCode, event)
     }
 
+    // The same for releases: focus can vanish between OK's down and its up (an info bar hiding under
+    // the press), and a lost up left the key layer thinking OK was still held, so the next OK did
+    // nothing (user, 2026-10-13).
+    override fun onKeyUp(keyCode: Int, event: KeyEvent): Boolean {
+        if (keyCode in REMOTE_KEYS) {
+            signal.controller.dispatcher.recoverFocus()
+            if (window.superDispatchKeyEvent(event)) return true
+        }
+        return super.onKeyUp(keyCode, event)
+    }
+
     // Sleep, the screensaver, the Home button or another app: stop playback and free the stream;
     // coming back resumes where the user was (PLAN §4.2 → Sleep, the Home button and interruptions).
     override fun onStop() {

@@ -23,10 +23,12 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -117,9 +119,14 @@ class SidePanelState {
 fun SidePanelHost(state: SidePanelState) {
     val page = state.top ?: return
     val c = SignalTheme.colors
+    val focusManager = LocalFocusManager.current
     RemoteHandler(priority = RemoteDispatcher.Priority.PANEL) { action ->
         when (action) {
             RemoteAction.Back -> { state.back(); true }
+            // The panel moves its own focus: passed on, Up/Down reached full screen and zapped
+            // the channel beneath (user, 2026-10-13).
+            RemoteAction.Up -> { focusManager.moveFocus(FocusDirection.Up); true }
+            RemoteAction.Down -> { focusManager.moveFocus(FocusDirection.Down); true }
             // The panel is modal: keys never leak to the screen beneath it.
             RemoteAction.Left, RemoteAction.Right, RemoteAction.PlayPause, RemoteAction.Rewind,
             RemoteAction.FastForward, RemoteAction.ChannelUp, RemoteAction.ChannelDown, is RemoteAction.Digit -> true

@@ -49,6 +49,16 @@ class KeyInterpreterTest {
         assertEquals(RemoteAction.Digit(7), k.keyDown(RemoteKey.DIGIT_7, isRepeat = false).action)
     }
 
+    // OK's up got lost (focus vanished mid-press), then its timer fired: the next press still selects.
+    @Test
+    fun aPressAfterALostReleaseStillSelects() {
+        k.keyDown(RemoteKey.OK, isRepeat = false)
+        k.longPressElapsed()
+        val down = k.keyDown(RemoteKey.OK, isRepeat = false)
+        assertTrue(down.startLongPressTimer)
+        assertEquals(RemoteAction.Select, k.keyUp(RemoteKey.OK))
+    }
+
     @Test
     fun resetForgetsAHeldOk() {
         k.keyDown(RemoteKey.OK, isRepeat = false)

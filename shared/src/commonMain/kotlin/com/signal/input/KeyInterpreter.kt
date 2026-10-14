@@ -17,7 +17,10 @@ class KeyInterpreter {
     data class DownResult(val action: RemoteAction?, val startLongPressTimer: Boolean = false)
 
     fun keyDown(key: RemoteKey, isRepeat: Boolean): DownResult = when (key) {
-        RemoteKey.OK -> if (isRepeat || okDown) DownResult(null) else {
+        // A fresh down while the last press is still "held" means its up never arrived (focus vanished
+        // mid-press). Ignoring it would leave OK dead for one more press, after a long press nobody
+        // made (user, 2026-10-13: OK sometimes didn't open the info bar), so it starts a new press.
+        RemoteKey.OK -> if (isRepeat) DownResult(null) else {
             okDown = true
             okLongPressed = false
             DownResult(null, startLongPressTimer = true)

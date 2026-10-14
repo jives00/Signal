@@ -129,4 +129,70 @@ class VodKeyMapTest {
         route(Route.VodPlayer)
         eventually("resumed") { platform.player.state.value.request?.startPositionMs == 90_000L }
     }
+
+    @Test fun aPickerOverAMovieOwnsUpAndDown() = keyMapTest(start = Route.Movies) {
+        pageLoaded()
+        press(RemoteAction.Right)
+        eventually("a poster focused") { focusedText()?.startsWith("Recently added") == false }
+        press(RemoteAction.Select)
+        eventually("the movie page") { app.navigator.current is Route.MovieDetail }
+        focusedStartsWith("Play")
+        press(RemoteAction.Select)
+        route(Route.VodPlayer)
+        press(RemoteAction.Options)
+        focusedStartsWith("Audio")
+        press(RemoteAction.Right, 2)
+        focusedStartsWith("Aspect ratio")
+        press(RemoteAction.Select)
+        eventually("aspect picker") { panelTitle == "Aspect ratio" }
+        focusedStartsWith("Fit")
+        press(RemoteAction.Down)
+        focusedStartsWith("Fill")
+        press(RemoteAction.Up)
+        focusedStartsWith("Fit")
+        kotlin.test.assertEquals("Aspect ratio", panelTitle)
+    }
+
+    private suspend fun KeyMapScope.startMovies(n: Int): List<com.signal.model.VodItem> {
+        val movies = app.vod.recentlyAdded(com.signal.model.VodKind.MOVIE, n)
+        movies.forEachIndexed { i, m ->
+            app.watch.savePosition(com.signal.data.WatchRepository.Position(com.signal.data.ItemKeys.movie(m), "MOVIE", m.id, null, null, null, null, "T", 90_000, 600_000, i.toLong()))
+        }
+        return movies
+    }
+
+    private suspend fun KeyMapScope.removeFocusedCard() {
+        press(RemoteAction.Options)
+        eventually("the card menu") { panelTitle != null }
+        press(RemoteAction.Down, 2)
+        focusedStartsWith("Remove from Continue watching")
+        press(RemoteAction.Select)
+    }
+
+    // Removing a card used to leave nothing focused, and the remote went dead (user, 2026-10-13).
+    @Test fun removingACardMovesFocusToItsNeighbor() = keyMapTest {
+        startMovies(2)
+        heroFocused()
+        eventually("the Continue watching row") { shows("Continue watching") }
+        press(RemoteAction.Down, 2)
+        val removed = focusedText()
+        removeFocusedCard()
+        eventually("the card gone") { app.continueWatching.value.size == 1 }
+        eventually("focus on the other card") { focusedText().let { it != null && it != "" && it != removed } }
+        // The remote still works: Up leaves the row.
+        press(RemoteAction.Up)
+        eventually("focus left the row") { focusedText()?.contains("Add favorites") == true }
+    }
+
+    @Test fun removingTheLastCardMovesFocusOutOfTheRow() = keyMapTest {
+        startMovies(1)
+        heroFocused()
+        eventually("the Continue watching row") { shows("Continue watching") }
+        press(RemoteAction.Down, 2)
+        removeFocusedCard()
+        eventually("the row gone") { !shows("Continue watching") }
+        eventually("focus on Favorites") { focusedText()?.contains("Add favorites") == true }
+        press(RemoteAction.Up)
+        heroFocused()
+    }
 }

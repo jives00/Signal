@@ -65,7 +65,7 @@ class AppController(val platform: Platform, val log: Log) {
     val vodDetails = com.signal.data.VodDetailRepository(db, sources, platform.io, log)
     val watch = com.signal.data.WatchRepository(db, settings, platform.io)
     val vodPlayback = VodPlayback(platform.player, sources, vodDetails, watch, scope, log)
-    val playback = PlaybackController(platform.player, channels, sources, settings, scope, log)
+    val playback = PlaybackController(platform.player, channels, sources, settings, scope, log, linkedStreams = { linkedStreams.value })
     // The NAS companion (PLAN §5.7): optional; the app works the same without it.
     val nas = com.signal.nas.NasConnection(settings, http, platform.secretBox, platform.appInfo, log)
     // VOD enrichment from the companion (PLAN §4.3.12): lists, genres, posters and metadata.

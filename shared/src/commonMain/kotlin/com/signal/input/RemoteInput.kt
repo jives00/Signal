@@ -59,13 +59,23 @@ fun RemoteInput(dispatcher: RemoteDispatcher, content: @Composable () -> Unit) {
             delay(250)
         }
     }
+    // Another window on top mid-press (the system installer, a voice prompt) never sends us OK's up.
+    LaunchedEffect(windowFocused) {
+        if (!windowFocused) {
+            longPressJob[0]?.cancel()
+            interpreter.reset()
+        }
+    }
     // Only reached for remote keys nothing consumed, which means nothing here holds focus.
     SideEffect { dispatcher.recoverFocus = { runCatching { rootFocus.requestFocus() } } }
 
     Box(
         Modifier
             .fillMaxSize()
-            .onFocusChanged { anyFocus = it.hasFocus }
+            .onFocusChanged {
+                anyFocus = it.hasFocus
+                dispatcher.rootFocused = it.isFocused
+            }
             .focusRequester(rootFocus)
             .focusable()
             .onPreviewKeyEvent { event ->

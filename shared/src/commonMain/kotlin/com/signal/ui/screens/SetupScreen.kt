@@ -29,6 +29,9 @@ import kotlinx.coroutines.launch
 
 private enum class SetupStep { CHOOSE, NAS, PAIRED, SOURCE }
 
+/** After pairing: the first sync running, sources arrived and loading, none on the NAS, or no answer. */
+private enum class FirstSync { RUNNING, LOADING, EMPTY, FAILED }
+
 /**
  * First run, with no sources yet (PLAN §4.3.1 → First run). Home and the nav bar don't open until
  * a source loads. Connect to NAS pairs the device and downloads the NAS's settings; a source is
@@ -41,8 +44,7 @@ fun SetupScreen() {
     val scope = rememberCoroutineScope()
     var step by remember { mutableStateOf(SetupStep.CHOOSE) }
     var pairedAs by remember { mutableStateOf("") }
-    // After pairing: true while the first sync runs, false when it brought no sources, null when it failed.
-    var syncing by remember { mutableStateOf<Boolean?>(true) }
+    var firstSync by remember { mutableStateOf(FirstSync.RUNNING) }
     var status by remember { mutableStateOf<String?>(null) }
     val first = remember { FocusRequester() }
 
@@ -76,17 +78,26 @@ fun SetupScreen() {
                 NasForm(pair = true, onPaired = {
                     pairedAs = it
                     step = SetupStep.PAIRED
-                    syncing = true
+                    firstSync = FirstSync.RUNNING
                     // First run on a paired device: the NAS's settings download, and Home opens once a source loads (PLAN §4.3.1).
                     // On the app's scope: Home replaces this screen mid-sync, and the sync must carry on.
-                    app.scope.launch { syncing = if (app.syncNow()) false else null }
+                    app.scope.launch {
+                        firstSync = when {
+                            !app.syncNow() -> FirstSync.FAILED
+                            // Connecting starts a sync too, and whichever runs first brings the sources and
+                            // loads them; the other finds nothing new. So ask the database, not this sync.
+                            app.sources.count() > 0 -> FirstSync.LOADING
+                            else -> FirstSync.EMPTY
+                        }
+                    }
                 }, onCancel = { step = SetupStep.CHOOSE })
             }
             SetupStep.PAIRED -> {
-                val text = when (syncing) {
-                    true -> "This TV is paired as $pairedAs. Getting your settings from the NAS…"
-                    false -> "This TV is paired as $pairedAs. The NAS has no sources yet: add one here, and your other TVs get it too."
-                    null -> "This TV is paired as $pairedAs, but the NAS didn't answer. Add a source here; it syncs once the NAS is back."
+                val text = when (firstSync) {
+                    FirstSync.RUNNING -> "This TV is paired as $pairedAs. Getting your settings from the NAS…"
+                    FirstSync.LOADING -> "This TV is paired as $pairedAs. Loading your channels; Home opens when they're ready."
+                    FirstSync.EMPTY -> "This TV is paired as $pairedAs. The NAS has no sources yet: add one here, and your other TVs get it too."
+                    FirstSync.FAILED -> "This TV is paired as $pairedAs, but the NAS didn't answer. Add a source here; it syncs once the NAS is back."
                 }
                 SText(text, 26, Modifier.padding(top = 8.dp, bottom = 48.dp), color = c.muted, maxLines = 2)
                 Column(Modifier.width(900.dp)) {

@@ -86,6 +86,27 @@ class FullScreenKeyMapTest {
         eventually("audio picker") { panelTitle == "Audio" }
     }
 
+    // Up/Down in a picker used to fall through to the info bar and zap (user, 2026-10-13).
+    @Test fun aPickerOwnsUpAndDown() = keyMapTest {
+        toFullScreen()
+        val start = current!!
+        press(RemoteAction.Options)
+        focusedStartsWith("Audio")
+        press(RemoteAction.Right, 2)
+        focusedStartsWith("Aspect ratio")
+        press(RemoteAction.Select)
+        eventually("aspect picker") { panelTitle == "Aspect ratio" }
+        focusedStartsWith("Fit")
+        press(RemoteAction.Down)
+        focusedStartsWith("Fill")
+        press(RemoteAction.Down)
+        focusedStartsWith("Stretch")
+        press(RemoteAction.Up)
+        focusedStartsWith("Fill")
+        assertEquals(start.key, current?.key, "no zap underneath")
+        assertEquals("Aspect ratio", panelTitle)
+    }
+
     @Test fun infoBarPlayPauseRecalls() = keyMapTest {
         toFullScreen()
         val start = current!!

@@ -29,6 +29,8 @@ class PlaybackController(
     private val settings: Settings,
     private val scope: CoroutineScope,
     private val log: Log,
+    /** User channels with more than one playable stream, for failover (AppController.linkedStreams). */
+    private val linkedStreams: () -> Map<String, List<ChannelRepository.LinkedStream>> = { emptyMap() },
 ) {
     private val _current = MutableStateFlow<Channel?>(null)
     /** The channel loaded in the player, in the preview or full screen. */
@@ -46,7 +48,24 @@ class PlaybackController(
 
     val playerState get() = player.state
 
+    /** Streams tried since the user tuned the current channel: failover tries each linked one once. */
+    private val tried = HashSet<String>()
+    /** The URL [start] last sent to the player, to tell its errors from a stale request's. */
+    private var startedUrl: String? = null
+
     init {
+        // Automatic failover (PLAN §4.5, milestone 5): when a stream fails for good (the player has
+        // already retried it once), the channel moves to its next linked stream on an enabled source.
+        // The preferred stream stays as it is, so the next tune starts there again. Only when every
+        // link has failed does the error show.
+        scope.launch {
+            player.state.collect { s ->
+                if (s.status != com.signal.player.PlaybackState.Status.ERROR || s.request?.isLive != true) return@collect
+                val playing = _current.value ?: return@collect
+                if (s.request.url != startedUrl) return@collect
+                failover(playing)
+            }
+        }
         // Disabling or removing a source stops its channel wherever it's playing; otherwise a page
         // re-entering its preview would tune it again.
         scope.launch {
@@ -70,8 +89,12 @@ class PlaybackController(
         if (was?.key != channel.key) {
             if (was != null) previous = was
             _current.value = channel
+            tried.clear()
             scope.launch { start(channel) }
         } else if (player.state.value.status == com.signal.player.PlaybackState.Status.IDLE) {
+            // The same channel, perhaps after a failover: back to the stream it was tuned with.
+            _current.value = channel
+            tried.clear()
             scope.launch { start(channel) }
         }
         if (fullScreen) scope.launch { rememberLastPlayed(channel) }
@@ -80,13 +103,28 @@ class PlaybackController(
     /** The Stream picker chose another stream for the playing channel: play it now. */
     fun switchStream(channel: Channel) {
         _current.value = channel
+        tried.clear()
         scope.launch { start(channel) }
+    }
+
+    private suspend fun failover(playing: Channel) {
+        val uc = playing.userChannelId ?: return
+        tried += playing.stream.id
+        val next = linkedStreams()[uc].orEmpty().firstOrNull { it.streamId !in tried } ?: return
+        tried += next.streamId
+        val alternative = channels.channelByStream(next.streamId) ?: return
+        // A zap or a new tune while the lookup ran wins.
+        if (_current.value?.key != playing.key) return
+        log.info("Failover: ${playing.displayName} failed, trying ${next.sourceName} · ${next.name}")
+        _current.value = alternative
+        start(alternative)
     }
 
     private suspend fun start(channel: Channel) {
         val source = sources.byId(channel.stream.sourceId) ?: return
         val url = StreamUrls.live(source, channel.stream)
         _aspect.value = channels.remembered(channel)?.aspect?.let { runCatching { AspectMode.valueOf(it) }.getOrNull() } ?: AspectMode.FIT
+        startedUrl = url
         log.info("Tune ${channel.displayName} (${CredentialMasking.forLog(url, source)})")
         player.play(PlayRequest(url = url, headers = StreamUrls.headers(source, channel.stream), isLive = true, label = channel.displayName))
     }

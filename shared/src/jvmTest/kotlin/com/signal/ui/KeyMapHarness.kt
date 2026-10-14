@@ -65,6 +65,8 @@ class TestPlayer : VideoPlayer {
     override fun seekTo(positionMs: Long) { this.positionMs = positionMs.coerceIn(0, durationMs); _state.value = _state.value.copy(ended = false) }
     override fun setPaused(paused: Boolean) { _state.value = _state.value.copy(paused = paused) }
     fun end() { positionMs = durationMs; _state.value = _state.value.copy(ended = true) }
+    /** The stream failed for good, after the player's own retry. */
+    fun fail() { _state.value = _state.value.copy(status = PlaybackState.Status.ERROR, error = com.signal.player.PlaybackError(com.signal.player.PlaybackError.Kind.OFFLINE)) }
 
     override fun stop() { _state.value = PlaybackState() }
     override fun retry() { _state.value.request?.let(::play) }

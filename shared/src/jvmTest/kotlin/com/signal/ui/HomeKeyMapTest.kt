@@ -68,4 +68,13 @@ class HomeKeyMapTest {
         route(Route.LiveTv)
         assertTrue(app.navigator.current == Route.LiveTv)
     }
+
+    // The safety net: whatever deleted the focused element, a direction brings focus back to the page.
+    @Test fun aDirectionWithNothingFocusedGoesBackToThePage() = keyMapTest {
+        heroFocused()
+        ui.runOnIdle { app.dispatcher.recoverFocus() }
+        eventually("only the root focused") { focusedText() == null }
+        press(RemoteAction.Down)
+        heroFocused()
+    }
 }

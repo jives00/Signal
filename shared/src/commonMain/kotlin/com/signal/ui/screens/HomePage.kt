@@ -21,7 +21,10 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
@@ -45,6 +48,7 @@ import com.signal.ui.components.SText
 import com.signal.ui.components.TopLevelPage
 import com.signal.ui.components.VDivider
 import com.signal.ui.components.VideoBox
+import com.signal.ui.components.requestFocusWhenReady
 import com.signal.ui.theme.SignalSizes
 import com.signal.ui.theme.SignalTheme
 import kotlinx.coroutines.launch
@@ -77,6 +81,9 @@ fun HomePage() {
         onDispose { if (!app.navigator.current.showsVideo && app.navigator.current != Route.VodPlayer) app.playback.stop() }
     }
 
+    // Favorites' first tile: where focus goes when Continue watching empties under it.
+    val favoritesFirst = remember { FocusRequester() }
+
     TopLevelPage(Route.Home, chrome) {
         // Scrolls: with Continue watching and Reminders, the rows can run past the screen.
         Column(Modifier.fillMaxSize().verticalScroll(androidx.compose.foundation.rememberScrollState())) {
@@ -99,8 +106,8 @@ fun HomePage() {
                 HeroDetails(current)
             }
             HDivider()
-            FavoritesRow(favorites)
-            ContinueRow()
+            FavoritesRow(favorites, favoritesFirst)
+            ContinueRow(onEmptied = { favoritesFirst.requestFocusWhenReady() })
             RemindersRow()
         }
     }
@@ -147,14 +154,13 @@ internal fun ProgressBar(progress: Float, modifier: Modifier = Modifier, onAccen
 }
 
 @Composable
-private fun FavoritesRow(favorites: List<Channel>?) {
+private fun FavoritesRow(favorites: List<Channel>?, firstTile: FocusRequester) {
     val app = LocalApp.current
     val c = SignalTheme.colors
     val tileWidth = 268 // Six tiles across the 1920 canvas inside the 96 margins, 24 apart.
     Column(Modifier.fillMaxWidth()) {
         SText("Favorites", 28, Modifier.padding(start = SignalSizes.EDGE_MARGIN.dp, top = 32.dp, bottom = 16.dp), weight = FontWeight.ExtraBold)
         if (favorites == null) return@Column
-        val firstTile = remember { FocusRequester() }
         LazyRow(
             // Entering the row lands on the first tile, then on the last one focused.
             Modifier.fillMaxWidth().focusRestorer(firstTile),
@@ -163,7 +169,7 @@ private fun FavoritesRow(favorites: List<Channel>?) {
         ) {
             if (favorites.isEmpty()) {
                 item {
-                    Focusable(Modifier.width((tileWidth * 3).dp), onSelect = { app.navigator.go(Route.LiveTv) }) { focused ->
+                    Focusable(Modifier.width((tileWidth * 3).dp), focusRequester = firstTile, onSelect = { app.navigator.go(Route.LiveTv) }) { focused ->
                         Column(Modifier.background(if (focused) c.accent else c.surface).padding(24.dp)) {
                             SText("Add favorites", 26, weight = FontWeight.ExtraBold, color = if (focused) c.onAccent else c.text)
                             SText("Long-press OK on any channel in Live TV and choose Add to Favorites.", 22, color = if (focused) c.onAccent else c.muted, maxLines = 2)
@@ -293,12 +299,32 @@ private fun reminderDay(ms: Long, now: Long): String {
  * Continue watching (PLAN §4.3.1): started movies and episodes, and next up. OK plays at once from
  * the saved position (next up from the start); long-press opens details, Mark as watched and Remove.
  * Hidden when empty.
+ *
+ * Removing a card, or marking it watched, deletes the focused element. Nothing would hold focus
+ * then, and the remote went dead (user, 2026-10-13), so focus moves to the card now in its place,
+ * or [onEmptied] when the row goes.
  */
 @Composable
-private fun ContinueRow() {
+private fun ContinueRow(onEmptied: suspend () -> Unit) {
     val app = LocalApp.current
     val c = SignalTheme.colors
     val cards by app.continueWatching.collectAsState()
+    val requesters = remember { HashMap<String, FocusRequester>() }
+    // The card a menu action is taking away, and where it was.
+    var leaving by remember { mutableStateOf<Pair<String, Int>?>(null) }
+    LaunchedEffect(cards, leaving) {
+        val (key, index) = leaving ?: return@LaunchedEffect
+        if (cards.any { it.key == key }) return@LaunchedEffect
+        leaving = null
+        if (cards.isEmpty()) return@LaunchedEffect onEmptied()
+        // Wait for the row's next layout, which drops the removed card and swaps the card now in
+        // first place to the row's first requester. Focus asked for before that was lost with it.
+        val target = cards[index.coerceAtMost(cards.lastIndex)].key
+        repeat(10) {
+            withFrameNanos { }
+            if (requesters[target]?.let { runCatching { it.requestFocus() }.getOrDefault(false) } == true) return@LaunchedEffect
+        }
+    }
     if (cards.isEmpty()) return
     val first = remember { FocusRequester() }
     Column(Modifier.fillMaxWidth()) {
@@ -311,6 +337,7 @@ private fun ContinueRow() {
             itemsIndexed(cards, key = { _, card -> card.key }) { i, card ->
                 val own = remember { FocusRequester() }
                 val tile = if (i == 0) first else own
+                requesters[card.key] = tile
                 fun play() {
                     app.scope.launch {
                         val e = card.episode
@@ -328,7 +355,7 @@ private fun ContinueRow() {
                     Modifier.width(326.dp),
                     focusRequester = tile,
                     onSelect = ::play,
-                    onOptions = { app.panel.open(continueMenu(app, card), tile) },
+                    onOptions = { app.panel.open(continueMenu(app, card) { leaving = card.key to i }, tile) },
                 ) { focused ->
                     Column(Modifier.fillMaxWidth().background(if (focused) c.accent else Color.Transparent)) {
                         Box(Modifier.fillMaxWidth().height(150.dp).background(c.neutral300), contentAlignment = Alignment.BottomStart) {
@@ -350,13 +377,14 @@ private fun ContinueRow() {
 }
 
 /** Long-press on a Continue watching card (PLAN §4.3.1). */
-private fun continueMenu(app: com.signal.app.AppController, card: com.signal.data.ContinueWatching.Card): com.signal.ui.panel.PanelPage =
+private fun continueMenu(app: com.signal.app.AppController, card: com.signal.data.ContinueWatching.Card, onLeaving: () -> Unit): com.signal.ui.panel.PanelPage =
     com.signal.ui.panel.PanelPage.Actions(card.title, listOf(
         com.signal.ui.panel.PanelAction("Go to details") {
             app.navigator.go(if (card.episode != null) Route.SeriesDetail(card.item.id) else Route.MovieDetail(card.item.id))
             null
         },
         com.signal.ui.panel.PanelAction("Mark as watched") {
+            onLeaving()
             app.scope.launch {
                 val e = card.episode
                 app.watch.markWatched(card.key, if (e != null) "EPISODE" else "MOVIE", card.item.id, card.seriesKey, e?.season, e?.episode)
@@ -364,6 +392,7 @@ private fun continueMenu(app: com.signal.app.AppController, card: com.signal.dat
             null
         },
         com.signal.ui.panel.PanelAction("Remove from Continue watching") {
+            onLeaving()
             app.scope.launch { card.seriesKey?.let { app.watch.hideSeries(it) } ?: app.watch.clearPosition(card.key) }
             null
         },

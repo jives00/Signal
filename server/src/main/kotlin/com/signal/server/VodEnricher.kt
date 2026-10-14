@@ -5,6 +5,9 @@ import com.signal.model.VodKind
 import com.signal.nas.EpisodeMeta
 import com.signal.nas.VodIndex
 import com.signal.nas.VodMeta
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.builtins.ListSerializer
@@ -12,6 +15,7 @@ import kotlinx.serialization.json.Json
 import org.slf4j.LoggerFactory
 import java.time.LocalDate
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicInteger
 
 /**
  * VOD enrichment (PLAN §4.3.12–4.3.13): matches the catalog's movies and series to TMDB, keeps the
@@ -121,26 +125,38 @@ class VodEnricher(
                 val m = matches[item.id]
                 m == null || (m.status == VodMatch.UNMATCHED && m.attemptedAt < retryBefore)
             }
-            // The same title in several sources is looked up once.
-            val found = HashMap<String, Long?>()
-            var matched = 0
-            var unmatched = 0
-            var done = 0
-            for (item in pending) {
-                if (now() - started > budgetMs) break
-                progress = "Matching ${done + 1} of ${pending.size}"
-                val key = "${item.kind}|${item.tmdbId ?: ""}|${TitleNormalizer.key(TitleNormalizer.query(item.name))}|${TitleNormalizer.year(item) ?: ""}"
-                val id = if (key in found) found[key] else runCatching { findMatch(item)?.id }
-                    .onFailure { if (it is Tmdb.NoKey) throw it }
-                    .getOrElse { log.warn("Matching ${item.name} failed: ${it.message}"); continue }
-                    .also { found[key] = it }
-                store().putMatch(VodMatch(item.id, item.sourceId, item.kind.name, id, if (id != null) VodMatch.MATCHED else VodMatch.UNMATCHED, now()))
-                if (id != null) matched++ else unmatched++
-                done++
-                if (done % 200 == 0) changes++
+            // The same title in several sources is looked up once: one group per lookup.
+            val groups = pending.groupBy { item ->
+                "${item.kind}|${item.tmdbId ?: ""}|${TitleNormalizer.key(TitleNormalizer.query(item.name))}|${TitleNormalizer.year(item) ?: ""}"
+            }.values
+            val matched = AtomicInteger()
+            val unmatched = AtomicInteger()
+            val done = AtomicInteger()
+            // One lookup at a time spends most of its time waiting on TMDB (about 6 requests a second),
+            // so several run at once. Tmdb's gate still holds the total under its rate limit.
+            val queue = Channel<List<VodItem>>(Channel.UNLIMITED)
+            groups.forEach { queue.trySend(it) }
+            queue.close()
+            coroutineScope {
+                repeat(MATCH_WORKERS) {
+                    launch {
+                        for (group in queue) {
+                            if (now() - started > budgetMs) break
+                            progress = "Matching ${done.get() + 1} of ${pending.size}"
+                            val id = runCatching { findMatch(group.first())?.id }
+                                .onFailure { if (it is Tmdb.NoKey) throw it }
+                                .getOrElse { log.warn("Matching ${group.first().name} failed: ${it.message}"); continue }
+                            for (item in group) {
+                                store().putMatch(VodMatch(item.id, item.sourceId, item.kind.name, id, if (id != null) VodMatch.MATCHED else VodMatch.UNMATCHED, now()))
+                                if (id != null) matched.incrementAndGet() else unmatched.incrementAndGet()
+                                if (done.incrementAndGet() % 200 == 0) changes++
+                            }
+                        }
+                    }
+                }
             }
             changes++
-            val left = pending.size - done
+            val left = pending.size - done.get()
             parts += "matched $matched, unmatched $unmatched" + if (left > 0) ", $left left for next time" else ""
             "$trigger: ${parts.joinToString("; ")}"
         } catch (e: Tmdb.NoKey) {
@@ -279,6 +295,8 @@ class VodEnricher(
         const val RETRY_AFTER_MS = 30 * 24 * 60 * 60_000L
         /** A night's matching stops after 2 hours and carries on the next night. */
         const val NIGHT_BUDGET_MS = 2 * 60 * 60_000L
+        /** Lookups in flight at once while matching. */
+        const val MATCH_WORKERS = 6
         /** 5 pages of 20: the top 100 of each list, before keeping only what the sources have. */
         const val LIST_PAGES = 5
 

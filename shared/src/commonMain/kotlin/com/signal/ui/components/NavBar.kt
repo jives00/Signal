@@ -89,6 +89,13 @@ fun TopLevelPage(
     val focusManager = LocalFocusManager.current
 
     RemoteHandler { action ->
+        // A focused element was deleted (a removed card, an unfavorited tile) and nothing took its
+        // place: the first direction puts focus back in the page instead of doing nothing.
+        val direction = action == RemoteAction.Up || action == RemoteAction.Down || action == RemoteAction.Left || action == RemoteAction.Right
+        if (direction && app.dispatcher.rootFocused && !chrome.navHasFocus) {
+            chrome.focusContent()
+            return@RemoteHandler true
+        }
         when (action) {
             RemoteAction.Back -> {
                 when {
