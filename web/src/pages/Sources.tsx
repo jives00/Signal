@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { Link } from "react-router-dom";
 import {
   addEpgSource, addSource, deleteEpgSource, deleteSource, getSources, moveEpgSource, refreshSource, revealPassword, setDefaultEpg,
   setSourceEnabled, testSource, updateEpgSource, updateSource, type SourceForm,
 } from "../admin";
-import { ago } from "../api";
+import { ago, buildGuide } from "../api";
 import { useToast } from "../context";
 import type { EpgSourceView, SourceView, SourcesView } from "../schema";
 
@@ -24,12 +25,13 @@ export default function Sources() {
   const load = useCallback(() => {
     getSources().then((d) => { setData(d); setError(null); }).catch((e: Error) => setError(e.message));
   }, []);
+  const busy = !!data && (data.guideBuilding || data.sources.some((s) => s.refreshing));
   useEffect(() => {
     load();
     // Faster while something refreshes.
-    const timer = setInterval(load, data?.sources.some((s) => s.refreshing) ? 3_000 : 30_000);
+    const timer = setInterval(load, busy ? 3_000 : 30_000);
     return () => clearInterval(timer);
-  }, [load, data?.sources.some((s) => s.refreshing)]);
+  }, [load, busy]);
 
   function edit(s: SourceView) {
     setEditing({
@@ -60,6 +62,11 @@ export default function Sources() {
     event.preventDefault();
     if (!epgForm) return;
     if (await save("EPG source added · the guide rebuilds", () => addEpgSource(epgForm.name, epgForm.url), load)) setEpgForm(null);
+  }
+
+  /** Downloads one EPG source again, or all of them, and republishes the guide. */
+  function refreshGuide(epgId?: string) {
+    buildGuide(epgId).then(() => { say("Refreshing the guide…"); setTimeout(load, 500); }).catch((e: Error) => say(e.message, true));
   }
 
   function shift(e: EpgSourceView) {
@@ -148,7 +155,7 @@ export default function Sources() {
         <p className="detail">The guide uses the default first, then the others in this order for channels the default doesn't cover.</p>
         {data && data.epgSources.length > 0 && (
           <table className="table">
-            <thead><tr><th>Order</th><th>Name</th><th>Guide</th><th>Time shift</th><th /></tr></thead>
+            <thead><tr><th>Order</th><th>Name</th><th>Guide</th><th>Time shift</th><th>Last refresh</th><th /></tr></thead>
             <tbody>
               {data.epgSources.map((e, i) => (
                 <tr key={e.id} className={e.enabled ? "" : "dim"}>
@@ -159,7 +166,9 @@ export default function Sources() {
                   <td>{e.name}{e.isDefault && <span className="tag">Default</span>}{!e.enabled && <span className="tag">Disabled</span>}<div className="detail small">{e.kind === "XMLTV" ? e.url : e.kind === "XTREAM" ? "The source's own xmltv.php" : "Demo"}</div></td>
                   <td>{e.error ? <span className="error-text">{e.error}</span> : `${e.channels.toLocaleString()} channels · ${e.programs.toLocaleString()} programs`}</td>
                   <td>{e.timeShiftMinutes ? `${e.timeShiftMinutes > 0 ? "+" : ""}${e.timeShiftMinutes} min` : "None"}</td>
+                  <td>{data.guideBuilding && e.enabled ? "Refreshing…" : e.refreshedAt ? ago(e.refreshedAt) : "Never"}</td>
                   <td className="actions">
+                    <button onClick={() => refreshGuide(e.id)} disabled={data.guideBuilding || !e.enabled}>Refresh now</button>
                     {!e.isDefault && e.enabled && <button onClick={() => save("Default EPG source set", () => setDefaultEpg(e.id), load)}>Make default</button>}
                     <button onClick={() => shift(e)}>Time shift</button>
                     {e.kind === "XMLTV" && <button onClick={() => { const name = window.prompt("Name", e.name)?.trim(); if (name) save("Renamed", () => updateEpgSource(e.id, { name }), load); }}>Rename</button>}
@@ -170,6 +179,12 @@ export default function Sources() {
               ))}
             </tbody>
           </table>
+        )}
+        {data && data.epgSources.some((e) => e.enabled) && (
+          <div className="row">
+            <button onClick={() => refreshGuide()} disabled={data.guideBuilding}>Refresh all</button>
+            <span className="detail">The guide also refreshes nightly · <Link className="inline" to="/settings">schedule</Link></span>
+          </div>
         )}
         {epgForm && (
           <form className="card form" onSubmit={addEpg}>

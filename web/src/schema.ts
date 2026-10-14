@@ -103,8 +103,9 @@ export const EpgSourceView = z.object({
   channels: z.number(),
   programs: z.number(),
   error: z.string().nullable(),
+  refreshedAt: z.number().nullable(),
 });
-export const SourcesView = z.object({ sources: z.array(SourceView), epgSources: z.array(EpgSourceView) });
+export const SourcesView = z.object({ sources: z.array(SourceView), epgSources: z.array(EpgSourceView), guideBuilding: z.boolean() });
 
 export const GroupView = z.object({
   sourceId: z.string(),

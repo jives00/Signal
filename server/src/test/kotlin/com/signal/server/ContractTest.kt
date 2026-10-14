@@ -50,7 +50,7 @@ class ContractTest {
         check("channel-page", ChannelPage.serializer(), ChannelPage(1, 0, listOf(row)))
         check(
             "sources", SourcesView.serializer(),
-            SourcesView(listOf(source), listOf(EpgSourceView("epg:src", "Provider guide", "XTREAM", "", "src", true, 0, true, 8343, 118_000, null))),
+            SourcesView(listOf(source), listOf(EpgSourceView("epg:src", "Provider guide", "XTREAM", "", "src", true, 0, true, 8343, 118_000, null, 1_760_000_000_000)), guideBuilding = false),
         )
         check("groups", GroupsView.serializer(), GroupsView("PROVIDER", "PROVIDER", listOf(GroupView("src", "Provider", "US Sports", "Sports", 120, false, null, "Sports"))))
         check("lists", ListsView.serializer(), ListsView(listOf(row), listOf(PlaylistView("pl-1", "Sports", listOf(row)))))

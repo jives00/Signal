@@ -106,14 +106,14 @@ class GuideJob(private val companion: Companion, private val scope: CoroutineSco
         )
     }
 
-    /** Starts a run unless one is running. False when it can't start. */
-    fun runInBackground(trigger: String): Boolean {
+    /** Starts a run unless one is running. False when it can't start. [only]: refresh just that EPG source. */
+    fun runInBackground(trigger: String, only: String? = null): Boolean {
         if (companion.guide.running) return false
-        scope.launch { run(trigger) }
+        scope.launch { run(trigger, only) }
         return true
     }
 
-    suspend fun run(trigger: String) {
+    suspend fun run(trigger: String, only: String? = null) {
         val store = companion.store
         val inputs = inputs()
         if (store == null || inputs == null || inputs.epgSources.none { it.enabled }) {
@@ -126,7 +126,7 @@ class GuideJob(private val companion: Companion, private val scope: CoroutineSco
             return
         }
         val id = store.startJob(JOB, System.currentTimeMillis())
-        val result = companion.guide.build(inputs, System.currentTimeMillis())
+        val result = companion.guide.build(inputs, System.currentTimeMillis(), only)
         val detail = result.fold(
             { m -> "$trigger: ${m.programs} programs, ${m.channels} channels" + m.outcomes.values.mapNotNull { it.error }.joinToString("") { "; failed: $it" } },
             { "$trigger: ${it.message}" },
@@ -191,11 +191,17 @@ fun Route.guideDeviceRoutes(companion: Companion) {
 fun Route.guideAdminRoutes(companion: Companion) {
     get("/guide") { call.respond(companion.guideJob.status()) }
 
+    // ?epg=<id> refreshes one EPG source (Sources → Refresh now); without it, all of them (Refresh all).
     post("/guide/build") {
+        val epgId = call.request.queryParameters["epg"]
+        val enabled = companion.guideJob.inputs()?.epgSources?.filter { it.enabled }.orEmpty()
+        val epg = epgId?.let { id -> enabled.firstOrNull { it.id == id } }
         when {
             companion.store == null -> call.respondText("The database isn't connected yet.", status = HttpStatusCode.ServiceUnavailable)
-            companion.guideJob.inputs()?.epgSources?.any { it.enabled } != true -> call.respondText("No EPG sources yet: add a source on a paired TV.", status = HttpStatusCode.Conflict)
-            !companion.guideJob.runInBackground("run now") -> call.respondText("A guide build is already running.", status = HttpStatusCode.Conflict)
+            enabled.isEmpty() -> call.respondText("No EPG sources yet: add a source on a paired TV.", status = HttpStatusCode.Conflict)
+            epgId != null && epg == null -> call.respondText("No such enabled EPG source.", status = HttpStatusCode.NotFound)
+            !companion.guideJob.runInBackground(epg?.let { "refresh ${it.name}" } ?: "refresh all", epg?.id) ->
+                call.respondText("A guide build is already running.", status = HttpStatusCode.Conflict)
             else -> call.respond(HttpStatusCode.Accepted)
         }
     }

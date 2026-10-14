@@ -96,7 +96,8 @@ export interface GuideStatus {
 }
 
 export const getGuide = () => send<GuideStatus>("/api/guide");
-export const buildGuide = () => send<void>("/api/guide/build", { method: "POST" });
+/** One EPG source, or every one without [epgId]. */
+export const buildGuide = (epgId?: string) => send<void>(`/api/guide/build${epgId ? `?epg=${encodeURIComponent(epgId)}` : ""}`, { method: "POST" });
 export const setGuideSchedule = (schedule: GuideSchedule) => send<void>("/api/guide/schedule", { method: "PUT", body: JSON.stringify(schedule) });
 
 /** 14.2 MB, 830 KB. */

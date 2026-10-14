@@ -79,4 +79,8 @@ data class NasGuideMeta(
 )
 
 @Serializable
-data class NasGuideOutcome(val channels: Int, val programs: Int, val error: String? = null, val carriedOver: Boolean = false)
+data class NasGuideOutcome(
+    val channels: Int, val programs: Int, val error: String? = null, val carriedOver: Boolean = false,
+    /** When this source last downloaded successfully; older than builtAt when a build reused or carried it over. */
+    val refreshedAt: Long? = null,
+)

@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
-  clock, editChannels, getChannel, getChannels, getLinks, getLists, getSources, preferStream, resetMapping, revealHidden, searchGuide, setMapping,
+  clock, editChannels, getChannel, getChannels, getGroups, getLinks, getLists, getSources, preferStream, resetMapping, revealHidden, searchGuide, setMapping,
   type ChannelAction, type ChannelQuery,
 } from "../admin";
 import { ApplyTo, profileNames, useProfiles, useToast } from "../context";
-import type { ChannelPage, ChannelRow, GuideChannelInfo, LinkView, ProgramBrief, SourcesView } from "../schema";
+import type { ChannelPage, ChannelRow, GroupView, GuideChannelInfo, LinkView, ProgramBrief, SourcesView } from "../schema";
 
 const PAGE = 100;
 
@@ -39,6 +39,7 @@ export default function Channels() {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [sources, setSources] = useState<SourcesView | null>(null);
   const [playlists, setPlaylists] = useState<{ id: string; name: string }[]>([]);
+  const [groups, setGroups] = useState<GroupView[]>([]);
   const [open, setOpen] = useState<string | null>(null);
 
   // Search waits for a pause in typing.
@@ -54,6 +55,7 @@ export default function Channels() {
   useEffect(() => {
     getSources().then(setSources).catch(() => undefined);
     getLists(profile).then((l) => setPlaylists(l.playlists.map(({ id, name }) => ({ id, name })))).catch(() => undefined);
+    getGroups(profile).then((g) => setGroups(g.groups)).catch(() => undefined);
   }, [profile]);
   useEffect(() => setSelected(new Set()), [profile, filter]);
 
@@ -63,6 +65,12 @@ export default function Channels() {
 
   const update = (patch: Partial<ChannelQuery>) => { setFilter((f) => ({ ...f, ...patch })); setOffset(0); };
   const rows = page?.rows ?? [];
+  // The filter matches the provider's group name, so groups sharing a name across sources collapse.
+  const groupOptions = useMemo(() => {
+    const byName = new Map<string, string>();
+    for (const g of groups) if ((!filter.source || g.sourceId === filter.source) && !byName.has(g.name)) byName.set(g.name, g.title);
+    return [...byName].sort((a, b) => a[1].localeCompare(b[1]));
+  }, [groups, filter.source]);
   const allChecked = rows.length > 0 && rows.every((r) => selected.has(r.streamId));
 
   return (
@@ -74,7 +82,10 @@ export default function Channels() {
           <option value="">All sources</option>
           {sources?.sources.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
         </select>
-        <input placeholder="Group (exact)" value={filter.group ?? ""} onChange={(e) => update({ group: e.target.value || undefined })} aria-label="Group" />
+        <select value={filter.group ?? ""} onChange={(e) => update({ group: e.target.value || undefined })} aria-label="Group">
+          <option value="">All groups</option>
+          {groupOptions.map(([name, title]) => <option key={name} value={name}>{title === name ? name : `${title} (${name})`}</option>)}
+        </select>
         <select value={filter.playlist ?? ""} onChange={(e) => update({ playlist: e.target.value || undefined })} aria-label="Playlist">
           <option value="">Any playlist</option>
           {playlists.map((p) => <option key={p.id} value={p.id}>In {p.name}</option>)}

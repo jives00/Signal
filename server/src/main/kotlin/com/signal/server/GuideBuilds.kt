@@ -49,18 +49,19 @@ class GuideBuilds(private val dir: File, private val http: HttpClient) {
 
     /**
      * Builds from [inputs] and publishes the result. Fails, leaving the published build alone, when
-     * a build is already running or nothing produced any programs.
+     * a build is already running or nothing produced any programs. With [only], just that EPG source
+     * is downloaded; the others are copied from the published build (any it lacks download too).
      */
-    suspend fun build(inputs: GuideInputs, now: Long): Result<NasGuideMeta> {
+    suspend fun build(inputs: GuideInputs, now: Long, only: String? = null): Result<NasGuideMeta> {
         if (!lock.tryLock()) return Result.failure(IllegalStateException("A guide build is already running"))
         return try {
-            runCatching { buildLocked(inputs, now) }.onFailure { log.error("Guide build failed: ${it.message}") }
+            runCatching { buildLocked(inputs, now, only) }.onFailure { log.error("Guide build failed: ${it.message}") }
         } finally {
             lock.unlock()
         }
     }
 
-    private suspend fun buildLocked(inputs: GuideInputs, now: Long): NasGuideMeta {
+    private suspend fun buildLocked(inputs: GuideInputs, now: Long, only: String?): NasGuideMeta {
         dir.mkdirs()
         val part = File(dir, "guide-$now.db.part")
         part.delete()
@@ -68,10 +69,13 @@ class GuideBuilds(private val dir: File, private val http: HttpClient) {
         val builder = GuideBuilder(http, { id -> inputs.sources.firstOrNull { it.id == id } }, Dispatchers.IO, sharedLog)
         val previousFile = meta?.let { dbFor(it.builtAt) }?.takeIf { it.isFile }
         val previous = previousFile?.let { JdbcSqliteDriver("jdbc:sqlite:${it.path}", Properties(), GuideDatabase.Schema) }
+        val before = meta?.outcomes.orEmpty()
+        val beforeAt = meta?.builtAt
+        val reuse = if (only == null || previous == null) emptySet() else before.filterValues { it.programs > 0 }.keys - only
         val outcomes = try {
             val driver = JdbcSqliteDriver("jdbc:sqlite:${part.path}", Properties(), GuideDatabase.Schema)
             try {
-                val outcomes = builder.build(inputs.epgSources, GuideDatabase(driver), previous?.let { GuideDatabase(it) }, now)
+                val outcomes = builder.build(inputs.epgSources, GuideDatabase(driver), previous?.let { GuideDatabase(it) }, now, reuse)
                 if (outcomes.values.none { it.programs > 0 }) error(outcomes.values.firstNotNullOfOrNull { it.error }?.let { "No programs: $it" } ?: "No programs")
                 GuideDatabase(driver).guideQueries.run {
                     putMeta(GuideStore.META_BUILT_AT, now.toString())
@@ -117,7 +121,15 @@ class GuideBuilds(private val dir: File, private val http: HttpClient) {
             sha256 = digest.digest().joinToString("") { "%02x".format(it) },
             channels = outcomes.values.sumOf { it.channels },
             programs = programs.toInt(),
-            outcomes = outcomes.mapValues { (_, o) -> NasGuideOutcome(o.channels, o.programs, o.error, o.carriedOver) },
+            outcomes = outcomes.mapValues { (id, o) ->
+                val was = before[id]
+                when {
+                    // Copied as-is: it keeps its last result, with today's counts.
+                    id in reuse -> (was ?: NasGuideOutcome(0, 0)).let { it.copy(channels = o.channels, programs = o.programs, refreshedAt = it.refreshedAt ?: beforeAt.takeIf { _ -> it.error == null }) }
+                    o.error == null -> NasGuideOutcome(o.channels, o.programs, refreshedAt = now)
+                    else -> NasGuideOutcome(o.channels, o.programs, o.error, o.carriedOver, was?.refreshedAt)
+                }
+            },
         )
         val metaPart = File(dir, "guide.json.part")
         metaPart.writeText(json.encodeToString(NasGuideMeta.serializer(), published))

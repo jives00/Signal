@@ -4,6 +4,7 @@ import { getOverview } from "../admin";
 import { ago, getSync, type Status, type SyncStatus } from "../api";
 import { useProfiles } from "../context";
 import type { Overview } from "../schema";
+import Detail from "../Detail";
 import GuideCard from "./GuideCard";
 
 /** "0.3.1" vs "0.3.0": a device on an older app version than the companion's (PLAN §4.3.18 → Devices). */
@@ -56,13 +57,13 @@ export default function Dashboard({ status, failed }: { status: Status | null; f
         <div className="card">
           <h2>Companion</h2>
           <div className="value">{failed ? "Unreachable" : status?.version ?? "…"}</div>
-          <div className="detail">{status ? `Database ${status.database === "ok" ? "connected" : status.database} · encryption key ${status.secretKey ? "set" : "missing"}` : "Signal's NAS companion"}</div>
+          <Detail lines={status ? [`Database ${status.database === "ok" ? "connected" : status.database}`, `Encryption key ${status.secretKey ? "set" : "missing"}`] : []} empty="Signal's NAS companion" />
         </div>
         {overview && (
           <Link to="/sources" className="card">
             <h2>Sources</h2>
             <div className="value">{overview.sources.length ? `${overview.sources.reduce((n, s) => n + s.streams, 0).toLocaleString()} channels` : "None"}</div>
-            <div className="detail">{overview.sources.map((s) => `${s.name}: ${s.refreshing ? "refreshing" : s.lastRefreshedAt ? `refreshed ${ago(s.lastRefreshedAt)}` : "not refreshed"}`).join(" · ") || "Add one here or on a TV"}</div>
+            <Detail lines={overview.sources.map((s) => `${s.name}: ${s.refreshing ? "refreshing" : s.lastRefreshedAt ? `refreshed ${ago(s.lastRefreshedAt)}` : "not refreshed"}`)} empty="Add one here or on a TV" />
           </Link>
         )}
         {overview && (
@@ -76,15 +77,16 @@ export default function Dashboard({ status, failed }: { status: Status | null; f
           <Link to="/devices" className="card">
             <h2>Devices</h2>
             <div className="value">{overview.devices.length || "None"}</div>
-            <div className="detail">
-              {overview.devices.map((d) => `${d.name}: ${d.lastSyncAt ? `synced ${ago(d.lastSyncAt)}` : "not synced"}${older(d.appVersion, overview.latestAppVersion) ? ` · app ${d.appVersion}, update available` : ""}`).join(" · ") || "Pair a TV from its setup screen"}
-            </div>
+            <Detail
+              lines={overview.devices.map((d) => `${d.name}: ${d.lastSyncAt ? `synced ${ago(d.lastSyncAt)}` : "not synced"}${older(d.appVersion, overview.latestAppVersion) ? `, app ${d.appVersion} has an update` : ""}`)}
+              empty="Pair a TV from its setup screen"
+            />
           </Link>
         )}
         <Link to="/backups" className="card">
           <h2>Last backup</h2>
           <div className="value">{latest ? ago(latest.createdAt) : "None yet"}</div>
-          <div className="detail">{latest ? `${latest.reason} · ${latest.items} items` : "Nightly after the guide build"}</div>
+          <Detail lines={latest ? [latest.reason, `${latest.items} items`] : []} empty="Nightly after the guide build" />
         </Link>
       </div>
 

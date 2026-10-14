@@ -1,15 +1,22 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { ago, buildGuide, getGuide, size, type GuideStatus } from "../api";
+import { ago, getGuide, size, type GuideStatus } from "../api";
+import Detail from "../Detail";
+
+/** A job detail like "nightly: 157715 programs, 9113 channels; failed: …" as lines: when and why, then each result. */
+function runLines(startedAt: number, detail: string | null): string[] {
+  const [trigger, ...rest] = (detail ?? "").split(": ");
+  const results = rest.join(": ").split("; ").filter(Boolean);
+  return [`${ago(startedAt)}${trigger ? ` (${trigger})` : ""}`, ...results];
+}
 
 /**
  * The NAS guide build on the Dashboard (PLAN §4.3.18 → Dashboard, §5.2 → Jobs): the published
- * build, the last run and Run now. The schedule is in Settings → Companion.
+ * build and the last run. Refreshing is on Sources, per EPG source; the schedule is in Settings.
  */
 export default function GuideCard() {
   const [status, setStatus] = useState<GuideStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [message, setMessage] = useState<string | null>(null);
 
   const load = useCallback(() => {
     getGuide()
@@ -27,16 +34,6 @@ export default function GuideCard() {
     return () => clearInterval(timer);
   }, [load, status?.running]);
 
-  async function runNow() {
-    try {
-      await buildGuide();
-      setMessage("Building…");
-      load();
-    } catch (e) {
-      setMessage((e as Error).message);
-    }
-  }
-
   if (error) return <p className="error-text">Guide: {error}</p>;
   if (!status) return null;
   const meta = status.meta;
@@ -49,35 +46,36 @@ export default function GuideCard() {
         <div className="card">
           <h2>Latest build</h2>
           <div className="value">{status.running ? "Building…" : meta ? ago(meta.builtAt) : "None yet"}</div>
-          <div className="detail">
-            {meta
-              ? `${meta.programs.toLocaleString()} programs · ${meta.channels.toLocaleString()} guide channels · ${size(meta.sizeBytes)}${failures ? ` · ${failures} source${failures > 1 ? "s" : ""} failed` : ""}`
-              : "Builds once a paired TV syncs an EPG source"}
-          </div>
+          <Detail
+            lines={meta ? [
+              `${meta.programs.toLocaleString()} programs`,
+              `${meta.channels.toLocaleString()} guide channels`,
+              size(meta.sizeBytes),
+              failures > 0 && `${failures} source${failures > 1 ? "s" : ""} failed`,
+            ] : []}
+            empty="Builds once a paired TV syncs an EPG source"
+          />
         </div>
         <div className="card">
           <h2>EPG sources</h2>
           <div className="value">{status.epgSources.length || "None"}</div>
-          <div className="detail">
-            {status.epgSources.length
-              ? `${status.epgSources.join(", ")}. Last changed by ${status.inputsFrom ?? "a device"}${status.inputsAt ? `, ${ago(status.inputsAt)}` : ""}`
-              : "Synced from a paired TV"}
-          </div>
+          <Detail
+            lines={status.epgSources.length ? [...status.epgSources, `Last changed by ${status.inputsFrom ?? "a device"}${status.inputsAt ? `, ${ago(status.inputsAt)}` : ""}`] : []}
+            empty="Synced from a paired TV"
+          />
         </div>
         <div className="card">
           <h2>Last run</h2>
           <div className="value">{status.lastRun ? (status.lastRun.result ?? "Running") : "Never"}</div>
-          <div className="detail">{status.lastRun ? `${ago(status.lastRun.startedAt)}: ${status.lastRun.detail ?? ""}` : "—"}</div>
+          <Detail lines={status.lastRun ? runLines(status.lastRun.startedAt, status.lastRun.detail) : []} empty="—" />
         </div>
       </div>
 
       <div className="row schedule">
-        <button type="button" className="primary" onClick={runNow} disabled={status.running || status.epgSources.length === 0}>Run now</button>
         <span className="detail">
-          Nightly at {status.schedule.time} ({status.schedule.timeZone}){status.nextRunAt ? `, next ${new Date(status.nextRunAt).toLocaleString()}` : ""} · <Link className="inline" to="/settings">change</Link>
+          Nightly at {status.schedule.time} ({status.schedule.timeZone}){status.nextRunAt ? `, next ${new Date(status.nextRunAt).toLocaleString()}` : ""} · <Link className="inline" to="/settings">change</Link> · <Link className="inline" to="/sources">refresh on Sources</Link>
         </span>
       </div>
-      {message && <p className="detail">{message}</p>}
     </section>
   );
 }

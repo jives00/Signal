@@ -90,9 +90,12 @@ data class SourceView(
 data class EpgSourceView(
     val id: String, val name: String, val kind: String, val url: String, val sourceId: String?, val enabled: Boolean,
     val timeShiftMinutes: Int, val isDefault: Boolean, val channels: Int, val programs: Int, val error: String?,
+    /** When the companion last downloaded it; null before its first good build. */
+    val refreshedAt: Long?,
 )
 
-@Serializable data class SourcesView(val sources: List<SourceView>, val epgSources: List<EpgSourceView>)
+/** [guideBuilding]: a guide build is running, so the EPG sources' Refresh buttons wait. */
+@Serializable data class SourcesView(val sources: List<SourceView>, val epgSources: List<EpgSourceView>, val guideBuilding: Boolean)
 
 @Serializable
 data class GroupView(
@@ -449,8 +452,9 @@ fun Route.adminPageRoutes(companion: Companion) {
                 sourceViews(companion, view),
                 view.epgSources.map { e ->
                     val o = meta?.outcomes?.get(e.id)
-                    EpgSourceView(e.id, e.name, e.kind.name, e.url, e.sourceId, e.enabled, e.timeShiftMinutes, e.id == view.defaultEpgId, o?.channels ?: 0, o?.programs ?: 0, o?.error)
+                    EpgSourceView(e.id, e.name, e.kind.name, e.url, e.sourceId, e.enabled, e.timeShiftMinutes, e.id == view.defaultEpgId, o?.channels ?: 0, o?.programs ?: 0, o?.error, o?.refreshedAt)
                 },
+                companion.guide.running,
             )
         }
     }

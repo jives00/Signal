@@ -81,6 +81,14 @@ class TestPlayer : VideoPlayer {
     override fun Surface(modifier: Modifier, aspect: AspectMode) = Box(modifier)
 }
 
+/** An update already found, so the banner shows from launch. */
+class TestUpdater(initial: com.signal.update.UpdateState) : com.signal.update.Updater {
+    override val state = MutableStateFlow(initial)
+    override suspend fun check() = Unit
+    override fun install() = Unit
+    override fun later() { state.value = com.signal.update.UpdateState.None }
+}
+
 class TestPlatform : Platform {
     override val appInfo = AppInfo(versionName = "test", buildTag = "dev", isDebug = true, deviceModel = "Test")
     override val secretBox = object : SecretBox {
@@ -88,7 +96,7 @@ class TestPlatform : Platform {
         override fun decrypt(cipher: String) = cipher
     }
     override val player = TestPlayer()
-    override val updater = null
+    override var updater: com.signal.update.Updater? = null
     override val voiceInput = null
     // One database thread at a time, like Android's single connection: the JDBC driver opens one per
     // thread, and two writing at once deadlock with SQLITE_BUSY.
@@ -213,9 +221,11 @@ fun keyMapTest(
     start: Route = Route.Home,
     withDemo: Boolean = true,
     favorites: Int = 0,
+    update: com.signal.update.UpdateState? = null,
     block: suspend KeyMapScope.() -> Unit,
 ) = runSkikoComposeUiTest(size = androidx.compose.ui.geometry.Size(1920f, 1080f), density = androidx.compose.ui.unit.Density(1f)) {
     val platform = TestPlatform()
+    if (update != null) platform.updater = TestUpdater(update)
     startApp(platform, start, withDemo, favorites, block)
 }
 

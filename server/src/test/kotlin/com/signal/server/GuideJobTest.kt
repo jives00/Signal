@@ -150,6 +150,49 @@ class GuideJobTest {
         val status = client.get("/api/guide").bodyAsText()
         assertTrue(status.contains("\"epgSources\":[\"Demo guide\"]"), status)
         assertTrue(status.contains("\"inputsFrom\":\"TV\""), status)
+        assertEquals(m.builtAt, m.outcomes.getValue("epg-demo").refreshedAt)
+
+        // Sources → Refresh now: one EPG source, by ID.
+        assertEquals(HttpStatusCode.NotFound, client.post("/api/guide/build?epg=nope").status)
+        assertEquals(HttpStatusCode.Accepted, client.post("/api/guide/build?epg=epg-demo").status)
+        var again: NasGuideMeta? = null
+        tries = 0
+        while (again == null && tries++ < 600) {
+            val r = json.decodeFromString<NasGuideMeta>(client.get(NasGuidePaths.META) { header(HttpHeaders.Authorization, bearer(key)) }.bodyAsText())
+            if (r.builtAt != m.builtAt) again = r else delay(100)
+        }
+        val a = again ?: error("Refresh now didn't rebuild")
+        assertEquals(a.builtAt, a.outcomes.getValue("epg-demo").refreshedAt)
+    }
+
+    @Test fun refreshingOneEpgSourceCopiesTheOthers() = testApplication {
+        val companion = companion()
+        application { signalModule(companion) }
+        val key = client.pair()
+        val two = PushRequest(BUNDLE_SCHEMA, listOf("epg-a", "epg-b").map { id ->
+            SyncItem(SyncType.EPG_SOURCE, id, SyncScope.HOUSEHOLD, fields = SyncFields.epgSource(EpgSource(id = id, name = id, kind = EpgKind.DEMO, sourceId = "demo"), 0))
+        })
+        client.post(SyncPaths.PUSH) {
+            header(HttpHeaders.Authorization, bearer(key))
+            contentType(ContentType.Application.Json)
+            setBody(json.encodeToString(PushRequest.serializer(), two))
+        }
+        suspend fun builtAfter(at: Long): NasGuideMeta {
+            repeat(600) {
+                val r = client.get(NasGuidePaths.META) { header(HttpHeaders.Authorization, bearer(key)) }
+                if (r.status == HttpStatusCode.OK) json.decodeFromString<NasGuideMeta>(r.bodyAsText()).let { if (it.builtAt > at && !companion.guide.running) return it }
+                delay(100)
+            }
+            error("No guide was built")
+        }
+        val first = builtAfter(0)
+        assertEquals(HttpStatusCode.Accepted, client.post("/api/guide/build?epg=epg-b").status)
+        val second = builtAfter(first.builtAt)
+        val a = second.outcomes.getValue("epg-a")
+        assertEquals(first.outcomes.getValue("epg-a").refreshedAt, a.refreshedAt, "copied, not downloaded")
+        assertTrue(a.programs > 0 && a.channels > 0)
+        assertEquals(second.builtAt, second.outcomes.getValue("epg-b").refreshedAt)
+        assertEquals(second.programs, a.programs + second.outcomes.getValue("epg-b").programs)
     }
 
     @Test fun guideEndpointsNeedAKey() = testApplication {

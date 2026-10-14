@@ -33,17 +33,28 @@ class GuideBuilder(
     /** What one EPG source contributed: counts on success, or the error. */
     data class Outcome(val channels: Int, val programs: Int, val error: String? = null, val carriedOver: Boolean = false)
 
-    suspend fun build(epgSources: List<EpgSource>, fresh: GuideDatabase, previous: GuideDatabase?, now: Long): Map<String, Outcome> = withContext(io) {
+    /**
+     * [reuse]: EPG sources copied from [previous] instead of downloaded, so one source can be
+     * refreshed on its own (the web admin's Refresh now on Sources).
+     */
+    suspend fun build(
+        epgSources: List<EpgSource>, fresh: GuideDatabase, previous: GuideDatabase?, now: Long, reuse: Set<String> = emptySet(),
+    ): Map<String, Outcome> = withContext(io) {
         val out = LinkedHashMap<String, Outcome>()
         // Program IDs are assigned here, so the search index can be written alongside each program.
         var nextId = 1L
         val ids = { nextId++ }
         for (epg in epgSources.filter { it.enabled }) {
+            if (previous != null && epg.id in reuse) {
+                val (channels, programs) = carryOver(epg, previous, fresh, now, ids)
+                out[epg.id] = Outcome(channels, programs)
+                continue
+            }
             val result = runCatching { load(epg, fresh, now, ids) }
             out[epg.id] = result.getOrElse { e ->
                 val message = e.message ?: e::class.simpleName ?: "Failed"
                 log.warn("Guide ${epg.name} failed: $message")
-                val carried = previous?.let { carryOver(epg, it, fresh, now, ids) } ?: 0
+                val carried = previous?.let { carryOver(epg, it, fresh, now, ids).second } ?: 0
                 Outcome(0, carried, error = message, carriedOver = carried > 0)
             }
         }
@@ -89,10 +100,13 @@ class GuideBuilder(
         }
     }
 
-    private fun carryOver(epg: EpgSource, from: GuideDatabase, to: GuideDatabase, now: Long, ids: () -> Long): Int {
+    /** Copies one EPG source's channels and unfinished programs; returns (channels, programs). */
+    private fun carryOver(epg: EpgSource, from: GuideDatabase, to: GuideDatabase, now: Long, ids: () -> Long): Pair<Int, Int> {
+        var channels = 0
         var count = 0
         to.transaction {
             from.guideQueries.guideChannelsForSource(epg.id).executeAsList().forEach {
+                channels++
                 to.guideQueries.insertChannel(it.epg_source_id, it.id, it.display_name, it.normalized_name, it.icon)
             }
             from.guideQueries.channelNamesForSourceAll(epg.id).executeAsList().forEach {
@@ -108,7 +122,7 @@ class GuideBuilder(
                 count++
             }
         }
-        return count
+        return channels to count
     }
 
     /** Batches inserts into transactions: one per row would be far too slow for 300k programs. */
