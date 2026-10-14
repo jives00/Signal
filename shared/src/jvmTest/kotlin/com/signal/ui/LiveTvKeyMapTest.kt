@@ -202,4 +202,16 @@ class LiveTvKeyMapTest {
         press(RemoteAction.Left)
         focusedStartsWith(last.title)
     }
+
+    // Reported 2026-10-14: with an update pending, Up in the guide went to the update banner above it.
+    @Test fun upStaysInTheGuideWithTheUpdateBannerShowing() = keyMapTest(update = com.signal.update.UpdateState.Available("apk-v9.9.9", "")) {
+        guide()
+        val first = focusedChannel()
+        press(RemoteAction.Down)
+        eventually("next row") { focusedChannel() != first }
+        press(RemoteAction.Up)
+        eventually("back on the first row") { focusedText()?.startsWith("$first · ") == true }
+        press(RemoteAction.Up)
+        eventually("wrapped to the last row") { focusedText()?.contains(" · ") == true && focusedChannel() != first }
+    }
 }

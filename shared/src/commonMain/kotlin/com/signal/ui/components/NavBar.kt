@@ -107,8 +107,9 @@ fun TopLevelPage(
             }
             // Down from the bar goes into the page, wherever the bar's focus is.
             RemoteAction.Down -> if (chrome.navHasFocus) { chrome.focusContent(); true } else false
-            // Up into the bar lands on the current page's item, not whichever item is nearest.
-            RemoteAction.Up -> if (!chrome.navHasFocus && focusManager.moveFocus(FocusDirection.Up)) {
+            // Up into the bar lands on the current page's item, not whichever item is nearest. With
+            // the bar hidden (Live TV) only the update banner is above, so Up stays with the page.
+            RemoteAction.Up -> if (showNav && !chrome.navHasFocus && focusManager.moveFocus(FocusDirection.Up)) {
                 if (chrome.navHasFocus) runCatching { chrome.navFocus.requestFocus() }
                 true
             } else false
