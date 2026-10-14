@@ -83,9 +83,13 @@ class GuideJob(private val companion: Companion, private val scope: CoroutineSco
         store.putSetting(INPUTS_AT, System.currentTimeMillis().toString())
         if (inputs != null && inputs.epgSources.any { it.enabled } && companion.buildGuideOnChange) {
             log.info("Guide inputs changed (${inputs.epgSources.size} EPG sources, from $from): building")
-            runInBackground("sources changed")
+            // A build already running read the old inputs: build again once it ends.
+            if (!runInBackground("sources changed")) rebuild = true
         }
     }
+
+    /** Inputs changed during a build; [run] builds again when it finishes. */
+    @Volatile private var rebuild = false
 
     fun status(): GuideStatus {
         val store = companion.store
@@ -130,6 +134,10 @@ class GuideJob(private val companion: Companion, private val scope: CoroutineSco
         store.finishJob(id, System.currentTimeMillis(), if (result.isSuccess) "ok" else "failed", detail)
         // Open apps swap the new build in without waiting for their 30-minute check (PLAN §9.2).
         result.onSuccess { companion.events.tryEmit(com.signal.sync.SyncEvent(com.signal.sync.SyncEvent.GUIDE, builtAt = it.builtAt)) }
+        if (rebuild) {
+            rebuild = false
+            run("sources changed")
+        }
     }
 
     /** Refreshes every source in the companion's catalog, recorded as its own job (PLAN §5.8). */

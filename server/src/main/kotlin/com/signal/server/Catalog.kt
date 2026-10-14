@@ -80,13 +80,22 @@ class Catalog(dir: File, http: HttpClient, cipher: SecretCipher?) {
             CatalogStream(it.id, it.source_id, it.raw_name, it.display_name, it.group_name, it.logo_url, it.tvg_id, it.provider_number?.toInt(), it.position.toInt())
         }
         version++
+        reloadStates()
     }
 
-    suspend fun sources(): List<CatalogSource> = withContext(io) {
-        db.sourceQueries.all().executeAsList().map { s ->
+    /**
+     * Each source's refresh state, from memory: a refresh holds the database thread for minutes (the
+     * movie and series lists), and the web admin's Sources page must not wait behind it.
+     */
+    @Volatile private var states: List<CatalogSource> = emptyList()
+
+    private fun reloadStates() {
+        states = db.sourceQueries.all().executeAsList().map { s ->
             CatalogSource(s.id, s.last_refreshed_at, s.last_error, db.streamQueries.countForSource(s.id).executeAsOne().toInt())
         }
     }
+
+    fun sources(): List<CatalogSource> = states
 
     /**
      * Makes the catalog's sources match [wanted] (the synced household sources): new ones and ones
@@ -103,7 +112,7 @@ class Catalog(dir: File, http: HttpClient, cipher: SecretCipher?) {
                     h.enabled != w.enabled || h.userAgent != w.userAgent || h.referrer != w.referrer
                 if (h == null || h != w.copy(lastRefreshedAt = h.lastRefreshedAt, lastError = h.lastError)) repo.save(w)
                 changed && w.enabled
-            }.map { it.id }.also { if (have.keys.any { it !in ids }) reloadStreams() }
+            }.map { it.id }.also { if (have.keys.any { it !in ids }) reloadStreams() else reloadStates() }
         }
         toRefresh.forEach { refreshLocked(it) }
     }
