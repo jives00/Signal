@@ -87,22 +87,26 @@ class SourceRepository(
     suspend fun refresh(id: String): Result<Int> = withContext(io) {
         val source = byId(id) ?: return@withContext Result.failure(IllegalArgumentException("No source $id"))
         runCatching {
-            val loaded = load(source)
-            db.transaction {
-                db.streamQueries.deleteForSource(source.id)
-                val removeEmoji = true
-                loaded.streams.forEach { s -> db.streamQueries.insert(s.toRow(removeEmoji)) }
-                db.sourceQueries.markRefreshed(
-                    Clock.System.now().toEpochMilliseconds(),
-                    loaded.expiresAt,
-                    (loaded.connectionLimit ?: source.connectionLimit).toLong(),
-                    source.id,
-                )
+            // The parsed channels are dropped once saved, before the much longer movie and series lists: 57k
+            // of them held through those added to the peak that ran the Shield out of memory (0.2.8).
+            val (count, demoVod) = load(source).let { loaded ->
+                db.transaction {
+                    db.streamQueries.deleteForSource(source.id)
+                    val removeEmoji = true
+                    loaded.streams.forEach { s -> db.streamQueries.insert(s.toRow(removeEmoji)) }
+                    db.sourceQueries.markRefreshed(
+                        Clock.System.now().toEpochMilliseconds(),
+                        loaded.expiresAt,
+                        (loaded.connectionLimit ?: source.connectionLimit).toLong(),
+                        source.id,
+                    )
+                }
+                loaded.streams.size to loaded.vod
             }
             // Movies and series after the channels: a failure there keeps the channels and the old catalog.
-            val vod = refreshVod(source, loaded.vod)
-            log.info("Refreshed ${source.name}: ${loaded.streams.size} streams" + (vod?.let { (m, s) -> ", $m movies, $s series" } ?: ""))
-            loaded.streams.size
+            val vod = refreshVod(source, demoVod)
+            log.info("Refreshed ${source.name}: $count streams" + (vod?.let { (m, s) -> ", $m movies, $s series" } ?: ""))
+            count
         }.onFailure { e ->
             log.warn("Refresh of ${source.name} failed: ${e.message}")
             db.sourceQueries.markFailed(e.message ?: e::class.simpleName, source.id)
@@ -170,8 +174,10 @@ class SourceRepository(
         val account = XtreamParser.accountInfo(call(null))
         if (!account.authenticated) error("Login failed: check the username and password")
         val categories = XtreamParser.categories(call("get_live_categories"))
-        val streams = XtreamParser.liveStreams(source, call("get_live_streams"), categories)
-        return Loaded(streams, account.expiresAt, account.maxConnections)
+        // Read as it downloads, like the movie lists: whole, it ran the Shield out of memory (0.2.8).
+        val live = XtreamParser.LiveStreams(source, categories)
+        streamList(source, "get_live_streams") { obj, _ -> live.add(obj) }
+        return Loaded(live.streams, account.expiresAt, account.maxConnections)
     }
 
     /**

@@ -51,14 +51,25 @@ object XtreamParser {
 
     /** `get_live_streams`, with category IDs resolved to names. */
     fun liveStreams(source: Source, body: String, categories: Map<String, String>): List<ProviderStream> {
-        val out = ArrayList<ProviderStream>()
-        val seen = HashSet<String>()
-        json.parseToJsonElement(body).arrayOrEmpty().forEach { el ->
-            val obj = el as? JsonObject ?: return@forEach
-            val streamId = obj.string("stream_id") ?: return@forEach
+        val out = LiveStreams(source, categories)
+        json.parseToJsonElement(body).arrayOrEmpty().forEach { el -> (el as? JsonObject)?.let(out::add) }
+        return out.streams
+    }
+
+    /**
+     * Builds `get_live_streams` one object at a time, so the device can read the list as it downloads
+     * ([com.signal.parse.JsonArrayObjects]): 57k channels read whole, as one string and one JSON tree,
+     * ran a 192 MB heap out of memory on the Shield (0.2.8).
+     */
+    class LiveStreams(private val source: Source, private val categories: Map<String, String>) {
+        val streams = ArrayList<ProviderStream>()
+        private val seen = HashSet<String>()
+
+        fun add(obj: JsonObject) {
+            val streamId = obj.string("stream_id") ?: return
             val id = StreamIds.xtream(source.id, streamId)
-            if (!seen.add(id)) return@forEach
-            out += ProviderStream(
+            if (!seen.add(id)) return
+            streams += ProviderStream(
                 id = id,
                 sourceId = source.id,
                 providerId = streamId,
@@ -67,11 +78,10 @@ object XtreamParser {
                 logoUrl = obj.string("stream_icon")?.takeIf { it.isNotBlank() },
                 tvgId = obj.string("epg_channel_id")?.takeIf { it.isNotBlank() },
                 providerNumber = obj.int("num"),
-                position = out.size,
+                position = streams.size,
                 url = null,
             )
         }
-        return out
     }
 
     /** `get_vod_streams` (PLAN §4.3.6): movies, with category IDs kept as given. */

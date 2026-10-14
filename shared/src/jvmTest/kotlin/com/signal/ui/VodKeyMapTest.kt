@@ -13,32 +13,33 @@ class VodKeyMapTest {
     }
 
     @Test fun columnGridAndBack() = keyMapTest(start = Route.Movies) {
-        focusedStartsWith("Recently added")
+        focusedStartsWith("Action")
         pageLoaded()
-        assertTrue(shows("300 titles"))
+        assertTrue(shows("45 titles"))
         // Right goes into the grid, on the first poster.
         press(RemoteAction.Right)
-        eventually("a poster focused") { focusedText()?.startsWith("Recently added") == false && focusedText() != null }
+        eventually("a poster focused") { focusedText()?.startsWith("Action") == false && focusedText() != null }
         val first = focusedText()
         press(RemoteAction.Right)
         eventually("the next poster") { focusedText() != first }
         // Back returns to the column, then Back again goes to the nav bar (PLAN §12.1).
         press(RemoteAction.Back)
-        focusedStartsWith("Recently added")
+        focusedStartsWith("Action")
         press(RemoteAction.Back)
         focusedStartsWith("Movies")
     }
 
     @Test fun focusingACategoryShowsIt() = keyMapTest(start = Route.Series) {
-        focusedStartsWith("Recently added")
-        pageLoaded()
-        press(RemoteAction.Down)
+        // With no Library and no TMDB lists, the page opens on the first category.
         focusedStartsWith("Drama Series")
+        pageLoaded()
         eventually("the category's titles") { shows("12 titles") }
+        press(RemoteAction.Down)
+        focusedStartsWith("Comedy Series")
     }
 
     @Test fun longPressSortsTheShelf() = keyMapTest(start = Route.Movies) {
-        focusedStartsWith("Recently added")
+        focusedStartsWith("Action")
         pageLoaded()
         press(RemoteAction.Options)
         focusedStartsWith("Recently added") // the Sort panel's first choice
@@ -49,11 +50,11 @@ class VodKeyMapTest {
     }
 
     @Test fun aMovieOpensPlaysAndResumes() = keyMapTest(start = Route.Movies) {
-        // The Library is empty, so the page starts on Recently added.
-        focusedStartsWith("Recently added")
+        // The Library is empty and there are no TMDB lists, so the page starts on the first category.
+        focusedStartsWith("Action")
         pageLoaded()
         press(RemoteAction.Right)
-        eventually("a poster focused") { focusedText()?.startsWith("Recently added") == false }
+        eventually("a poster focused") { focusedText()?.startsWith("Action") == false }
         press(RemoteAction.Select)
         eventually("the movie page") { app.navigator.current is Route.MovieDetail }
         focusedStartsWith("Play")
@@ -71,11 +72,11 @@ class VodKeyMapTest {
     }
 
     @Test fun backFromATitleReturnsToItsPoster() = keyMapTest(start = Route.Movies) {
-        focusedStartsWith("Recently added")
+        focusedStartsWith("Action")
         pageLoaded()
-        eventually("the posters loaded") { shows("300 titles") }
+        eventually("the posters loaded") { shows("45 titles") }
         press(RemoteAction.Right)
-        eventually("a poster focused") { focusedText()?.startsWith("Recently added") == false }
+        eventually("a poster focused") { focusedText()?.startsWith("Action") == false }
         press(RemoteAction.Right, 2)
         eventually("the third poster") { focusedText() != null }
         val poster = focusedText()
@@ -87,21 +88,21 @@ class VodKeyMapTest {
         eventually("the same poster") { focusedText() == poster }
         // Left through the nav bar, Movies opens on the column.
         press(RemoteAction.Back)
-        focusedStartsWith("Recently added")
+        focusedStartsWith("Action")
         press(RemoteAction.Back)
         focusedStartsWith("Movies")
         ui.runOnIdle { app.navigator.go(Route.Series) }
-        focusedStartsWith("Recently added")
+        focusedStartsWith("Drama Series")
         ui.runOnIdle { app.navigator.go(Route.Movies) }
-        focusedStartsWith("Recently added")
+        focusedStartsWith("Action")
     }
 
     @Test fun anEpisodeAutoplaysTheNextOne() = keyMapTest(start = Route.Series) {
-        focusedStartsWith("Recently added")
+        focusedStartsWith("Drama Series")
         pageLoaded()
-        eventually("the posters loaded") { shows("60 titles") }
+        eventually("the posters loaded") { shows("12 titles") }
         press(RemoteAction.Right)
-        eventually("a poster focused") { focusedText()?.startsWith("Recently added") == false }
+        eventually("a poster focused") { focusedText()?.startsWith("Drama Series") == false }
         press(RemoteAction.Select)
         eventually("the series page") { app.navigator.current is Route.SeriesDetail }
         focusedStartsWith("Play S1 E1")
@@ -133,7 +134,7 @@ class VodKeyMapTest {
     @Test fun aPickerOverAMovieOwnsUpAndDown() = keyMapTest(start = Route.Movies) {
         pageLoaded()
         press(RemoteAction.Right)
-        eventually("a poster focused") { focusedText()?.startsWith("Recently added") == false }
+        eventually("a poster focused") { focusedText()?.startsWith("Action") == false }
         press(RemoteAction.Select)
         eventually("the movie page") { app.navigator.current is Route.MovieDetail }
         focusedStartsWith("Play")

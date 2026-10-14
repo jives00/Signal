@@ -41,7 +41,7 @@ class VodFindKeyMapTest {
     @Test fun searchingInsideMovies() = keyMapTest(start = Route.Movies) {
         val movie = unique(VodKind.MOVIE)
         val name = VodRepository.displayName(movie)
-        focusedStartsWith("Recently added")
+        focusedStartsWith("Action")
         press(RemoteAction.Up, times = 2)
         focusedStartsWith("Search movies")
         eventually("the search shelf") { shows("Type at least 2 letters.") }

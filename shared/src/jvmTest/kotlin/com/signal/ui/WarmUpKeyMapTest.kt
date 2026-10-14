@@ -39,7 +39,7 @@ class WarmUpKeyMapTest {
         ui.runOnIdle { app.navigator.go(Route.LiveTv) }
         liveTvReady()
         ui.runOnIdle { app.navigator.go(Route.Movies) }
-        focusedStartsWith("Recently added")
+        focusedStartsWith("Action")
         ui.runOnIdle { app.navigator.go(Route.Search) }
         eventually("the search field focused") { textFieldFocused() }
         press(RemoteAction.Back)

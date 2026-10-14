@@ -27,6 +27,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -57,13 +58,13 @@ import com.signal.ui.panel.PanelAction
 import com.signal.ui.panel.PanelPage
 import com.signal.ui.theme.SignalSizes
 import com.signal.ui.theme.SignalTheme
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 /** What the poster grid shows: a list, or one provider category. */
 private sealed interface Shelf {
     val key: String
     data object Library : Shelf { override val key = "library" }
-    data object Recent : Shelf { override val key = "recent" }
     /** Search within this section only (milestone 6); the nav bar's Search stays universal. */
     data object Search : Shelf { override val key = "search" }
     data class Category(val entry: VodRepository.CategoryEntry) : Shelf { override val key = "${entry.sourceId}|${entry.categoryId}" }
@@ -77,7 +78,7 @@ private sealed interface Shelf {
 /**
  * Movies and Series (PLAN §4.3.6–4.3.7, handoff screen 5): the category column on the left and a
  * 6-column poster grid. The TMDB lists and genres come from the companion; without it, Library,
- * Recently added and the provider categories still work.
+ * Library and the provider categories still work.
  */
 @Composable
 fun VodBrowsePage(kind: VodKind) {
@@ -85,7 +86,10 @@ fun VodBrowsePage(kind: VodKind) {
     val c = SignalTheme.colors
     val chrome = remember(kind) { PageChrome() }
     val route = if (kind == VodKind.MOVIE) Route.Movies else Route.Series
-    val categories by remember(kind) { app.vod.categories(kind) }.collectAsState(emptyList())
+    val categoriesOrNull by remember(kind) { app.vod.categories(kind) }.collectAsState(null)
+    val categories = categoriesOrNull.orEmpty()
+    // Read by the first focus, which waits for the categories: before they load, Library is the only row.
+    val categoriesLoaded = rememberUpdatedState(categoriesOrNull != null)
     val shelves by remember(kind) { app.vod.shelves(kind) }.collectAsState(emptyList())
     val shelfCounts = shelves.associate { it.shelf to it.count }
     val lists = com.signal.data.VodEnrichment.lists(kind).mapNotNull { (id, label) ->
@@ -95,7 +99,17 @@ fun VodBrowsePage(kind: VodKind) {
     val genres = shelves.filter { it.shelf.startsWith(com.signal.data.VodEnrichment.GENRE) }
         .map { Shelf.Tmdb(it.shelf, it.shelf.removePrefix(com.signal.data.VodEnrichment.GENRE)) to it.count }.sortedBy { it.first.label }
     val vodVersion by app.vodVersion.collectAsState()
-    var shelf by remember(kind) { mutableStateOf<Shelf>(Shelf.Recent) }
+    // The shelf picked in the column. Until then: Library when it has titles, else the first TMDB list, else the
+    // first category. ("Recently added" is gone, 0.2.9: not wanted, and it loaded on every warm-up.)
+    var chosen by remember(kind) { mutableStateOf<Shelf?>(null) }
+    val watchNow by app.watchState.collectAsState()
+    val defaultShelf: Shelf = when {
+        watchNow.library.any { it.kind == kind } -> Shelf.Library
+        lists.isNotEmpty() -> lists.first().first
+        categories.isNotEmpty() -> Shelf.Category(categories.first())
+        else -> Shelf.Library
+    }
+    val shelf = chosen ?: defaultShelf
     var query by remember(kind) { mutableStateOf("") }
     // Sort per category for this visit; TMDB lists will keep their own order (PLAN §4.3.6 → Poster grid).
     val sorts = remember(kind) { mutableStateMapOf<String, VodSort>() }
@@ -111,7 +125,6 @@ fun VodBrowsePage(kind: VodKind) {
             // Restarted on every keystroke, so the pause is the typing debounce, as on the Search page.
             Shelf.Search -> if (query.trim().length < 2) emptyList() else { kotlinx.coroutines.delay(SEARCH_PAUSE_MS); app.vod.search(query, kind, SEARCH_LIMIT) }
             Shelf.Library -> libraryItems(app, libraryEntries, watch, libraryFilter, librarySort, newEpisodes)
-            Shelf.Recent -> VodRepository.sorted(app.vod.recentlyAdded(kind), sort)
             is Shelf.Category -> app.vod.items(kind, s.entry.sourceId, s.entry.categoryId, sort)
             // Lists keep TMDB's order; genres sort like categories (PLAN §4.3.6 → Poster grid).
             is Shelf.Tmdb -> app.vod.shelfItems(kind, s.shelf).let { if (s.isList) it else VodRepository.sorted(it, sort) }
@@ -165,7 +178,10 @@ fun VodBrowsePage(kind: VodKind) {
     var leftFromGrid by remember(kind) { mutableStateOf(false) }
     com.signal.ui.components.OnPageShown(kind) {
         when {
-            !shownBefore -> firstShelf.requestFocusWhenReady()
+            !shownBefore -> {
+                androidx.compose.runtime.snapshotFlow { categoriesLoaded.value }.first { it }
+                firstShelf.requestFocusWhenReady()
+            }
             leftFromGrid && lastPoster in items.indices -> {
                 gridState.requestScrollToItem(lastPoster)
                 (if (lastPoster == 0) firstPoster else returnPoster).requestFocusWhenReady()
@@ -189,36 +205,30 @@ fun VodBrowsePage(kind: VodKind) {
                 item {
                     ListRow(
                         if (kind == VodKind.MOVIE) "Search movies" else "Search series", selected = shelf == Shelf.Search,
-                        onFocused = { shelf = Shelf.Search }, onSelect = { shelf = Shelf.Search; scope.launch { searchField.requestFocusWhenReady() } },
+                        onFocused = { if (categoriesLoaded.value) chosen = Shelf.Search }, onSelect = { chosen = Shelf.Search; scope.launch { searchField.requestFocusWhenReady() } },
                     )
                 }
                 item {
                     ListRow(
                         "Library", detail = libraryEntries.size.toString(), selected = shelf == Shelf.Library,
-                        focusRequester = if (libraryEntries.isNotEmpty()) firstShelf else null,
-                        onFocused = { shelf = Shelf.Library }, onSelect = { shelf = Shelf.Library; focusGrid() },
+                        focusRequester = if (categoriesLoaded.value && defaultShelf == Shelf.Library) firstShelf else null,
+                        onFocused = { if (categoriesLoaded.value) chosen = Shelf.Library }, onSelect = { chosen = Shelf.Library; focusGrid() },
                         onOptions = { app.panel.open(libraryPage(), returnTo) },
                     )
                 }
-                item { SText("Lists", 22, Modifier.padding(start = 40.dp, top = 24.dp, bottom = 8.dp), color = c.muted, weight = FontWeight.SemiBold) }
-                item {
-                    ListRow(
-                        "Recently added", selected = shelf == Shelf.Recent, focusRequester = if (libraryEntries.isEmpty()) firstShelf else null,
-                        onFocused = { shelf = Shelf.Recent }, onSelect = { shelf = Shelf.Recent; focusGrid() },
-                        onOptions = { app.panel.open(sortPage(), returnTo) },
-                    )
-                }
+                if (lists.isNotEmpty()) item { SText("Lists", 22, Modifier.padding(start = 40.dp, top = 24.dp, bottom = 8.dp), color = c.muted, weight = FontWeight.SemiBold) }
                 items(lists, key = { it.first.key }) { (s, count) ->
                     ListRow(
                         s.label, detail = count.toString(), selected = shelf.key == s.key,
-                        onFocused = { shelf = s }, onSelect = { shelf = s; focusGrid() },
+                        focusRequester = if (defaultShelf.key == s.key) firstShelf else null,
+                        onFocused = { if (categoriesLoaded.value) chosen = s }, onSelect = { chosen = s; focusGrid() },
                     )
                 }
                 if (genres.isNotEmpty()) item { SText("Genres", 22, Modifier.padding(start = 40.dp, top = 24.dp, bottom = 8.dp), color = c.muted, weight = FontWeight.SemiBold) }
                 items(genres, key = { it.first.key }) { (s, count) ->
                     ListRow(
                         s.label, detail = count.toString(), selected = shelf.key == s.key,
-                        onFocused = { shelf = s }, onSelect = { shelf = s; focusGrid() },
+                        onFocused = { if (categoriesLoaded.value) chosen = s }, onSelect = { chosen = s; focusGrid() },
                         onOptions = { app.panel.open(sortPage(), returnTo) },
                     )
                 }
@@ -229,8 +239,9 @@ fun VodBrowsePage(kind: VodKind) {
                         cat.name + if (multiSource) " · ${sourceNames[cat.sourceId] ?: ""}" else "",
                         detail = cat.count.toString(),
                         selected = shelf.key == s.key,
-                        onFocused = { shelf = s },
-                        onSelect = { shelf = s; focusGrid() },
+                        focusRequester = if (defaultShelf.key == s.key) firstShelf else null,
+                        onFocused = { if (categoriesLoaded.value) chosen = s },
+                        onSelect = { chosen = s; focusGrid() },
                         onOptions = { app.panel.open(sortPage(), returnTo) },
                     )
                 }
@@ -239,7 +250,6 @@ fun VodBrowsePage(kind: VodKind) {
             Column(Modifier.fillMaxSize().padding(start = 56.dp, top = 40.dp, end = SignalSizes.EDGE_MARGIN.dp)) {
                 val title = when (val s = shelf) {
                     Shelf.Library -> "Library"
-                    Shelf.Recent -> "Recently added"
                     Shelf.Search -> if (kind == VodKind.MOVIE) "Search movies" else "Search series"
                     is Shelf.Category -> s.entry.name
                     is Shelf.Tmdb -> s.label
