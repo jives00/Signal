@@ -48,7 +48,18 @@ class AndroidPlatform(private val context: Context) : Platform {
         if (BuildConfig.DEV_TOOLS || BuildConfig.BUILD_TAG == "dev") null else AndroidUpdater(context, http, BuildConfig.BUILD_TAG)
     }
 
-    override fun createUserDatabaseDriver(): SqlDriver = AndroidSqliteDriver(UserDatabase.Schema, context, "user.db")
+    // Write-ahead logging: reads run beside a write instead of queueing behind it. A source refresh swaps
+    // in the whole catalog in one transaction (minutes on the Shield), and with the default rollback
+    // journal every read waited for it, tuning included: nothing played until the refresh ended (0.2.9).
+    override fun createUserDatabaseDriver(): SqlDriver = AndroidSqliteDriver(
+        UserDatabase.Schema, context, "user.db",
+        callback = object : AndroidSqliteDriver.Callback(UserDatabase.Schema) {
+            override fun onConfigure(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+                super.onConfigure(db)
+                db.enableWriteAheadLogging()
+            }
+        },
+    )
 
     // Not backed up: the guide is rebuilt from its sources whenever it's missing.
     override val guideDirectory: String = java.io.File(context.noBackupFilesDir, "guide").apply { mkdirs() }.absolutePath

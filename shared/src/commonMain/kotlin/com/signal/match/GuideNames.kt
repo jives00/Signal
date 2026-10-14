@@ -14,6 +14,12 @@ object GuideNames {
     private val bracketed = Regex("""[(\[][^)\]]*[)\]]""")
     private val nonWord = Regex("""[^\p{L}\p{N}]+""")
 
+    /** The country a channel name starts with ("US: HBO" → "us"), or null when it has no such prefix. */
+    fun country(name: String): String? {
+        val m = countryPrefix.find(CharacterCleanup.clean(name, removeEmoji = true)) ?: return null
+        return Regex("""[A-Z]{2,3}""").find(m.value)?.value?.lowercase()
+    }
+
     fun normalize(name: String): String {
         var s = CharacterCleanup.clean(name, removeEmoji = true)
         // Repeated prefixes like "US: |US| " come off one at a time.

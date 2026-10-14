@@ -14,7 +14,8 @@ object GuideResolver {
     class SourceIndex(
         /** Lowercased tvg-id → the guide's own ID: XMLTV IDs often differ from the M3U's only in case. */
         val byId: Map<String, String>,
-        val byName: Map<String, String>,
+        /** Normalized name → every guide channel going by it, best-known name first. */
+        val byName: Map<String, List<String>>,
     )
 
     data class Mapping(val epgSourceId: String, val guideChannelId: String?)
@@ -23,13 +24,17 @@ object GuideResolver {
         val withPrograms = db.guideQueries.channelsWithPrograms(epgSourceId).executeAsList().toHashSet()
         val byId = HashMap<String, String>()
         for (id in withPrograms) byId.putIfAbsent(id.lowercase(), id)
-        val byName = HashMap<String, String>()
-        for (c in db.guideQueries.channelsForSource(epgSourceId).executeAsList()) {
-            if (c.id in withPrograms && c.normalized_name.isNotEmpty()) byName.putIfAbsent(c.normalized_name, c.id)
+        val byName = HashMap<String, MutableList<String>>()
+        fun add(name: String, id: String) {
+            val list = byName.getOrPut(name) { ArrayList(1) }
+            if (id !in list) list += id
         }
-        // Then every other name each channel goes by; the first display-name wins a tie.
+        for (c in db.guideQueries.channelsForSource(epgSourceId).executeAsList()) {
+            if (c.id in withPrograms && c.normalized_name.isNotEmpty()) add(c.normalized_name, c.id)
+        }
+        // Then every other name each channel goes by.
         for (n in db.guideQueries.channelNamesForSource(epgSourceId).executeAsList()) {
-            if (n.guide_channel_id in withPrograms) byName.putIfAbsent(n.normalized_name, n.guide_channel_id)
+            if (n.guide_channel_id in withPrograms) add(n.normalized_name, n.guide_channel_id)
         }
         return SourceIndex(byId, byName)
     }
@@ -37,6 +42,12 @@ object GuideResolver {
     /**
      * The guide for a channel: its mapping's EPG source (else the default) first, then the others in
      * fallback order. In each: a manual guide channel, else the tvg-id, else the normalized name.
+     *
+     * A name often matches several guide channels: "hbo" is HBO's Pacific feed in one guide, and HBO
+     * Hungary and Poland in another (2026-10-14, the user's guides). Name matches are ranked: the
+     * channel's own country first ("US: …" → `….us`, `….us2`), then not a Pacific or West feed; a
+     * Pacific or West best match also tries the name + " east". A clean name match in a later source
+     * beats a flawed one in an earlier source, which is used only when nothing better exists.
      */
     fun resolve(
         mapping: Mapping?,
@@ -53,19 +64,47 @@ object GuideResolver {
         val order = listOfNotNull(chosen) + enabled.filter { it.id != chosenId }
         val name = GuideNames.normalize(rawName)
         val tvgId = rawTvgId?.takeIf { it.isNotBlank() }
+        val country = GuideNames.country(rawName)
+        // The best flawed name match so far (wrong country, or a Pacific or West feed), used only if nothing clean turns up.
+        var flawed: Pair<GuideRef, Int>? = null
         for ((i, src) in order.withIndex()) {
             val idx = index(src.id)
-            val guideChannel = when {
-                // 1. A manual mapping names both the EPG source and the guide channel: the strongest override.
-                i == 0 && mapping?.guideChannelId != null && mapping.epgSourceId == src.id -> mapping.guideChannelId
-                // 2. tvg-id in this EPG source.
-                tvgId != null && tvgId.lowercase() in idx.byId -> idx.byId.getValue(tvgId.lowercase())
-                // 3. The normalized name in this EPG source.
-                else -> idx.byName[name]
-            } ?: continue
-            return GuideRef(src.id, guideChannel, src.timeShiftMs, isFallback = i > 0)
+            // 1. A manual mapping names both the EPG source and the guide channel: the strongest override.
+            if (i == 0 && mapping?.guideChannelId != null && mapping.epgSourceId == src.id) {
+                return GuideRef(src.id, mapping.guideChannelId, src.timeShiftMs, isFallback = false)
+            }
+            // 2. tvg-id in this EPG source.
+            if (tvgId != null) idx.byId[tvgId.lowercase()]?.let { return GuideRef(src.id, it, src.timeShiftMs, isFallback = i > 0) }
+            // 3. The normalized name in this EPG source, ranked.
+            val (guideChannel, penalty) = bestByName(idx, name, country) ?: continue
+            val ref = GuideRef(src.id, guideChannel, src.timeShiftMs, isFallback = i > 0)
+            if (penalty == 0) return ref
+            if (flawed == null || penalty < flawed.second) flawed = ref to penalty
         }
-        return null
+        return flawed?.first
+    }
+
+    private fun bestByName(idx: SourceIndex, name: String, country: String?): Pair<String, Int>? {
+        fun ranked(key: String) = idx.byName[key].orEmpty().map { it to penalty(it, country) }.minByOrNull { it.second }
+        val best = ranked(name)
+        if (best != null && best.second and REGIONAL == 0) return best
+        // "HBO" is only HBO's Pacific feed by that name; the East one is "HBO East".
+        val east = ranked("$name east")
+        return if (east != null && (best == null || east.second < best.second)) east else best
+    }
+
+    private const val REGIONAL = 1
+    private const val OTHER_COUNTRY = 2
+    private val regional = Regex("""\b(?:pacific|west)\b""")
+
+    /** How far a guide channel ID is from right for a channel of [country]: 0 is clean. */
+    private fun penalty(guideChannelId: String, country: String?): Int {
+        val words = guideChannelId.lowercase().replace('.', ' ').replace('_', ' ').replace('(', ' ').replace(')', ' ')
+        var p = if (regional.containsMatchIn(words)) REGIONAL else 0
+        // XMLTV IDs end in a country, often with a list suffix: "HBO.us", "HBO.Drama.us2", "WBBM-DT.us_locals1".
+        val idCountry = guideChannelId.substringAfterLast('.', "").lowercase().takeWhile { it.isLetter() }.takeIf { it.length in 2..3 }
+        if (country != null && idCountry != null && idCountry != country) p += OTHER_COUNTRY
+        return p
     }
 
     /** The default EPG source's ID: the setting when it names an enabled source, else the first enabled one. */
