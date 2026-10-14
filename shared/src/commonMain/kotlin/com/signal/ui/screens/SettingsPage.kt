@@ -27,6 +27,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.signal.app.AppController
 import com.signal.app.Route
+import com.signal.app.StartPage
 import com.signal.data.Settings
 import com.signal.input.RemoteAction
 import com.signal.input.RemoteHandler
@@ -259,6 +260,15 @@ private fun AppearanceSection(app: AppController, returnTo: FocusRequester) {
         else -> "System (${if (app.platform.systemUses24HourClock()) "24-hour" else "12-hour"})"
     }
     Column(Modifier.width(1100.dp)) {
+        SectionTitle("Start")
+        val start = remember(tick) { StartPage.from(app.settings.raw(Settings.Key.START_PAGE)) }
+        ListRow("Start page", detail = start.label, onSelect = {
+            app.panel.open(PanelPage.Actions("Start page", StartPage.entries.map { p ->
+                PanelAction(p.label, selected = p == start) {
+                    app.settings.put(Settings.Key.START_PAGE, if (p == StartPage.HOME) null else p.name); tick++; null
+                }
+            }, subtitle = "Where Signal opens, and where it returns after 4 hours away."), returnTo)
+        })
         SectionTitle("Clock")
         ListRow("Time format", detail = label, onSelect = {
             app.panel.open(PanelPage.Actions("Time format", listOf(
@@ -266,6 +276,11 @@ private fun AppearanceSection(app: AppController, returnTo: FocusRequester) {
                 PanelAction("12-hour", selected = raw == "false") { app.settings.put(Settings.Key.CLOCK_24H, "false"); tick++; null },
                 PanelAction("24-hour", selected = raw == "true") { app.settings.put(Settings.Key.CLOCK_24H, "true"); tick++; null },
             )), returnTo)
+        })
+        SectionTitle("Channels")
+        val numbers by app.showNumbers.collectAsState()
+        ListRow("Channel numbers", detail = if (numbers) "Shown" else "Hidden", onSelect = {
+            app.settings.put(Settings.Key.SHOW_NUMBERS, if (numbers) "false" else null) // Unset is Shown, as the web admin has it.
         })
     }
 }

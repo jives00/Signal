@@ -11,6 +11,7 @@ class GuideScreenshotTest {
         guideReady()
         ui.runOnIdle { app.navigator.go(Route.LiveTv) }
         eventually("guide focused") { focusedText()?.contains(" · ") == true }
+        eventually("rows filled") { !shows("No guide information") }
         settle()
         screenshot("guide")
         press(RemoteAction.Down, times = 2)

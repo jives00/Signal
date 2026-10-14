@@ -62,6 +62,8 @@ import com.signal.ui.components.TopLevelPage
 import com.signal.ui.components.requestFocusWhenReady
 import com.signal.ui.menus.VodMenus
 import com.signal.ui.theme.SignalSizes
+import com.signal.ui.components.labelOf
+import com.signal.ui.components.SignalIcons
 import com.signal.ui.theme.SignalTheme
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
@@ -185,7 +187,7 @@ fun SearchPage() {
                     SField(hint, query, { query = it }, focusRequester = field, down = chips)
                 }
                 app.platform.voiceInput?.let { voice ->
-                    SButton("Mic", onSelect = { voice.listen { text -> query = text } }, modifier = Modifier.padding(start = 16.dp, bottom = 8.dp))
+                    SButton("Voice search", onSelect = { voice.listen { text -> query = text } }, modifier = Modifier.padding(start = 16.dp, bottom = 8.dp), icon = SignalIcons.mic)
                 }
             }
             // The type chips. All is on by default; the others toggle (PLAN §4.3.14).
@@ -369,7 +371,7 @@ private fun ChannelCard(app: AppController, ch: Channel, now: Long, first: Focus
         Column(Modifier.fillMaxWidth().height(136.dp).background(if (focused) c.accent else c.surface).padding(16.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 LogoTile(ch.displayName, ch.logoUrl, 72, 48, onAccent = focused)
-                SText("${ch.number}  ${ch.displayName}", 22, Modifier.padding(start = 16.dp), weight = FontWeight.SemiBold, color = if (focused) c.onAccent else c.text)
+                SText(labelOf(ch), 22, Modifier.padding(start = 16.dp), weight = FontWeight.SemiBold, color = if (focused) c.onAccent else c.text)
             }
             SText(on?.title ?: "No guide information", 20, Modifier.padding(top = 10.dp), color = if (focused) c.onAccent else c.muted)
             if (on != null) ProgressBar(((now - on.start).toFloat() / on.durationMs).coerceIn(0f, 1f), Modifier.padding(top = 8.dp), onAccent = focused)

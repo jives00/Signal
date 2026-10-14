@@ -32,8 +32,9 @@ import com.signal.input.remoteItem
 import com.signal.ui.theme.SignalTheme
 
 /**
- * A labeled text field for the 10-foot UI. OK opens the Android TV on-screen keyboard, which also
- * offers voice input (PLAN §4.2); a physical keyboard types straight in, including in the harness.
+ * A labeled text field for the 10-foot UI. Focus alone doesn't open the keyboard; OK opens the
+ * Android TV on-screen keyboard, which also offers voice input (PLAN §4.2). A physical keyboard
+ * types straight in, including in the harness.
  */
 @Composable
 fun SField(
@@ -63,7 +64,8 @@ fun SField(
                 textStyle = TextStyle(color = if (focused) c.onAccent else c.text, fontSize = 26.sp, fontFamily = SignalTheme.font),
                 cursorBrush = SolidColor(if (focused) c.onAccent else c.accent),
                 visualTransformation = if (password) PasswordVisualTransformation() else VisualTransformation.None,
-                keyboardOptions = KeyboardOptions(keyboardType = if (password) KeyboardType.Password else keyboard),
+                // Focus alone never opens the keyboard: OK does (milestone 6).
+                keyboardOptions = KeyboardOptions(keyboardType = if (password) KeyboardType.Password else keyboard, showKeyboardOnFocus = false),
                 modifier = Modifier
                     .fillMaxWidth()
                     .let { if (focusRequester != null) it.focusRequester(focusRequester) else it }

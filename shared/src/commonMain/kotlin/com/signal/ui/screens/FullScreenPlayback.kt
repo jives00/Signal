@@ -55,6 +55,7 @@ import com.signal.ui.panel.PanelAction
 import com.signal.ui.panel.PanelPage
 import com.signal.ui.components.requestFocusWhenReady
 import com.signal.ui.theme.SignalSizes
+import com.signal.ui.components.showNumbers
 import com.signal.ui.theme.SignalTheme
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
@@ -155,13 +156,16 @@ fun FullScreenPlayback(route: Route.FullScreen) {
     }
 }
 
-/** The bar's shared look: full width, theme bg at about 72%, a short fade at its top edge, no blur. */
+/** The bar's shared look: full width, a scrim token over the video, a short fade at its top edge, no blur. */
 @Composable
-internal fun OverlayBackground(modifier: Modifier = Modifier, content: @Composable () -> Unit) {
-    val bg = SignalTheme.colors.bg
+internal fun OverlayBackground(
+    modifier: Modifier = Modifier,
+    scrim: Color = SignalTheme.colors.overlayScrim,
+    content: @Composable () -> Unit,
+) {
     Column(modifier.fillMaxWidth()) {
-        Box(Modifier.fillMaxWidth().height(48.dp).background(Brush.verticalGradient(listOf(Color.Transparent, bg.copy(alpha = 0.72f)))))
-        Box(Modifier.fillMaxWidth().background(bg.copy(alpha = 0.72f))) { content() }
+        Box(Modifier.fillMaxWidth().height(48.dp).background(Brush.verticalGradient(listOf(Color.Transparent, scrim))))
+        Box(Modifier.fillMaxWidth().background(scrim)) { content() }
     }
 }
 
@@ -182,8 +186,9 @@ private fun ZapBanner(channel: Channel, tick: Int, onOpenInfo: () -> Unit) {
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.BottomStart) {
         OverlayBackground {
             Row(Modifier.padding(horizontal = SignalSizes.EDGE_MARGIN.dp, vertical = 24.dp), verticalAlignment = Alignment.CenterVertically) {
-                SText(channel.number.toString(), 48, weight = FontWeight.ExtraBold)
-                LogoTile(channel.displayName, channel.logoUrl, 96, 56, Modifier.padding(start = 32.dp))
+                val numbers = showNumbers()
+                if (numbers) SText(channel.number.toString(), 48, weight = FontWeight.ExtraBold)
+                LogoTile(channel.displayName, channel.logoUrl, 96, 56, if (numbers) Modifier.padding(start = 32.dp) else Modifier)
                 Column(Modifier.padding(start = 32.dp)) {
                     val app = LocalApp.current
                     val now = rememberNow()
@@ -237,11 +242,11 @@ private fun InfoBar(
     }
 
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.BottomStart) {
-        OverlayBackground {
+        OverlayBackground(scrim = SignalTheme.colors.infoBarScrim) {
             Column(Modifier.fillMaxWidth().height(400.dp).padding(horizontal = SignalSizes.EDGE_MARGIN.dp, vertical = 32.dp)) {
                 Row(Modifier.weight(1f).fillMaxWidth()) {
                     Column(Modifier.width(300.dp)) {
-                        SText(channel.number.toString(), 80, weight = FontWeight.ExtraBold)
+                        if (showNumbers()) SText(channel.number.toString(), 80, weight = FontWeight.ExtraBold)
                         LogoTile(channel.displayName, channel.logoUrl, 128, 72, Modifier.padding(top = 8.dp), onAccent = true)
                         SText(channel.displayName, 26, Modifier.padding(top = 12.dp), weight = FontWeight.SemiBold)
                     }

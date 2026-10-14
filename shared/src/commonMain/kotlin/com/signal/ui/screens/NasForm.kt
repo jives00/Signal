@@ -67,7 +67,7 @@ fun NasForm(pair: Boolean, onPaired: (deviceName: String) -> Unit, onCancel: () 
                 pairing is Pairing.ShowCode || pairing == Pairing.Searching -> "New code"
                 else -> "Connect"
             }
-            SButton(label, primary = true, focusRequester = connect, onSelect = {
+            SButton(label, focusRequester = connect, onSelect = {
                 app.nas.setAddresses(home, tailscale)
                 if (pair) {
                     attempt++

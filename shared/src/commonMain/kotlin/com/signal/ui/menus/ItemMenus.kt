@@ -3,6 +3,7 @@ package com.signal.ui.menus
 import com.signal.app.AppController
 import com.signal.data.GroupEntry
 import com.signal.model.Channel
+import com.signal.data.Settings
 import com.signal.model.ChannelGroup
 import com.signal.model.ChannelSort
 import com.signal.ui.panel.PanelAction
@@ -63,7 +64,9 @@ class ItemMenus(private val app: AppController) {
             if (currentGroup is ChannelGroup.Playlist && channel.userChannelId != null) {
                 add(PanelAction("Remove from this playlist") { launch { app.channels.removeFromPlaylist(channel.userChannelId, currentGroup.id) }; null })
             }
-            if (onMove != null) add(PanelAction("Move") { onMove(); null })
+            // Sorted Favorites have no manual order to move within.
+            val sortedFavorites = currentGroup == ChannelGroup.Favorites && app.settings.favoritesSort() != null
+            if (onMove != null && !sortedFavorites) add(PanelAction("Move") { onMove(); null })
             add(PanelAction("Rename") {
                 PanelPage.TextInput("Rename ${channel.displayName}", channel.displayName) { name -> launch { app.channels.rename(channel, name) } }
             })
@@ -125,7 +128,7 @@ class ItemMenus(private val app: AppController) {
         }
     }
 
-    private fun channelTitle(c: Channel) = "${c.number}  ${c.displayName}"
+    private fun channelTitle(c: Channel) = app.channelLabel(c)
 
     /** "Add to playlist…": the existing playlists plus New playlist (PLAN §4.2). */
     fun addToPlaylistPage(channels: suspend () -> List<Channel>): PanelPage {
@@ -192,8 +195,23 @@ class ItemMenus(private val app: AppController) {
             },
         ))
 
-    fun favoritesMenu(onReorder: () -> Unit): PanelPage.Actions =
-        PanelPage.Actions("Favorites", listOf(
-            PanelAction("Reorder channels", detail = "Also sets the Home row order") { onReorder(); null },
-        ))
+    fun favoritesMenu(onReorder: () -> Unit): PanelPage.Actions {
+        val sort = app.settings.favoritesSort()
+        return PanelPage.Actions("Favorites", buildList {
+            add(PanelAction("Sort", detail = favoritesSortLabel(sort)) { favoritesSortPage(sort) })
+            // Reordering is the manual order; while sorted there's nothing to drag.
+            if (sort == null) add(PanelAction("Reorder channels", detail = "Also sets the Home row order") { onReorder(); null })
+        })
+    }
+
+    private fun favoritesSortLabel(sort: ChannelSort?) = when (sort) {
+        null, ChannelSort.PROVIDER -> "Manual"
+        ChannelSort.NUMBER -> "Channel number"
+        ChannelSort.A_Z -> "A–Z"
+    }
+
+    private fun favoritesSortPage(current: ChannelSort?): PanelPage =
+        PanelPage.Actions("Sort Favorites", listOf(null, ChannelSort.A_Z, ChannelSort.NUMBER).map { sort ->
+            PanelAction(favoritesSortLabel(sort), selected = sort == current) { app.settings.put(Settings.Key.FAVORITES_SORT, sort?.name); null }
+        }, subtitle = "Also the Home row. Manual keeps your own order, which A–Z and number sort on top of.")
 }

@@ -23,6 +23,12 @@ data class SignalColors(
     val muted: Color,
     val secondaryText: Color,
     val videoGround: Color,
+    /** Behind the zap banner and the VOD controls over video. */
+    val overlayScrim: Color,
+    /** Behind the live info bar: darker, so its text holds up over bright video. */
+    val infoBarScrim: Color,
+    /** Around video that doesn't fill its box (letterbox and pillarbox bars): pure black. */
+    val letterbox: Color,
 )
 
 val DarkSlate = SignalColors(
@@ -41,6 +47,9 @@ val DarkSlate = SignalColors(
     muted = Color(0xFFAEB4BD),
     secondaryText = Color(0xFFD3D7DD),
     videoGround = Color(0xFF1B1D21),
+    overlayScrim = Color(0xB830343B), // bg at 72%
+    infoBarScrim = Color(0xE030343B), // bg at 88%
+    letterbox = Color(0xFF000000),
 )
 
 /** Sizes in design units: 1 unit = 1 pixel of the 1920×1080 canvas (see [DesignCanvas]). */

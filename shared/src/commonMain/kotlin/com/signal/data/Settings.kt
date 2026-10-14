@@ -32,8 +32,12 @@ class Settings(private val db: UserDatabase, private val io: CoroutineDispatcher
         BACKGROUNDED_AT(Scope.DEVICE, "backgrounded_at"),
         UPDATE_DISMISSED_TAG(Scope.DEVICE, "update_dismissed_tag"),
         CLOCK_24H(Scope.PROFILE, "clock_24h"),
+        // The page the app opens on (StartPage); unset is Home.
+        START_PAGE(Scope.PROFILE, "start_page"),
         GROUP_SORT(Scope.PROFILE, "group_sort"),
         CHANNEL_SORT(Scope.PROFILE, "channel_sort"),
+        // Favorites: unset is the manual order; A_Z or NUMBER sort on top of it (milestone 6).
+        FAVORITES_SORT(Scope.PROFILE, "favorites_sort"),
         SHOW_NUMBERS(Scope.PROFILE, "show_numbers"),
         SHOW_LOGOS(Scope.PROFILE, "show_logos"),
         SHOW_NAMES(Scope.PROFILE, "show_names"),
@@ -142,6 +146,7 @@ class Settings(private val db: UserDatabase, private val io: CoroutineDispatcher
 
     fun groupSort(): GroupSort = raw(Key.GROUP_SORT)?.let { runCatching { GroupSort.valueOf(it) }.getOrNull() } ?: GroupSort.PROVIDER
     fun channelSort(): ChannelSort = raw(Key.CHANNEL_SORT)?.let { runCatching { ChannelSort.valueOf(it) }.getOrNull() } ?: ChannelSort.PROVIDER
+    fun favoritesSort(): ChannelSort? = raw(Key.FAVORITES_SORT)?.let { runCatching { ChannelSort.valueOf(it) }.getOrNull() }?.takeIf { it != ChannelSort.PROVIDER }
 }
 
 /** UUIDs for everything the user creates (PLAN §5.4). */

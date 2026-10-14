@@ -74,7 +74,7 @@ class LiveTvKeyMapTest {
         eventually("panel closed") { focusedProgram() == "channel" }
     }
 
-    @Test fun upDownChangeRowAndUpFromTheTopRevealsTheNavBar() = keyMapTest {
+    @Test fun upDownChangeRowAndWrapAtTheEnds() = keyMapTest {
         guide()
         val first = focusedChannel()
         press(RemoteAction.Down)
@@ -82,9 +82,12 @@ class LiveTvKeyMapTest {
         press(RemoteAction.Up)
         eventually("first row") { focusedChannel() == first }
         press(RemoteAction.Up)
-        focusedStartsWith("Live TV")
+        eventually("wrapped to the last row") { focusedChannel() != first && focusedChannel() != "" }
+        val last = focusedChannel()
         press(RemoteAction.Down)
-        eventually("back in the grid") { focusedChannel() == first }
+        eventually("wrapped to the first row") { focusedChannel() == first }
+        press(RemoteAction.Up)
+        eventually("the last row again") { focusedChannel() == last }
         press(RemoteAction.Back)
         focusedStartsWith("Live TV")
     }

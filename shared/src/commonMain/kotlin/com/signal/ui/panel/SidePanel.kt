@@ -193,7 +193,7 @@ private fun TextInputPage(state: SidePanelState, page: PanelPage.TextInput) {
                 singleLine = true,
                 textStyle = TextStyle(color = if (fieldFocused) c.onAccent else c.text, fontSize = 28.sp, fontFamily = SignalTheme.font),
                 cursorBrush = SolidColor(if (fieldFocused) c.onAccent else c.accent),
-                keyboardOptions = KeyboardOptions(keyboardType = if (page.digitsOnly) KeyboardType.Number else KeyboardType.Text),
+                keyboardOptions = KeyboardOptions(keyboardType = if (page.digitsOnly) KeyboardType.Number else KeyboardType.Text, showKeyboardOnFocus = false),
                 modifier = Modifier
                     .fillMaxWidth()
                     .focusRequester(field)
@@ -207,7 +207,7 @@ private fun TextInputPage(state: SidePanelState, page: PanelPage.TextInput) {
                 keyboard?.hide()
                 page.onDone(value)
                 state.close()
-            }, primary = true)
+            })
         }
     }
     LaunchedEffect(page) { field.requestFocusWhenReady() }

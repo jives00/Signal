@@ -61,11 +61,14 @@ import com.signal.ui.components.VDivider
 import com.signal.ui.components.VideoBox
 import com.signal.ui.components.formatTime
 import com.signal.ui.components.requestFocusWhenReady
+import com.signal.ui.components.labelOf
+import com.signal.ui.components.showNumbers
 import com.signal.ui.theme.SignalTheme
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.datetime.TimeZone
+import kotlinx.datetime.offsetAt
 import kotlinx.datetime.toLocalDateTime
 import kotlin.time.Clock
 import kotlin.time.Instant
@@ -86,6 +89,12 @@ private object GuideGeometry {
 private const val MINUTE = 60_000L
 private const val HALF_HOUR = 30 * MINUTE
 private const val DAY = 24 * 60 * MINUTE
+
+/** The half hour at or before [ms] in local time: where the grid starts (4:56pm → 4:30pm). */
+internal fun halfHourBefore(ms: Long, zone: TimeZone = TimeZone.currentSystemDefault()): Long {
+    val offset = zone.offsetAt(Instant.fromEpochMilliseconds(ms)).totalSeconds * 1000L
+    return (ms + offset).floorDiv(HALF_HOUR) * HALF_HOUR - offset
+}
 /** Program cells narrower than this (design units) show no text. */
 private const val MIN_TEXT_WIDTH = 72f
 /** Rows beyond the next one scrolled to whose programs are loaded ahead (a screen holds about 7). */
@@ -95,7 +104,8 @@ private const val PREFETCH_ROWS = 8
  * Live TV, the guide (PLAN §4.3.2, handoff screen 2). One screen-level focus position (a row and a
  * moment in time, or the channel column), not a focusable per cell, and only the programs inside
  * the time window are composed: the structure the milestone 1 spike measured at about 60fps on the
- * Shield (PLAN §10). The grid starts at now and never shows ended programs.
+ * Shield (PLAN §10). The grid starts on the half hour before now; programs that ended since then
+ * show dimmed and take no focus.
  */
 @Composable
 fun LiveTvPage() {
@@ -140,8 +150,10 @@ fun LiveTvPage() {
     var focusRow by remember { mutableStateOf(0) }
     var focusTime by remember { mutableLongStateOf(now) }
     var onChannelColumn by remember { mutableStateOf(false) }
-    // The program area's left edge. It starts at now (PLAN §4.3.2 → Time window).
-    var windowStart by remember { mutableLongStateOf(now) }
+    // The program area's left edge. It starts on the half hour before now and never goes earlier
+    // (PLAN §4.3.2 → Time window).
+    var windowStart by remember { mutableLongStateOf(halfHourBefore(now)) }
+    fun earliest() = halfHourBefore(now)
 
     // Opens on Favorites every time; with no favorites, the first visible group (PLAN §4.3.2). Full
     // screen's Back opens on its own group instead. On every showing: the page is kept alive (KeptPage).
@@ -201,7 +213,7 @@ fun LiveTvPage() {
         app.liveTvFocusKey = null
         focusRow = l.indexOfFirst { it.key == target || it.stream.id == current?.stream?.id }.coerceAtLeast(0)
         focusTime = now
-        windowStart = now
+        windowStart = earliest()
         onChannelColumn = false
         list.requestScrollToItem((focusRow - 2).coerceAtLeast(0))
         if (!panelOpen) focusGrid()
@@ -216,24 +228,22 @@ fun LiveTvPage() {
     fun moveRow(delta: Int) {
         val all = channelsNow.value
         if (all.isEmpty()) return
-        val target = (focusRow + delta).coerceIn(0, all.lastIndex)
-        if (target == focusRow) {
-            if (delta < 0) chrome.focusNav() // Up from the top row reveals the nav bar (PLAN §4.1).
-            return
-        }
+        // The grid wraps, like zapping in full screen (PLAN §4.3.3); Back reveals the nav bar.
+        val target = ((focusRow + delta) % all.size + all.size) % all.size
+        if (target == focusRow) return
         focusRow = target
         scrollToRow(target)
         // The rows about to scroll in get their programs now, so they lay out once, already filled,
         // instead of empty and again a frame or two later.
         val ahead = if (delta > 0) target + 1..target + PREFETCH_ROWS else target - PREFETCH_ROWS until target
-        for (r in ahead) all.getOrNull(r)?.let { rowsNow.value.request(it, now) }
+        for (r in ahead) all.getOrNull(r)?.let { rowsNow.value.request(it, earliest()) }
     }
 
-    /** Keeps [p] inside the window, scrolling time as little as possible, never before now. */
+    /** Keeps [p] inside the window, scrolling time as little as possible, never before [earliest]. */
     fun showInWindow(p: Program) {
         val windowEnd = windowStart + GuideGeometry.windowMs
-        if (p.start < windowStart) windowStart = maxOf(now, p.start)
-        else if (p.start >= windowEnd - HALF_HOUR) windowStart = maxOf(now, p.start - HALF_HOUR)
+        if (p.start < windowStart) windowStart = maxOf(earliest(), p.start)
+        else if (p.start >= windowEnd - HALF_HOUR) windowStart = maxOf(earliest(), p.start - HALF_HOUR)
     }
 
     fun moveProgram(delta: Int) {
@@ -259,8 +269,8 @@ fun LiveTvPage() {
     }
 
     fun jumpTime(to: Long) {
-        windowStart = maxOf(now, to)
-        focusTime = windowStart
+        windowStart = maxOf(earliest(), to)
+        focusTime = maxOf(now, windowStart)
         onChannelColumn = false
     }
 
@@ -377,7 +387,7 @@ fun LiveTvPage() {
                     HDivider()
                     LazyColumn(Modifier.fillMaxSize(), state = list, userScrollEnabled = false) {
                         itemsIndexed(channels, key = { _, ch -> ch.key }) { i, ch ->
-                            LaunchedEffect(ch.stream.id, rows) { rows.request(ch, now) }
+                            LaunchedEffect(ch.stream.id, rows) { rows.request(ch, halfHourBefore(now)) }
                             GuideRow(
                                 ch,
                                 programs = rows.get(ch),
@@ -417,7 +427,7 @@ fun LiveTvPage() {
     }
 }
 
-/** Each row's programs from now to 7 days out, loaded as rows appear. A bounded cache: the grid can be 2,000 rows deep. */
+/** Each row's programs from the grid's start to 7 days out, loaded as rows appear. A bounded cache: the grid can be 2,000 rows deep. */
 @Stable
 internal class GuideRows(private val app: AppController, private val scope: CoroutineScope) {
     private val cache = mutableStateMapOf<String, List<Program>>()
@@ -426,11 +436,11 @@ internal class GuideRows(private val app: AppController, private val scope: Coro
 
     fun get(ch: Channel): List<Program>? = cache[ch.stream.id]
 
-    fun request(ch: Channel, now: Long) {
+    fun request(ch: Channel, from: Long) {
         val key = ch.stream.id
         if (key in cache || !loading.add(key)) return
         scope.launch {
-            val programs = runCatching { app.guide.programs(ch, now, now + 7 * DAY) }.getOrDefault(emptyList())
+            val programs = runCatching { app.guide.programs(ch, from, from + 7 * DAY) }.getOrDefault(emptyList())
             loading.remove(key)
             cache[key] = programs
             order.addLast(key)
@@ -518,14 +528,14 @@ private fun GuideRow(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             val ink = if (channelFocused || moving) c.onAccent else c.text
-            SText(ch.number.toString(), 20, Modifier.width(56.dp), color = if (channelFocused || moving) c.onAccent else c.muted)
+            if (showNumbers()) SText(ch.number.toString(), 20, Modifier.width(56.dp), color = if (channelFocused || moving) c.onAccent else c.muted)
             LogoTile(ch.displayName, ch.logoUrl, 96, 56, onAccent = channelFocused || moving)
             SText((if (moving) "↕ " else "") + ch.displayName, 24, Modifier.padding(start = 16.dp).weight(1f), weight = FontWeight.SemiBold, color = ink)
             if (playing) Box(Modifier.width(8.dp).height(8.dp).background(if (channelFocused) c.onAccent else c.accent))
         }
         VDivider()
         Box(Modifier.fillMaxSize()) {
-            val visible = programs?.filter { it.stop > maxOf(now, windowStart) && it.start < windowEnd }
+            val visible = programs?.filter { it.stop > windowStart && it.start < windowEnd }
             if (visible.isNullOrEmpty()) {
                 // No guide data: one cell across the window, counting as on now (PLAN §4.3.2).
                 val focused = rowFocused && !channelFocused
@@ -547,27 +557,33 @@ private fun GuideRow(
 private fun ProgramCell(p: Program, windowStart: Long, windowEnd: Long, now: Long, focused: Boolean, reminder: Boolean) {
     val c = SignalTheme.colors
     val app = LocalApp.current
-    val from = maxOf(p.start, windowStart, now)
+    val from = maxOf(p.start, windowStart)
     val to = minOf(p.stop, windowEnd)
+    val ended = p.stop <= now
     val left = (from - windowStart) / MINUTE.toFloat() * GuideGeometry.UNITS_PER_MINUTE
     val width = (to - from) / MINUTE.toFloat() * GuideGeometry.UNITS_PER_MINUTE
+    // The program on now: its text starts after the now line, so the line never runs through it.
+    // Too little room after the line (it ends soon) and the text stays at the cell's start.
+    val past = if (p.isOn(now) && now > from) (now - from) / MINUTE.toFloat() * GuideGeometry.UNITS_PER_MINUTE + GuideGeometry.NOW_LINE else 0f
+    val inset = if (width - past >= MIN_TEXT_WIDTH) past else 0f
+    val textFrom = if (inset > 0f) now else from
     Row(Modifier.offset(x = left.dp).width(width.coerceAtLeast(2f).dp).fillMaxHeight()) {
         Column(
             Modifier
                 .weight(1f)
                 .fillMaxHeight()
                 .background(if (focused) c.accent else if (p.isOn(now)) c.surface else Color.Transparent)
-                .padding(horizontal = 16.dp, vertical = 14.dp),
+                .padding(start = (16 + inset).dp, end = 16.dp, top = 14.dp, bottom = 14.dp),
         ) {
             // A sliver at the window's edge has no room for text, only for "…".
-            if (width >= MIN_TEXT_WIDTH) {
+            if (width - inset >= MIN_TEXT_WIDTH) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     // A bell marks a program with a reminder (PLAN §4.3.4).
                     if (reminder) Icon(SignalIcons.bell, 20, if (focused) c.onAccent else c.accentText, Modifier.padding(end = 8.dp))
-                    SText(p.title, 24, weight = FontWeight.SemiBold, color = if (focused) c.onAccent else c.text)
+                    SText(p.title, 24, weight = FontWeight.SemiBold, color = if (focused) c.onAccent else if (ended) c.muted else c.text)
                 }
                 // The time range only on cells of 30 minutes or more (handoff screen 2).
-                if (to - from >= HALF_HOUR) {
+                if (to - textFrom >= HALF_HOUR) {
                     SText(programTime(app, p, now), 20, color = if (focused) c.onAccent else c.muted)
                 }
             }
@@ -593,7 +609,7 @@ private fun DetailsStrip(app: AppController, ch: Channel?, p: Program?, now: Lon
         if (ch == null) return@Column
         Row(verticalAlignment = Alignment.CenterVertically) {
             LogoTile(ch.displayName, ch.logoUrl, 80, 48)
-            SText("${ch.number}  ${ch.displayName}", 26, Modifier.padding(start = 24.dp), weight = FontWeight.SemiBold, color = c.accentText)
+            SText(labelOf(ch), 26, Modifier.padding(start = 24.dp), weight = FontWeight.SemiBold, color = c.accentText)
             if (p != null) {
                 val status = if (p.isOn(now)) " · On now" else ""
                 SText("   ${programTime(app, p, now)}$status", 24, color = c.muted)

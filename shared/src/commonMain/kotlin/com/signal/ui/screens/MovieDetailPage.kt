@@ -125,7 +125,7 @@ fun MovieDetailPage(route: Route.MovieDetail) {
                 Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                     SButton(
                         if (position != null) "Resume ${clockTime(position.positionMs)}" else "Play", { play(false) },
-                        Modifier.weight(1f), primary = true, focusRequester = primary, onOptions = menu, fillWidth = true,
+                        Modifier.weight(1f), focusRequester = primary, onOptions = menu, fillWidth = true,
                     )
                     SButton("Play from start", { play(true) }, Modifier.weight(1f), onOptions = menu, fillWidth = true)
                 }

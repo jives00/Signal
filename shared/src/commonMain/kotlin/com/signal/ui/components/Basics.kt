@@ -28,6 +28,8 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -141,30 +143,34 @@ fun ListRow(
     }
 }
 
-/** A flush-left button (PLAN §3 → movie detail's button rows): primary is accent, secondary outlined. */
+/** A flush-left button (PLAN §3 → movie detail's button rows): outlined, and accent only when focused, so one button looks focused at a time. */
 @Composable
 fun SButton(
     text: String,
     onSelect: () -> Unit,
     modifier: Modifier = Modifier,
-    primary: Boolean = false,
+    /** A chosen option among several (the source form's kind): `surface` fill, like [ListRow]. Only focus uses the accent. */
+    selected: Boolean = false,
     focusRequester: FocusRequester? = null,
     /** Long-press OK: movie detail opens its menu from any button (PLAN §4.3.8). */
     onOptions: (() -> Unit)? = null,
     /** Fill the width [modifier] gives it: movie detail's 2×2 grid. */
     fillWidth: Boolean = false,
+    /** Drawn instead of [text], which stays as its description (Search's mic). */
+    icon: androidx.compose.ui.graphics.vector.ImageVector? = null,
 ) {
     val c = SignalTheme.colors
     Focusable(modifier, onSelect = onSelect, onOptions = onOptions, focusRequester = focusRequester) { focused ->
         Box(
             (if (fillWidth) Modifier.fillMaxWidth() else Modifier)
                 .height(72.dp)
-                .background(if (focused || primary) c.accent else Color.Transparent)
-                .let { if (!focused && !primary) it.border(SignalSizes.DIVIDER.dp, c.divider) else it }
-                .padding(horizontal = 32.dp),
+                .background(if (focused) c.accent else if (selected) c.surface else Color.Transparent)
+                .let { if (!focused && !selected) it.border(SignalSizes.DIVIDER.dp, c.divider) else it }
+                .padding(horizontal = if (icon != null) 20.dp else 32.dp),
             contentAlignment = Alignment.CenterStart,
         ) {
-            SText(text, 26, weight = FontWeight.SemiBold, color = if (focused || primary) c.onAccent else c.text)
+            if (icon != null) Icon(icon, 32, if (focused) c.onAccent else c.text, Modifier.semantics { contentDescription = text })
+            else SText(text, 26, weight = FontWeight.SemiBold, color = if (focused) c.onAccent else c.text)
         }
     }
 }

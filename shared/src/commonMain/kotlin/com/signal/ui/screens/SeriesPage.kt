@@ -132,11 +132,16 @@ fun SeriesPage(route: Route.SeriesDetail) {
     fun episodeMenu(e: Episode): PanelPage {
         val key = ItemKeys.episode(seriesKey, e)
         val watched = key in state.watched
-        return PanelPage.Actions("${e.code} · ${e.title}", listOf(
-            PanelAction(if (watched) "Mark unwatched" else "Mark watched") {
-                app.scope.launch { if (watched) app.watch.markUnwatched(key) else app.watch.markWatched(key, "EPISODE", it.id, seriesKey, e.season, e.episode) }
+        return PanelPage.Actions("${e.code} · ${e.title}", listOfNotNull(
+            if (watched) null else PanelAction("Mark watched") {
+                app.scope.launch { app.watch.markWatched(key, "EPISODE", it.id, seriesKey, e.season, e.episode) }
                 null
             },
+            // Reset: unwatched, with no resume point (milestone 6).
+            if (watched || key in state.positions) PanelAction("Reset", detail = "Unwatched, from the start") {
+                app.scope.launch { app.watch.markUnwatched(key) }
+                null
+            } else null,
             PanelAction("Mark all previous as watched") {
                 app.scope.launch {
                     d?.episodes?.filter { x -> x.season < e.season || (x.season == e.season && x.episode < e.episode) }?.forEach { x ->
@@ -150,7 +155,7 @@ fun SeriesPage(route: Route.SeriesDetail) {
     }
 
     fun seasonMenu(s: Int): PanelPage = PanelPage.Actions("Season $s", listOf(true, false).map { watched ->
-        PanelAction(if (watched) "Mark season watched" else "Mark season unwatched") {
+        PanelAction(if (watched) "Mark season watched" else "Reset season", detail = if (watched) null else "Every episode unwatched") {
             app.scope.launch {
                 d?.inSeason(s)?.forEach { e ->
                     val key = ItemKeys.episode(seriesKey, e)
@@ -192,7 +197,7 @@ fun SeriesPage(route: Route.SeriesDetail) {
             (d?.plot ?: it.plot)?.let { plot -> item { SText(plot, 24, color = c.secondaryText, maxLines = 4) } }
             item {
                 if (next != null) {
-                    SButton(next.label, { play(next.episode) }, Modifier.fillMaxWidth(), primary = true, focusRequester = primary, fillWidth = true,
+                    SButton(next.label, { play(next.episode) }, Modifier.fillMaxWidth(), focusRequester = primary, fillWidth = true,
                         onOptions = { VodMenus.open(app, it, state, returnTo, seriesKey) })
                 } else if (d != null) {
                     SText("No episodes from the source yet.", 24, color = c.muted)

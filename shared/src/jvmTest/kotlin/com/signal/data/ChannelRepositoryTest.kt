@@ -112,6 +112,22 @@ class ChannelRepositoryTest {
     }
 
     @Test
+    fun favoritesSortLiveAndManualComesBack() = runBlocking {
+        setup()
+        val all = channels.channelsNow(ChannelGroup.Provider("s1", "Sports", "Sports")) +
+            channels.channelsNow(ChannelGroup.Provider("s1", "News", "News"))
+        all.forEach { channels.setFavorite(it, true) }
+        channels.moveFavorite(channels.channelsNow(ChannelGroup.Favorites).last().userChannelId!!, 0)
+        val manual = listOf("Charlie HD", "US: Alpha HD", "Bravo")
+        assertEquals(manual, channels.channelsNow(ChannelGroup.Favorites).map { it.displayName })
+        settings.put(Settings.Key.FAVORITES_SORT, "A_Z")
+        assertEquals(listOf("Bravo", "Charlie HD", "US: Alpha HD"), channels.channelsNow(ChannelGroup.Favorites).map { it.displayName })
+        // Manual again: the order underneath was never rewritten.
+        settings.put(Settings.Key.FAVORITES_SORT, null)
+        assertEquals(manual, channels.channelsNow(ChannelGroup.Favorites).map { it.displayName })
+    }
+
+    @Test
     fun hidingRemovesFromListsAndProfilesAreSeparate() = runBlocking {
         setup()
         val sports = ChannelGroup.Provider("s1", "Sports", "Sports")

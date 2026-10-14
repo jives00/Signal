@@ -68,8 +68,8 @@ fun SourceForm(existing: Source?, onDone: () -> Unit, onCancel: () -> Unit) {
 
     Column(Modifier.width(1100.dp).verticalScroll(rememberScrollState())) {
         Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-            SButton("Xtream Codes", onSelect = { kind = SourceKind.XTREAM }, primary = kind == SourceKind.XTREAM, focusRequester = first)
-            SButton("M3U link", onSelect = { kind = SourceKind.M3U }, primary = kind == SourceKind.M3U)
+            SButton("Xtream Codes", onSelect = { kind = SourceKind.XTREAM }, selected = kind == SourceKind.XTREAM, focusRequester = first)
+            SButton("M3U link", onSelect = { kind = SourceKind.M3U }, selected = kind == SourceKind.M3U)
         }
         SField("Name", name, { name = it }, Modifier.padding(top = 16.dp))
         if (kind == SourceKind.XTREAM) {
@@ -83,7 +83,7 @@ fun SourceForm(existing: Source?, onDone: () -> Unit, onCancel: () -> Unit) {
         SField("User-agent (optional)", userAgent, { userAgent = it }, down = save)
         status?.let { SText(it, 24, Modifier.padding(top = 16.dp), color = c.secondaryText, maxLines = 3) }
         Row(Modifier.fillMaxWidth().padding(top = 24.dp), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-            SButton(if (busy) "Working…" else "Save", primary = true, focusRequester = save, onSelect = {
+            SButton(if (busy) "Working…" else "Save", focusRequester = save, onSelect = {
                 if (busy || url.isBlank()) { status = "Enter the URL first."; return@SButton }
                 busy = true
                 status = "Loading channels…"

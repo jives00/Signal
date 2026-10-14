@@ -148,6 +148,18 @@ class WatchRepository(private val db: UserDatabase, private val settings: Settin
         }
     }
 
+    /**
+     * Reset on a whole series (milestone 6): every episode unwatched with no resume point, and back in
+     * Continue watching if it was removed. Row by row, like [markUnwatched], so sync carries each delete.
+     */
+    suspend fun resetSeries(seriesKey: String) = withContext(io) {
+        db.transaction {
+            db.watchQueries.watchedFor(profile).executeAsList().filter { it.series_key == seriesKey }.forEach { db.watchQueries.removeWatched(profile, it.item_key) }
+            db.watchQueries.resumeFor(profile).executeAsList().filter { it.series_key == seriesKey }.forEach { db.watchQueries.removeResume(profile, it.item_key) }
+            db.watchQueries.removeHidden(profile, seriesKey)
+        }
+    }
+
     /** "Play from start" and "Remove from Continue watching" on a movie or episode. */
     suspend fun clearPosition(key: String) = withContext(io) { db.watchQueries.removeResume(profile, key) }
 

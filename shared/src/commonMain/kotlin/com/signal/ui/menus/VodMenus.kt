@@ -50,10 +50,9 @@ object VodMenus {
             })
             if (item.kind == VodKind.MOVIE) {
                 val watched = key in state.watched
-                add(PanelAction(if (watched) "Mark unwatched" else "Mark watched") {
-                    launch { if (watched) app.watch.markUnwatched(key) else app.watch.markWatched(key, "MOVIE", item.id) }
-                    null
-                })
+                if (!watched) add(PanelAction("Mark watched") { launch { app.watch.markWatched(key, "MOVIE", item.id) }; null })
+                // Reset: unwatched, with no resume point (milestone 6).
+                if (watched || key in state.positions) add(PanelAction("Reset", detail = "Unwatched, from the start") { launch { app.watch.markUnwatched(key) }; null })
                 add(PanelAction("Play from start") {
                     launch {
                         app.vodPlayback.playMovie(copies.first(), fromStart = true, asKey = key)
@@ -64,7 +63,7 @@ object VodMenus {
                 if (copies.size > 1) add(PanelAction("Play from…") { playFrom(app, copies, key) })
             } else {
                 add(PanelAction("Mark series watched") { seriesWatched(app, item, true); null })
-                add(PanelAction("Mark series unwatched") { seriesWatched(app, item, false); null })
+                add(PanelAction("Reset series", detail = "Every episode unwatched") { resetSeries(app, item); null })
             }
         }
         return PanelPage.Actions(com.signal.data.VodRepository.displayName(item), actions)
@@ -82,6 +81,14 @@ object VodMenus {
                 null
             }
         })
+    }
+
+    /** Reset on a series: every episode unwatched and no resume points, under the key the series page uses. */
+    fun resetSeries(app: AppController, item: VodItem) {
+        app.scope.launch {
+            val tmdbId = app.vodDetails.series(item)?.tmdbId ?: item.tmdbId
+            app.watch.resetSeries(ItemKeys.series(item, tmdbId))
+        }
     }
 
     /** Every episode of a series watched or unwatched (PLAN §4.3.7). */

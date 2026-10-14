@@ -56,6 +56,21 @@ class WatchRepositoryTest {
         assertTrue(watch.current().watched.isEmpty())
     }
 
+    @Test fun resetSeriesClearsOnlyThatSeries(): Unit = runBlocking {
+        watch.markWatched("s1:s1e1", "EPISODE", "x", "s1", 1, 1)
+        watch.savePosition(position("s1:s1e2", 120_000, kind = "EPISODE", seriesKey = "s1", season = 1, episode = 2))
+        watch.markWatched("s2:s1e1", "EPISODE", "y", "s2", 1, 1)
+        watch.savePosition(position("m1", 120_000))
+        watch.resetSeries("s1")
+        val s = watch.current()
+        assertEquals(setOf("s2:s1e1"), s.watched.keys)
+        assertEquals(setOf("m1"), s.positions.keys)
+        // A series removed from Continue watching comes back.
+        watch.hideSeries("s1")
+        watch.resetSeries("s1")
+        assertTrue("s1" !in watch.current().hidden)
+    }
+
     @Test fun continueWatchingShowsStartedItemsAndNextUp(): Unit = runBlocking {
         demo()
         val movie = vod.recentlyAdded(VodKind.MOVIE, 1).single()

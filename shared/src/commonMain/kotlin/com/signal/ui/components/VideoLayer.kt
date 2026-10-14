@@ -1,5 +1,6 @@
 package com.signal.ui.components
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
@@ -15,6 +16,7 @@ import androidx.compose.ui.layout.layout
 import androidx.compose.ui.unit.Constraints
 import com.signal.player.AspectMode
 import com.signal.player.VideoPlayer
+import com.signal.ui.theme.SignalTheme
 import kotlinx.coroutines.delay
 import kotlin.math.roundToInt
 
@@ -80,7 +82,9 @@ fun VideoLayerHost(layer: VideoLayer, player: VideoPlayer) {
                 val h = b?.height?.roundToInt()?.coerceAtLeast(0) ?: 0
                 val placeable = measurable.measure(Constraints.fixed(w, h))
                 layout(w, h) { placeable.place(b?.left?.roundToInt() ?: 0, b?.top?.roundToInt() ?: 0) }
-            },
+            }
+                // Bars around video that doesn't fill the slot are black, not the page behind (milestone 6).
+                .background(SignalTheme.colors.letterbox),
         ) {
             player.Surface(Modifier.fillMaxSize(), layer.aspect)
         }

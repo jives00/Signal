@@ -50,6 +50,8 @@ import com.signal.ui.components.VDivider
 import com.signal.ui.components.VideoBox
 import com.signal.ui.components.requestFocusWhenReady
 import com.signal.ui.theme.SignalSizes
+import com.signal.ui.components.labelOf
+import com.signal.ui.components.showNumbers
 import com.signal.ui.theme.SignalTheme
 import kotlinx.coroutines.launch
 
@@ -128,7 +130,7 @@ private fun HeroDetails(channel: Channel?) {
         }
         Row(verticalAlignment = Alignment.CenterVertically) {
             LogoTile(channel.displayName, channel.logoUrl, 96, 56)
-            SText("${channel.number}  ${channel.displayName}", 26, Modifier.padding(start = 24.dp), weight = FontWeight.SemiBold, color = c.accentText)
+            SText(labelOf(channel), 26, Modifier.padding(start = 24.dp), weight = FontWeight.SemiBold, color = c.accentText)
         }
         // The program on now, its time and what's next, and a progress bar on the bottom edge (handoff screen 1).
         val app = LocalApp.current
@@ -189,7 +191,7 @@ private fun FavoritesRow(favorites: List<Channel>?, firstTile: FocusRequester) {
                     Column(Modifier.fillMaxWidth().background(if (focused) c.accent else c.surface).padding(16.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             LogoTile(ch.displayName, ch.logoUrl, 72, 48, onAccent = focused)
-                            SText(ch.number.toString(), 20, Modifier.padding(start = 16.dp), weight = FontWeight.SemiBold, color = if (focused) c.onAccent else c.secondaryText)
+                            if (showNumbers()) SText(ch.number.toString(), 20, Modifier.padding(start = 16.dp), weight = FontWeight.SemiBold, color = if (focused) c.onAccent else c.secondaryText)
                         }
                         SText(ch.displayName, 22, Modifier.padding(top = 12.dp), weight = FontWeight.SemiBold, color = if (focused) c.onAccent else c.text)
                         // The program on now (handoff screen 1: "Favourites — on now").
@@ -394,6 +396,12 @@ private fun continueMenu(app: com.signal.app.AppController, card: com.signal.dat
         com.signal.ui.panel.PanelAction("Remove from Continue watching") {
             onLeaving()
             app.scope.launch { card.seriesKey?.let { app.watch.hideSeries(it) } ?: app.watch.clearPosition(card.key) }
+            null
+        },
+        // Reset (milestone 6): a movie unwatched from the start, or the whole series.
+        com.signal.ui.panel.PanelAction(if (card.seriesKey != null) "Reset series" else "Reset", detail = if (card.seriesKey != null) "Every episode unwatched" else "Unwatched, from the start") {
+            onLeaving()
+            app.scope.launch { card.seriesKey?.let { app.watch.resetSeries(it) } ?: app.watch.markUnwatched(card.key) }
             null
         },
     ))

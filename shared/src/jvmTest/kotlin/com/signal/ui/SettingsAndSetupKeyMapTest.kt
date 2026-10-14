@@ -2,6 +2,7 @@ package com.signal.ui
 
 import com.signal.app.Route
 import com.signal.input.RemoteAction
+import kotlinx.coroutines.launch
 import kotlin.test.Test
 import kotlin.test.assertEquals
 
@@ -75,6 +76,44 @@ class SettingsAndSetupKeyMapTest {
         press(RemoteAction.Back)
         eventually("the first step") { shows("Welcome to Signal") }
         focusedStartsWith("Connect to NAS")
+    }
+
+    @Test fun channelNumbersCanBeHidden() = keyMapTest(start = Route.Settings) {
+        focusedStartsWith("Sources")
+        repeat(4) { press(RemoteAction.Down) }
+        focusedStartsWith("Appearance")
+        press(RemoteAction.Right)
+        focusedStartsWith("Start page")
+        press(RemoteAction.Down, times = 2)
+        focusedStartsWith("Channel numbers")
+        assertEquals(true, app.showNumbers.value)
+        press(RemoteAction.Select)
+        eventually("numbers hidden") { !app.showNumbers.value && focusedText()?.contains("Hidden") == true }
+        val ch = app.playback.startingChannel()!!
+        assertEquals(ch.displayName, app.channelLabel(ch))
+        press(RemoteAction.Select)
+        eventually("numbers shown") { app.showNumbers.value }
+        assertEquals("${ch.number}  ${ch.displayName}", app.channelLabel(ch))
+    }
+
+    @Test fun theStartPageOpensWhereSet() = keyMapTest {
+        suspend fun open(page: com.signal.app.StartPage?) {
+            app.settings.put(com.signal.data.Settings.Key.START_PAGE, page?.name)
+            ui.runOnIdle { app.navigator.resetTo(Route.Settings) }
+            ui.runOnIdle { app.scope.launch { app.openStartPage() } }
+        }
+        open(com.signal.app.StartPage.LIVE_TV)
+        route(Route.LiveTv)
+        open(com.signal.app.StartPage.MOVIES)
+        route(Route.Movies)
+        open(null)
+        route(Route.Home)
+        // The last channel full screen, and Back goes to the guide like any full screen.
+        open(com.signal.app.StartPage.LAST_CHANNEL)
+        eventually("full screen") { app.navigator.current is Route.FullScreen }
+        eventually("playing") { app.playback.current.value != null }
+        press(RemoteAction.Back)
+        route(Route.LiveTv)
     }
 
     @Test fun settingsNasSectionOffersPairing() = keyMapTest(start = Route.Settings) {

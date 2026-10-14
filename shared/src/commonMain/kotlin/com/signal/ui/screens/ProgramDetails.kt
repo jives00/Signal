@@ -33,6 +33,7 @@ import com.signal.ui.components.SButton
 import com.signal.ui.components.SText
 import com.signal.ui.components.requestFocusWhenReady
 import com.signal.ui.panel.PanelPage
+import com.signal.ui.components.labelOf
 import com.signal.ui.theme.SignalTheme
 import kotlinx.coroutines.launch
 
@@ -72,7 +73,7 @@ private fun ProgramDetailsContent(app: AppController, ch: Channel, p: Program, n
         item {
             Row(Modifier.padding(top = 24.dp), verticalAlignment = Alignment.CenterVertically) {
                 LogoTile(ch.displayName, ch.logoUrl, 80, 48)
-                SText("${ch.number}  ${ch.displayName}", 24, Modifier.padding(start = 20.dp), weight = FontWeight.SemiBold, color = c.accentText, maxLines = 2)
+                SText(labelOf(ch), 24, Modifier.padding(start = 20.dp), weight = FontWeight.SemiBold, color = c.accentText, maxLines = 2)
             }
             listOfNotNull(p.episodeText, p.subTitle).joinToString(" · ").takeIf { it.isNotEmpty() }?.let {
                 SText(it, 26, Modifier.padding(top = 20.dp), weight = FontWeight.SemiBold, color = c.secondaryText, maxLines = 3)
@@ -92,7 +93,7 @@ private fun ProgramDetailsContent(app: AppController, ch: Channel, p: Program, n
             // Stacked, not a row: the panel moves with Up/Down, and keeps Left/Right from the screen beneath.
             Column(Modifier.padding(top = 32.dp), verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(12.dp)) {
                 actions.forEachIndexed { i, (label, action) ->
-                    SButton(label, onSelect = action, modifier = Modifier.fillMaxWidth(), primary = i == 0, focusRequester = if (i == 0) first else null, fillWidth = true)
+                    SButton(label, onSelect = action, modifier = Modifier.fillMaxWidth(), focusRequester = if (i == 0) first else null, fillWidth = true)
                 }
             }
             // A platform limit, said plainly (PLAN §4.3.4): Android TV can't show reminders while the app is closed.

@@ -306,7 +306,7 @@ private fun NextCard(text: String, detail: String, stillWatching: Boolean, onPla
             SText(text, 32, weight = FontWeight.ExtraBold)
             if (detail.isNotEmpty()) SText(detail, 24, Modifier.padding(top = 8.dp), color = c.secondaryText, maxLines = 1)
             Row(Modifier.padding(top = 24.dp), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                SButton(if (stillWatching) "Keep watching" else "Play now", onPlay, primary = true, focusRequester = play)
+                SButton(if (stillWatching) "Keep watching" else "Play now", onPlay, focusRequester = play)
                 SButton(if (stillWatching) "Stop" else "Cancel", onCancel)
             }
         }

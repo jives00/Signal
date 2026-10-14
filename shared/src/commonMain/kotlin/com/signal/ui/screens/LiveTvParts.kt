@@ -54,6 +54,7 @@ import com.signal.ui.components.VDivider
 import com.signal.ui.components.VideoBox
 import com.signal.ui.components.requestFocusWhenReady
 import com.signal.ui.theme.SignalSizes
+import com.signal.ui.components.showNumbers
 import com.signal.ui.theme.SignalTheme
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -236,7 +237,7 @@ internal fun ChannelRow(ch: Channel, focused: Boolean, playing: Boolean, moving:
         Modifier.fillMaxWidth().background(if (focused) c.accent else Color.Transparent).padding(horizontal = 40.dp, vertical = 14.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        SText(ch.number.toString(), 22, Modifier.width(80.dp), weight = FontWeight.SemiBold, color = if (focused) c.onAccent else c.muted)
+        if (showNumbers()) SText(ch.number.toString(), 22, Modifier.width(80.dp), weight = FontWeight.SemiBold, color = if (focused) c.onAccent else c.muted)
         LogoTile(ch.displayName, ch.logoUrl, 80, 48, onAccent = focused)
         SText((if (moving) "↕ " else "") + ch.displayName, 26, Modifier.padding(start = 24.dp).weight(1f), weight = FontWeight.SemiBold, color = if (focused) c.onAccent else c.text)
         if (playing) SText("Playing", 20, Modifier.padding(start = 16.dp), weight = FontWeight.SemiBold, color = if (focused) c.onAccent else c.accentText)

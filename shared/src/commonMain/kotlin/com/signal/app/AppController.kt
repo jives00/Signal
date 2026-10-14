@@ -129,6 +129,14 @@ class AppController(val platform: Platform, val log: Log) {
     /** The sources, kept live, so Settings never shows an empty list while it reloads. */
     val sourceList: StateFlow<List<Source>> = sources.sources().stateIn(scope, SharingStarted.Eagerly, emptyList())
 
+    /** Settings → Appearance → Channel numbers (PLAN §4.3.2): off hides them wherever a channel is named. */
+    val showNumbers: StateFlow<Boolean> = settings.changes().map { settings.bool(Settings.Key.SHOW_NUMBERS, true) }
+        .distinctUntilChanged().stateIn(scope, SharingStarted.Eagerly, settings.bool(Settings.Key.SHOW_NUMBERS, true))
+
+    /** A channel's name as shown in titles: with its number in front, unless numbers are hidden. */
+    fun channelLabel(channel: com.signal.model.Channel): String =
+        if (showNumbers.value) "${channel.number}  ${channel.displayName}" else channel.displayName
+
     /** Live TV opens on this group; full screen's Back sets it to the current group (PLAN §4.3.3). */
     var liveTvGroup by mutableStateOf<ChannelGroup?>(null)
 
@@ -174,7 +182,7 @@ class AppController(val platform: Platform, val log: Log) {
     init {
         scope.launch {
             withContext(guideIo) { guideStore.open() }
-            if (sources.count() == 0L) navigator.resetTo(Route.Setup)
+            if (sources.count() == 0L) navigator.resetTo(Route.Setup) else openStartPage()
             ready = true
             // Titles cached before Search and matching keys existed (user.db 7 → 8) get them now.
             runCatching { vod.fillMissingKeys() }.onSuccess { if (it > 0) log.info("VOD: keyed $it cached titles") }
@@ -498,6 +506,28 @@ class AppController(val platform: Platform, val log: Log) {
         }
     }
 
+    /**
+     * Settings → General → Start page (milestone 6): where launch, and coming back after a long time
+     * away, open. Home unless set; Movies and Series fall back to Home with nothing in them, and the
+     * last channel to Home when there isn't one. Back from it works as from anywhere else.
+     */
+    suspend fun openStartPage() {
+        when (StartPage.from(settings.raw(Settings.Key.START_PAGE))) {
+            StartPage.HOME -> navigator.resetTo(Route.Home)
+            StartPage.LIVE_TV -> navigator.resetTo(Route.LiveTv)
+            StartPage.MOVIES -> navigator.resetTo(if (vod.count(com.signal.model.VodKind.MOVIE).first() > 0) Route.Movies else Route.Home)
+            StartPage.SERIES -> navigator.resetTo(if (vod.count(com.signal.model.VodKind.SERIES).first() > 0) Route.Series else Route.Home)
+            StartPage.LAST_CHANNEL -> {
+                val ch = playback.startingChannel()
+                if (ch == null) { navigator.resetTo(Route.Home); return }
+                val group = if (ch.isFavorite) ChannelGroup.Favorites else ChannelGroup.Provider(ch.stream.sourceId, ch.stream.groupName, ch.stream.groupName)
+                navigator.resetTo(Route.LiveTv)
+                playback.tune(ch, fullScreen = true, group = group)
+                navigator.go(Route.FullScreen(group))
+            }
+        }
+    }
+
     /** The prompt's Watch: the channel full screen, in its own group. */
     fun watchReminder(active: ActiveReminder) {
         activeReminder = null
@@ -542,7 +572,7 @@ class AppController(val platform: Platform, val log: Log) {
         scope.launch { catchUpReminders() }
         scope.launch { refreshFollowedSeries() }
         if (away != null && away > AWAY_RESETS_TO_HOME_MS && navigator.current != Route.Setup) {
-            navigator.resetTo(Route.Home)
+            scope.launch { openStartPage() }
         } else if (away != null && navigator.current == Route.VodPlayer) {
             scope.launch { vodPlayback.resume() }
         } else if (away != null && navigator.current.showsVideo) {

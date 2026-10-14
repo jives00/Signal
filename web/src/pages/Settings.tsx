@@ -8,9 +8,12 @@ import type { CompanionSettingsView, SettingsView } from "../schema";
 const profileSettings: { section: string; key: string; label: string; options: [string | null, string][] }[] = [
   { section: "Live TV & guide", key: "group_sort", label: "Group order", options: [[null, "Provider order"], ["A_Z", "A–Z"], ["Z_A", "Z–A"], ["MANUAL", "Manual"]] },
   { section: "Live TV & guide", key: "channel_sort", label: "Channels in a group", options: [[null, "Provider order"], ["NUMBER", "Number"], ["A_Z", "A–Z"]] },
+  { section: "Live TV & guide", key: "favorites_sort", label: "Favorites order", options: [[null, "Manual"], ["A_Z", "A–Z"], ["NUMBER", "Channel number"]] },
   { section: "Live TV & guide", key: "reminder_lead_minutes", label: "Reminder time", options: [["0", "At the start"], [null, "1 minute before"], ["2", "2 minutes before"], ["5", "5 minutes before"]] },
   { section: "Live TV & guide", key: "reminder_auto_switch", label: "When a reminder fires", options: [[null, "Ask"], ["true", "Switch to the channel"]] },
+  { section: "Appearance", key: "start_page", label: "Start page", options: [[null, "Home"], ["LIVE_TV", "Live TV"], ["MOVIES", "Movies"], ["SERIES", "Series"], ["LAST_CHANNEL", "Last channel, full screen"]] },
   { section: "Appearance", key: "clock_24h", label: "Time format", options: [[null, "The TV's own"], ["false", "12-hour"], ["true", "24-hour"]] },
+  { section: "Appearance", key: "show_numbers", label: "Channel numbers", options: [[null, "Shown"], ["false", "Hidden"]] },
 ];
 
 /**

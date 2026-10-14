@@ -94,13 +94,22 @@ class ChannelRepository(
         ChannelGroup.Favorites -> combine(
             db.listsQueries.favoriteChannels(profile).asFlow().mapToList(io),
             db.channelLinkTrigger(),
-        ) { rows, _ ->
+            settings.changes(),
+        ) { rows, _, _ ->
             rows.map { r ->
                 channel(
                     stream = r.stream(), displayName = r.display_name, userChannelId = r.fav_user_channel_id, customName = r.custom_name,
                     customLogo = r.custom_logo, customNumber = r.custom_number, hidden = r.hidden, favorite = true,
                 )
             }.filter { !it.isHidden }
+            .let { favorites ->
+                // A live sort: the manual order stays underneath, and Manual brings it back (milestone 6).
+                when (settings.favoritesSort()) {
+                    null -> favorites
+                    ChannelSort.NUMBER -> favorites.sortedBy { it.number }
+                    else -> favorites.sortedBy { it.displayName.lowercase() }
+                }
+            }
         }
         is ChannelGroup.Playlist -> db.listsQueries.playlistChannels(group.id).asFlow().mapToList(io).map { rows ->
             rows.map { r ->
