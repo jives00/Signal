@@ -324,7 +324,7 @@ fun updatePanel(app: AppController, state: UpdateState.Available): PanelPage {
             PanelAction("Install") { updater?.install(); null },
             PanelAction("Later") { updater?.later(); null },
         ),
-        subtitle = state.changelog.take(600).ifEmpty { "No changelog for this release." },
+        notes = state.changelog.ifEmpty { "No changelog for this release." },
     )
 }
 

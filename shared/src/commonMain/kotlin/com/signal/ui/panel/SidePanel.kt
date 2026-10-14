@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
@@ -27,6 +28,7 @@ import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
@@ -39,6 +41,7 @@ import com.signal.input.RemoteAction
 import com.signal.input.RemoteDispatcher
 import com.signal.input.RemoteHandler
 import com.signal.input.remoteItem
+import com.signal.ui.components.Focusable
 import com.signal.ui.components.HDivider
 import com.signal.ui.components.ListRow
 import com.signal.ui.components.SButton
@@ -51,7 +54,13 @@ import com.signal.ui.theme.SignalTheme
 sealed interface PanelPage {
     val title: String
 
-    data class Actions(override val title: String, val actions: List<PanelAction>, val subtitle: String? = null) : PanelPage
+    data class Actions(
+        override val title: String,
+        val actions: List<PanelAction>,
+        val subtitle: String? = null,
+        /** Read-only text below the actions, one row per line, scrolled with Up/Down (the update changelog). */
+        val notes: String? = null,
+    ) : PanelPage
 
     data class TextInput(
         override val title: String,
@@ -156,7 +165,7 @@ fun SidePanelHost(state: SidePanelState) {
 @Composable
 private fun ActionsPage(state: SidePanelState, page: PanelPage.Actions) {
     val first = remember { FocusRequester() }
-    page.subtitle?.let { SText(it, 22, Modifier.padding(start = 40.dp, top = 16.dp, end = 40.dp), color = SignalTheme.colors.muted, maxLines = 3) }
+    page.subtitle?.let { SText(it, 22, Modifier.padding(start = 40.dp, top = 16.dp, end = 40.dp, bottom = 24.dp), color = SignalTheme.colors.muted, maxLines = 3) }
     LazyColumn(Modifier.fillMaxSize()) {
         itemsIndexed(page.actions) { i, action ->
             ListRow(
@@ -167,8 +176,29 @@ private fun ActionsPage(state: SidePanelState, page: PanelPage.Actions) {
                 focusRequester = if (i == 0) first else null,
             )
         }
+        page.notes?.let { notes ->
+            item { Box(Modifier.height(24.dp)) }
+            items(notes.lines().filter { it.isNotBlank() }) { line -> NoteRow(line) }
+        }
     }
     LaunchedEffect(page) { first.requestFocusWhenReady() }
+}
+
+/**
+ * A line of panel notes. It takes focus only so Up/Down can scroll long notes; it brightens rather
+ * than taking the accent, since there's nothing to select.
+ */
+@Composable
+private fun NoteRow(text: String) {
+    val c = SignalTheme.colors
+    Focusable(Modifier.fillMaxWidth(), onSelect = null) { focused ->
+        SText(
+            text, 22,
+            Modifier.fillMaxWidth().background(if (focused) c.surface else Color.Transparent).padding(horizontal = 40.dp, vertical = 8.dp),
+            color = if (focused) c.text else c.muted,
+            maxLines = Int.MAX_VALUE,
+        )
+    }
 }
 
 @Composable

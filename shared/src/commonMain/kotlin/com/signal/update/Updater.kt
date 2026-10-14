@@ -40,8 +40,21 @@ object GitHubReleases {
         val apk = assets.mapNotNull { it as? kotlinx.serialization.json.JsonObject }
             .firstOrNull { str(it, "name")?.endsWith(".apk") == true } ?: return null
         val url = str(apk, "browser_download_url") ?: return null
-        return Release(tag, str(root, "body").orEmpty(), url)
+        return Release(tag, changelog(str(root, "body").orEmpty()), url)
     }
+
+    /**
+     * A release body as plain text for the TV: list items become bullets, and markdown headings and
+     * GitHub's "**Full Changelog**: <compare URL>" footer (the whole body of older releases) are dropped.
+     */
+    fun changelog(body: String): String =
+        body.lines()
+            .map { it.trim() }
+            .filterNot { it.startsWith("#") || it.startsWith("**Full Changelog**") || it.startsWith("<!--") }
+            .map { line -> if (line.startsWith("- ") || line.startsWith("* ")) "• " + line.drop(2).trim() else line }
+            .joinToString("\n")
+            .replace(Regex("\n{3,}"), "\n\n")
+            .trim()
 
     /** "dev" builds never offer updates; otherwise any different newest tag is an update. */
     fun isNewer(currentTag: String, latestTag: String): Boolean =
