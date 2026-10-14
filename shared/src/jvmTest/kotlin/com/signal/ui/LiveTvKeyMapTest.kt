@@ -47,6 +47,40 @@ class LiveTvKeyMapTest {
         eventually("closed, back on the same cell") { !app.panel.isOpen && focusedProgram() == future }
     }
 
+    // 0.2.7 on the Shield: OK's release after the long press goes unhandled, and the platform's
+    // focus recovery pulled focus out of the panel, so Up/Down moved the guide's rows instead.
+    @Test fun theLongPressPanelKeepsFocusThroughAnUnhandledRelease() = keyMapTest {
+        guide()
+        val row = focusedChannel()
+        press(RemoteAction.Left)
+        eventually("channel column") { focusedProgram() == "channel" }
+        press(RemoteAction.Options)
+        eventually("channel menu") { panelTitle?.contains(row) == true }
+        val first = focusedText()
+        ui.runOnIdle { assertEquals(false, app.dispatcher.recoverFocus()) }
+        press(RemoteAction.Down)
+        eventually("the next menu item") { app.panel.isOpen && focusedText() != first && focusedText() != null }
+        press(RemoteAction.Back)
+        eventually("closed, on the same row") { !app.panel.isOpen && focusedChannel() == row }
+    }
+
+    // Seen on the emulator (2026-10-14): full screen from the guide, and OK did nothing visible. The
+    // hidden guide kept focus, so each OK went to it ("watch this channel") instead of the info bar.
+    @Test fun okInFullScreenFromTheGuideOpensTheInfoBar() = keyMapTest {
+        guide()
+        // OK previews the channel, or goes full screen when it's the one already playing.
+        press(RemoteAction.Select)
+        if (app.navigator.current !is Route.FullScreen) press(RemoteAction.Select)
+        eventually("full screen") { app.navigator.current is Route.FullScreen }
+        press(RemoteAction.Select)
+        eventually("the info bar") { shows("Aspect ratio") }
+        focusedStartsWith("Audio")
+        press(RemoteAction.Right)
+        focusedStartsWith("Subtitles")
+        press(RemoteAction.Select)
+        eventually("the subtitles picker") { panelTitle == "Subtitles" }
+    }
+
     @Test fun longPressOnAProgramOpensDetailsAndOnTheChannelColumnTheChannelMenu() = keyMapTest {
         guide()
         val live = focusedProgram()

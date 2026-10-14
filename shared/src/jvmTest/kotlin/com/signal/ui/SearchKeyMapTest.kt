@@ -16,14 +16,13 @@ class SearchKeyMapTest {
     private suspend fun KeyMapScope.search(query: String) {
         guideReady()
         ui.runOnIdle { app.navigator.go(Route.Search) }
-        eventually("the field focused") { ui.runOnUiThread { ui.onAllNodes(hasSetTextAction() and isFocused()).fetchSemanticsNodes().isNotEmpty() } }
-        ui.onAllNodes(hasSetTextAction())[0].performTextReplacement(query)
+        typeInFocusedField(query)
         // Past the 300ms typing pause, on the test's virtual clock.
         ui.mainClock.advanceTimeBy(400)
         eventually("results") { shows("Channels · ") || shows("Programs · ") }
     }
 
-    private fun KeyMapScope.fieldFocused() = ui.runOnUiThread { ui.onAllNodes(hasSetTextAction() and isFocused()).fetchSemanticsNodes().isNotEmpty() }
+    private fun KeyMapScope.fieldFocused() = textFieldFocused()
 
     @Test fun okOnAChannelGoesFullScreenAndBackWalksOut() = keyMapTest {
         search("sports center")

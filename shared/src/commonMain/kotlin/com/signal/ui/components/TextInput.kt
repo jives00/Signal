@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -32,9 +33,9 @@ import com.signal.input.remoteItem
 import com.signal.ui.theme.SignalTheme
 
 /**
- * A labeled text field for the 10-foot UI. Focus alone doesn't open the keyboard; OK opens the
- * Android TV on-screen keyboard, which also offers voice input (PLAN §4.2). A physical keyboard
- * types straight in, including in the harness.
+ * A labeled text field for the 10-foot UI. Focus alone doesn't open the keyboard: the field is
+ * read-only until OK, which makes it editable and opens the Android TV on-screen keyboard (with voice
+ * input, PLAN §4.2). A physical keyboard types in after OK (Enter) too, and so do the tests.
  */
 @Composable
 fun SField(
@@ -50,7 +51,11 @@ fun SField(
 ) {
     val c = SignalTheme.colors
     var focused by remember { mutableStateOf(false) }
+    // Read-only until OK: an editable field with focus starts an input session, and the TV's keyboard
+    // opens on that alone (showKeyboardOnFocus wasn't enough on the Shield, 0.2.7).
+    var editing by remember { mutableStateOf(false) }
     val controller = LocalSoftwareKeyboardController.current
+    LaunchedEffect(editing) { if (editing) controller?.show() }
     Column(modifier.fillMaxWidth().padding(vertical = 8.dp)) {
         SText(label, 22, Modifier.padding(bottom = 8.dp), weight = FontWeight.SemiBold, color = c.muted)
         Box(
@@ -60,6 +65,7 @@ fun SField(
             BasicTextField(
                 value = value,
                 onValueChange = onChange,
+                readOnly = !editing,
                 singleLine = true,
                 textStyle = TextStyle(color = if (focused) c.onAccent else c.text, fontSize = 26.sp, fontFamily = SignalTheme.font),
                 cursorBrush = SolidColor(if (focused) c.onAccent else c.accent),
@@ -70,8 +76,8 @@ fun SField(
                     .fillMaxWidth()
                     .let { if (focusRequester != null) it.focusRequester(focusRequester) else it }
                     .let { if (down != null) it.focusProperties { this.down = down } else it }
-                    .onFocusChanged { focused = it.isFocused }
-                    .remoteItem(onSelect = { controller?.show() }, isTextInput = true),
+                    .onFocusChanged { focused = it.isFocused; if (!it.isFocused) editing = false }
+                    .remoteItem(onSelect = { if (editing) controller?.show() else editing = true }, isTextInput = true),
             )
         }
     }

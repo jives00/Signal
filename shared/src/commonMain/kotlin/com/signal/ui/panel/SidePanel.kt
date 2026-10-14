@@ -178,6 +178,9 @@ private fun TextInputPage(state: SidePanelState, page: PanelPage.TextInput) {
     val field = remember { FocusRequester() }
     val keyboard = LocalSoftwareKeyboardController.current
     var fieldFocused by remember { mutableStateOf(false) }
+    // Read-only until OK, like SField: focus alone would open the TV's keyboard.
+    var editing by remember { mutableStateOf(false) }
+    LaunchedEffect(editing) { if (editing) keyboard?.show() }
     Column(Modifier.padding(40.dp)) {
         Box(
             Modifier
@@ -190,6 +193,7 @@ private fun TextInputPage(state: SidePanelState, page: PanelPage.TextInput) {
             BasicTextField(
                 value = value,
                 onValueChange = { v -> value = if (page.digitsOnly) v.filter(Char::isDigit).take(5) else v },
+                readOnly = !editing,
                 singleLine = true,
                 textStyle = TextStyle(color = if (fieldFocused) c.onAccent else c.text, fontSize = 28.sp, fontFamily = SignalTheme.font),
                 cursorBrush = SolidColor(if (fieldFocused) c.onAccent else c.accent),
@@ -197,9 +201,9 @@ private fun TextInputPage(state: SidePanelState, page: PanelPage.TextInput) {
                 modifier = Modifier
                     .fillMaxWidth()
                     .focusRequester(field)
-                    .onFocusChanged { fieldFocused = it.isFocused }
+                    .onFocusChanged { fieldFocused = it.isFocused; if (!it.isFocused) editing = false }
                     // OK opens the on-screen keyboard, which also has voice input (PLAN §4.2).
-                    .remoteItem(onSelect = { keyboard?.show() }, isTextInput = true),
+                    .remoteItem(onSelect = { if (editing) keyboard?.show() else editing = true }, isTextInput = true),
             )
         }
         Row(Modifier.padding(top = 32.dp)) {

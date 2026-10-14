@@ -105,7 +105,7 @@ private const val PREFETCH_ROWS = 8
  * moment in time, or the channel column), not a focusable per cell, and only the programs inside
  * the time window are composed: the structure the milestone 1 spike measured at about 60fps on the
  * Shield (PLAN §10). The grid starts on the half hour before now; programs that ended since then
- * show dimmed and take no focus.
+ * show dimmed and take no focus. Text always starts at a cell's left edge, under the now line if need be.
  */
 @Composable
 fun LiveTvPage() {
@@ -562,29 +562,26 @@ private fun ProgramCell(p: Program, windowStart: Long, windowEnd: Long, now: Lon
     val ended = p.stop <= now
     val left = (from - windowStart) / MINUTE.toFloat() * GuideGeometry.UNITS_PER_MINUTE
     val width = (to - from) / MINUTE.toFloat() * GuideGeometry.UNITS_PER_MINUTE
-    // The program on now: its text starts after the now line, so the line never runs through it.
-    // Too little room after the line (it ends soon) and the text stays at the cell's start.
-    val past = if (p.isOn(now) && now > from) (now - from) / MINUTE.toFloat() * GuideGeometry.UNITS_PER_MINUTE + GuideGeometry.NOW_LINE else 0f
-    val inset = if (width - past >= MIN_TEXT_WIDTH) past else 0f
-    val textFrom = if (inset > 0f) now else from
     Row(Modifier.offset(x = left.dp).width(width.coerceAtLeast(2f).dp).fillMaxHeight()) {
         Column(
             Modifier
                 .weight(1f)
                 .fillMaxHeight()
                 .background(if (focused) c.accent else if (p.isOn(now)) c.surface else Color.Transparent)
-                .padding(start = (16 + inset).dp, end = 16.dp, top = 14.dp, bottom = 14.dp),
+                .padding(horizontal = 16.dp, vertical = 14.dp),
         ) {
             // A sliver at the window's edge has no room for text, only for "…".
-            if (width - inset >= MIN_TEXT_WIDTH) {
+            if (width >= MIN_TEXT_WIDTH) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     // A bell marks a program with a reminder (PLAN §4.3.4).
                     if (reminder) Icon(SignalIcons.bell, 20, if (focused) c.onAccent else c.accentText, Modifier.padding(end = 8.dp))
                     SText(p.title, 24, weight = FontWeight.SemiBold, color = if (focused) c.onAccent else if (ended) c.muted else c.text)
                 }
-                // The time range only on cells of 30 minutes or more (handoff screen 2).
-                if (to - textFrom >= HALF_HOUR) {
-                    SText(programTime(app, p, now), 20, color = if (focused) c.onAccent else c.muted)
+                // The time range only on cells of 30 minutes or more (handoff screen 2), after "S2 E3" when
+                // the guide numbers the episode (milestone 6; a free-form label is too long for a cell).
+                if (to - from >= HALF_HOUR) {
+                    val code = p.episodeText.takeIf { p.episode != null }
+                    SText(listOfNotNull(code, programTime(app, p, now)).joinToString(" · "), 20, color = if (focused) c.onAccent else c.muted)
                 }
             }
         }

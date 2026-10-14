@@ -66,8 +66,10 @@ fun RemoteInput(dispatcher: RemoteDispatcher, content: @Composable () -> Unit) {
             interpreter.reset()
         }
     }
-    // Only reached for remote keys nothing consumed, which means nothing here holds focus.
-    SideEffect { dispatcher.recoverFocus = { runCatching { rootFocus.requestFocus() } } }
+    // Reached for remote keys nothing consumed. Usually nothing here holds focus, but not always: after
+    // a long press, OK's release goes unhandled while the panel it opened holds focus. Leave that be.
+    SideEffect { dispatcher.recoverFocus = { !anyFocus && runCatching { rootFocus.requestFocus() }.isSuccess } }
+    SideEffect { dispatcher.focusRoot = { runCatching { rootFocus.requestFocus() } } }
 
     Box(
         Modifier

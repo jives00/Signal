@@ -104,8 +104,7 @@ class MainActivity : ComponentActivity() {
     // onKeyDown only runs for keys no view consumed.
     override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
         if (keyCode in REMOTE_KEYS && event.repeatCount == 0) {
-            signal.controller.dispatcher.recoverFocus()
-            if (window.superDispatchKeyEvent(event)) return true
+            if (signal.controller.dispatcher.recoverFocus() && window.superDispatchKeyEvent(event)) return true
         }
         return super.onKeyDown(keyCode, event)
     }
@@ -115,8 +114,7 @@ class MainActivity : ComponentActivity() {
     // nothing (user, 2026-10-13).
     override fun onKeyUp(keyCode: Int, event: KeyEvent): Boolean {
         if (keyCode in REMOTE_KEYS) {
-            signal.controller.dispatcher.recoverFocus()
-            if (window.superDispatchKeyEvent(event)) return true
+            if (signal.controller.dispatcher.recoverFocus() && window.superDispatchKeyEvent(event)) return true
         }
         return super.onKeyUp(keyCode, event)
     }

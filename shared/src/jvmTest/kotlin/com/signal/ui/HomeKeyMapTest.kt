@@ -72,7 +72,7 @@ class HomeKeyMapTest {
     // The safety net: whatever deleted the focused element, a direction brings focus back to the page.
     @Test fun aDirectionWithNothingFocusedGoesBackToThePage() = keyMapTest {
         heroFocused()
-        ui.runOnIdle { app.dispatcher.recoverFocus() }
+        ui.runOnIdle { app.dispatcher.focusRoot() }
         eventually("only the root focused") { focusedText() == null }
         press(RemoteAction.Down)
         heroFocused()

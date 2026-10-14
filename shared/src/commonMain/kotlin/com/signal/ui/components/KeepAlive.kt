@@ -7,8 +7,13 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.compositionLocalOf
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import kotlinx.coroutines.CoroutineScope
@@ -31,9 +36,17 @@ val LocalPageActive = compositionLocalOf { true }
  */
 @Composable
 fun KeptPage(active: Boolean, warm: Boolean = false, content: @Composable () -> Unit) {
+    // A page hidden while it holds focus keeps it: Compose doesn't take focus from a node that stops
+    // being placed. Full screen over the guide then sent every OK to the hidden guide's "watch", never
+    // the info bar (the "OK sometimes does nothing" report). So hiding hands focus to the key layer's
+    // root, as a disposed page does; if the page shown next already took focus, this is a no-op.
+    val dispatcher = com.signal.ui.LocalApp.current.dispatcher
+    var hasFocus by remember { mutableStateOf(false) }
+    LaunchedEffect(active) { if (!active && hasFocus) dispatcher.focusRoot() }
     CompositionLocalProvider(LocalPageActive provides active) {
         Box(
             Modifier.fillMaxSize()
+                .onFocusChanged { hasFocus = it.hasFocus }
                 // Unplaced nodes still report semantics: a hidden page isn't there for accessibility (or tests).
                 .then(if (active) Modifier else Modifier.clearAndSetSemantics { })
                 .layout { measurable, constraints ->

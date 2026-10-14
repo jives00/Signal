@@ -161,12 +161,28 @@ class ExoVideoPlayer(context: Context) : VideoPlayer {
             .setUserAgent(request.headers["User-Agent"] ?: DEFAULT_USER_AGENT)
             .setDefaultRequestProperties(request.headers - "User-Agent")
             .setTransferListener(transferTiming)
-        val source = DefaultMediaSourceFactory(http).createMediaSource(liveItem(request))
+        val source = mediaSource(http, liveItem(request))
         // On-demand resumes where it left off (PLAN §4.3.8); live always starts at the live edge.
         if (!request.isLive && request.startPositionMs > 0) exo.setMediaSource(source, request.startPositionMs) else exo.setMediaSource(source)
         exo.prepare()
         exo.playWhenReady = true
         _state.value = PlaybackState(status = PlaybackState.Status.BUFFERING, request = request)
+    }
+
+    /**
+     * Closed captions embedded in the video (CEA-608/708, carried in H.264/HEVC SEI) are only exposed
+     * by Media3 when the stream declares them, in the TS program table or the HLS playlist, and most
+     * IPTV streams don't: HBO Drama showed no subtitles in Signal but did in another app (milestone 6).
+     * So both always look for CC1 (608) and service 1 (708); a stream without captions just has none.
+     */
+    private fun mediaSource(http: DefaultHttpDataSource.Factory, item: MediaItem): androidx.media3.exoplayer.source.MediaSource {
+        if (item.localConfiguration?.mimeType == MimeTypes.APPLICATION_M3U8) {
+            return androidx.media3.exoplayer.hls.HlsMediaSource.Factory(http)
+                .setExtractorFactory(androidx.media3.exoplayer.hls.DefaultHlsExtractorFactory(0, /* exposeCea608WhenMissingDeclarations= */ true))
+                .createMediaSource(item)
+        }
+        val extractors = androidx.media3.extractor.DefaultExtractorsFactory().setTsSubtitleFormats(EMBEDDED_CAPTIONS)
+        return DefaultMediaSourceFactory(http, extractors).createMediaSource(item)
     }
 
     private fun liveItem(request: PlayRequest): MediaItem {
@@ -314,6 +330,13 @@ class ExoVideoPlayer(context: Context) : VideoPlayer {
                 }
             }
             _state.update { it.copy(audioTracks = audio, subtitleTracks = text, selectedAudioTrackId = selectedAudio, selectedSubtitleTrackId = selectedText, video = videoInfo()) }
+            // What the stream carries, for "no subtitles on this channel" reports (milestone 6).
+            android.util.Log.i("Signal", "Tracks: " + tracks.groups.joinToString("; ") { group ->
+                (0 until group.length).joinToString(", ") { t ->
+                    val f = group.getTrackFormat(t)
+                    "${f.sampleMimeType ?: f.containerMimeType}${f.language?.let { " $it" } ?: ""}${if (group.isTrackSupported(t)) "" else " (unsupported)"}"
+                }
+            })
         }
 
         override fun onVideoSizeChanged(videoSize: VideoSize) {
@@ -357,6 +380,12 @@ class ExoVideoPlayer(context: Context) : VideoPlayer {
     companion object {
         const val DEFAULT_USER_AGENT = "Signal/1.0 (Android TV)"
 
+        /** The captions [mediaSource] looks for in every live and on-demand stream. */
+        val EMBEDDED_CAPTIONS: List<Format> = listOf(
+            Format.Builder().setSampleMimeType(MimeTypes.APPLICATION_CEA608).setAccessibilityChannel(1).build(),
+            Format.Builder().setSampleMimeType(MimeTypes.APPLICATION_CEA708).setAccessibilityChannel(1).build(),
+        )
+
         fun codecName(mime: String?): String? = when (mime) {
             null -> null
             MimeTypes.VIDEO_H264 -> "H.264"
@@ -370,6 +399,8 @@ class ExoVideoPlayer(context: Context) : VideoPlayer {
             MimeTypes.AUDIO_DTS, MimeTypes.AUDIO_DTS_HD -> "DTS"
             MimeTypes.AUDIO_MPEG, MimeTypes.AUDIO_MPEG_L2 -> "MP2/MP3"
             MimeTypes.AUDIO_OPUS -> "Opus"
+            MimeTypes.APPLICATION_CEA608 -> "CC"
+            MimeTypes.APPLICATION_CEA708 -> "CC (708)"
             else -> mime.substringAfter('/').uppercase()
         }
     }

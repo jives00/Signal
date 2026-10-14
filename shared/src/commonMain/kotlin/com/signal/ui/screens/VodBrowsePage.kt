@@ -64,6 +64,8 @@ private sealed interface Shelf {
     val key: String
     data object Library : Shelf { override val key = "library" }
     data object Recent : Shelf { override val key = "recent" }
+    /** Search within this section only (milestone 6); the nav bar's Search stays universal. */
+    data object Search : Shelf { override val key = "search" }
     data class Category(val entry: VodRepository.CategoryEntry) : Shelf { override val key = "${entry.sourceId}|${entry.categoryId}" }
     /** A TMDB list or genre from the companion (PLAN §4.3.12): "list:trending", "genre:Action". */
     data class Tmdb(val shelf: String, val label: String) : Shelf {
@@ -94,6 +96,7 @@ fun VodBrowsePage(kind: VodKind) {
         .map { Shelf.Tmdb(it.shelf, it.shelf.removePrefix(com.signal.data.VodEnrichment.GENRE)) to it.count }.sortedBy { it.first.label }
     val vodVersion by app.vodVersion.collectAsState()
     var shelf by remember(kind) { mutableStateOf<Shelf>(Shelf.Recent) }
+    var query by remember(kind) { mutableStateOf("") }
     // Sort per category for this visit; TMDB lists will keep their own order (PLAN §4.3.6 → Poster grid).
     val sorts = remember(kind) { mutableStateMapOf<String, VodSort>() }
     val sort = sorts[shelf.key] ?: VodSort.RECENT
@@ -103,8 +106,10 @@ fun VodBrowsePage(kind: VodKind) {
     val libraryEntries = watch.library.filter { it.kind == kind }
     val newEpisodes by app.newEpisodes.collectAsState()
     val catalogVersion by app.catalogVersion.collectAsState()
-    val items by produceState(emptyList<VodItem>(), kind, shelf, sort, watch, libraryFilter, librarySort, vodVersion, newEpisodes, catalogVersion) {
+    val items by produceState(emptyList<VodItem>(), kind, shelf, sort, watch, libraryFilter, librarySort, vodVersion, newEpisodes, catalogVersion, query) {
         value = when (val s = shelf) {
+            // Restarted on every keystroke, so the pause is the typing debounce, as on the Search page.
+            Shelf.Search -> if (query.trim().length < 2) emptyList() else { kotlinx.coroutines.delay(SEARCH_PAUSE_MS); app.vod.search(query, kind, SEARCH_LIMIT) }
             Shelf.Library -> libraryItems(app, libraryEntries, watch, libraryFilter, librarySort, newEpisodes)
             Shelf.Recent -> VodRepository.sorted(app.vod.recentlyAdded(kind), sort)
             is Shelf.Category -> app.vod.items(kind, s.entry.sourceId, s.entry.categoryId, sort)
@@ -123,6 +128,8 @@ fun VodBrowsePage(kind: VodKind) {
     val scope = rememberCoroutineScope()
     val returnTo = remember(kind) { FocusRequester() }
     val gridFocus = remember(kind) { FocusRequester() }
+    val searchField = remember(kind) { FocusRequester() }
+    var fieldHasFocus by remember { mutableStateOf(false) }
     // The poster last focused, to return to after its page (the grid's own restorer forgets it while hidden).
     var lastPoster by remember(kind) { mutableStateOf(-1) }
     val returnPoster = remember(kind) { FocusRequester() }
@@ -181,6 +188,12 @@ fun VodBrowsePage(kind: VodKind) {
                 item { Box(Modifier.padding(top = 24.dp)) }
                 item {
                     ListRow(
+                        if (kind == VodKind.MOVIE) "Search movies" else "Search series", selected = shelf == Shelf.Search,
+                        onFocused = { shelf = Shelf.Search }, onSelect = { shelf = Shelf.Search; scope.launch { searchField.requestFocusWhenReady() } },
+                    )
+                }
+                item {
+                    ListRow(
                         "Library", detail = libraryEntries.size.toString(), selected = shelf == Shelf.Library,
                         focusRequester = if (libraryEntries.isNotEmpty()) firstShelf else null,
                         onFocused = { shelf = Shelf.Library }, onSelect = { shelf = Shelf.Library; focusGrid() },
@@ -227,20 +240,31 @@ fun VodBrowsePage(kind: VodKind) {
                 val title = when (val s = shelf) {
                     Shelf.Library -> "Library"
                     Shelf.Recent -> "Recently added"
+                    Shelf.Search -> if (kind == VodKind.MOVIE) "Search movies" else "Search series"
                     is Shelf.Category -> s.entry.name
                     is Shelf.Tmdb -> s.label
                 }
                 SText(title, 48, weight = FontWeight.ExtraBold, maxLines = 1)
+                if (shelf == Shelf.Search) {
+                    Box(Modifier.padding(top = 8.dp).onFocusChanged { fieldHasFocus = it.hasFocus }) {
+                        com.signal.ui.components.SField(
+                            if (kind == VodKind.MOVIE) "Movie title" else "Series title", query, { query = it },
+                            focusRequester = searchField, down = gridFocus,
+                        )
+                    }
+                }
                 val line = when {
-                    shelf == Shelf.Library -> "${items.size} titles · ${libraryFilter.label} · Sort: ${librarySort.label}"
-                    (shelf as? Shelf.Tmdb)?.isList == true -> "${items.size} titles · from TMDB"
-                    else -> "${items.size} titles · Sort: ${sort.label}"
+                    shelf == Shelf.Search -> if (query.trim().length < 2) "Only this section; Search in the nav bar covers everything" else "${titleCount(items.size)}"
+                    shelf == Shelf.Library -> "${titleCount(items.size)} · ${libraryFilter.label} · Sort: ${librarySort.label}"
+                    (shelf as? Shelf.Tmdb)?.isList == true -> "${titleCount(items.size)} · from TMDB"
+                    else -> "${titleCount(items.size)} · Sort: ${sort.label}"
                 }
                 SText(line, 24, Modifier.padding(top = 8.dp, bottom = 28.dp), color = c.muted)
                 if (items.isEmpty()) {
                     val empty = when {
                         shelf == Shelf.Library && libraryEntries.isEmpty() -> "Nothing in your Library yet. Long-press a poster, or use Add to Library on its page."
                         shelf == Shelf.Library -> "Nothing ${libraryFilter.label.lowercase()} in your Library."
+                        shelf == Shelf.Search -> if (query.trim().length < 2) "Type at least 2 letters." else "No matches."
                         kind == VodKind.MOVIE -> "No movies here."
                         else -> "No series here."
                     }
@@ -276,7 +300,11 @@ fun VodBrowsePage(kind: VodKind) {
     // Column ↔ grid, and Back goes up a level before the nav bar (PLAN §12.1), as on Settings.
     RemoteHandler { action ->
         when {
+            action == RemoteAction.Right && columnHasFocus && shelf == Shelf.Search -> { scope.launch { searchField.requestFocusWhenReady() }; true }
             action == RemoteAction.Right && columnHasFocus -> { focusGrid(); true }
+            action == RemoteAction.Back && fieldHasFocus -> { chrome.focusContent(); true }
+            // Search results: Back goes to the field first, then the column, like the Search page.
+            action == RemoteAction.Back && gridHasFocus && shelf == Shelf.Search -> { scope.launch { searchField.requestFocusWhenReady() }; true }
             action == RemoteAction.Back && gridHasFocus -> { chrome.focusContent(); true }
             else -> false
         }
@@ -330,6 +358,12 @@ private enum class LibraryFilter(val label: String) { ALL("All"), UNWATCHED("Unw
 
 /** Library sorts (PLAN §4.3.11): recently added to the Library is the default. */
 private enum class LibrarySort(val label: String) { ADDED("Recently added"), A_Z("A–Z"), WATCHED("Recently watched") }
+
+private fun titleCount(n: Int) = if (n == 1) "1 title" else "$n titles"
+
+/** Search in a section: the typing pause, and how many posters a search shows. */
+private const val SEARCH_PAUSE_MS = 300L
+private const val SEARCH_LIMIT = 120
 
 /** The ID of a Library title no source has any more, shown as unavailable (PLAN §4.3.11). */
 private const val UNAVAILABLE = "unavailable:"

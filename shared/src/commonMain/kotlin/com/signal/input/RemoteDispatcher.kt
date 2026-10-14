@@ -56,10 +56,15 @@ class RemoteDispatcher {
     }
 
     /**
-     * Gives focus back to the key layer's root. The platform calls it when a key went unhandled:
-     * with nothing focused, Compose delivers no keys at all, and the remote would be dead.
+     * Gives focus back to the key layer's root, but only when nothing in the app holds focus: with
+     * nothing focused, Compose delivers no keys at all, and the remote would be dead. True when it
+     * did, so the platform replays the key. A key can also go unhandled with focus in place (OK's
+     * release after a long press); taking focus then would pull it out of the panel just opened.
      */
-    var recoverFocus: () -> Unit = {}
+    var recoverFocus: () -> Boolean = { false }
+
+    /** Moves focus to the root whatever holds it: how tests leave the app with nothing focused. */
+    var focusRoot: () -> Unit = {}
 
     /**
      * True when the key layer's root itself holds focus: nothing on screen does. Keys still arrive,

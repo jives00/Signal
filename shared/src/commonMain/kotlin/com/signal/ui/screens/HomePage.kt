@@ -137,6 +137,10 @@ private fun HeroDetails(channel: Channel?) {
         val now = rememberNow()
         val (on, next) = rememberNowAndNext(channel, now)
         SText(on?.title ?: channel.displayName, 64, Modifier.padding(top = 24.dp), weight = FontWeight.ExtraBold)
+        // "S2 E3 · Episode title" when the guide has them (milestone 6).
+        on?.let { listOfNotNull(it.episodeText, it.subTitle).joinToString(" · ") }?.takeIf { it.isNotEmpty() }?.let {
+            SText(it, 28, Modifier.padding(top = 4.dp), weight = FontWeight.SemiBold, color = c.secondaryText)
+        }
         val line = listOfNotNull(on?.let { programTime(app, it, now) }, next?.let { "Next: ${it.title}" }).joinToString(" · ")
         SText(line.ifEmpty { "No guide information" }, 26, Modifier.padding(top = 8.dp), color = c.muted)
         if (on != null) {

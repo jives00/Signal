@@ -46,8 +46,7 @@ class Navigator(start: Route) {
     fun go(route: Route) {
         onNavigate(route)
         if (route.isTopLevel || route == Route.Setup) {
-            stack.clear()
-            stack.add(route)
+            replaceAll(route)
         } else {
             stack.add(route)
         }
@@ -63,8 +62,14 @@ class Navigator(start: Route) {
     }
 
     fun resetTo(route: Route) {
-        stack.clear()
-        stack.add(route)
+        replaceAll(route)
         generation++
+    }
+
+    // Add, then drop the rest: never empty in between, since a reset can run off the main thread
+    // (launch, sync) while the UI reads [current].
+    private fun replaceAll(route: Route) {
+        stack.add(route)
+        stack.removeRange(0, stack.size - 1)
     }
 }

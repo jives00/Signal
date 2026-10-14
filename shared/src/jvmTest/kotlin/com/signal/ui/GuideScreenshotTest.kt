@@ -56,8 +56,7 @@ class SearchScreenshotTest {
     @Test fun results() = keyMapTest {
         guideReady()
         ui.runOnIdle { app.navigator.go(Route.Search) }
-        settle()
-        ui.onAllNodes(androidx.compose.ui.test.hasSetTextAction())[0].performTextReplacement("science")
+        typeInFocusedField("science")
         ui.mainClock.advanceTimeBy(400)
         eventually("results") { shows("Channels · ") && shows("Programs · ") }
         settle()

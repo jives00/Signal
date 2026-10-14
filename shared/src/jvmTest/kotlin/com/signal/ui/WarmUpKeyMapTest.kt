@@ -41,7 +41,7 @@ class WarmUpKeyMapTest {
         ui.runOnIdle { app.navigator.go(Route.Movies) }
         focusedStartsWith("Recently added")
         ui.runOnIdle { app.navigator.go(Route.Search) }
-        eventually("the search field focused") { ui.runOnUiThread { ui.onAllNodes(hasSetTextAction() and isFocused()).fetchSemanticsNodes().isNotEmpty() } }
+        eventually("the search field focused") { textFieldFocused() }
         press(RemoteAction.Back)
         focusedStartsWith("Search")
     }

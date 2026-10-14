@@ -9,6 +9,8 @@ import androidx.compose.ui.semantics.getOrNull
 import androidx.compose.ui.test.ComposeUiTest
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.isFocused
+import androidx.compose.ui.test.performTextReplacement
+import kotlin.test.assertTrue
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.graphics.toAwtImage
@@ -158,6 +160,22 @@ class KeyMapScope(val ui: ComposeUiTest, val app: AppController, val platform: T
     }
 
     suspend fun focusedStartsWith(prefix: String) = eventually("focus on \"$prefix\"") { focusedText()?.startsWith(prefix) == true }
+
+    /** A text field holds focus, editable or not (fields are read-only until OK). */
+    fun textFieldFocused(): Boolean = ui.runOnUiThread {
+        ui.onAllNodes(androidx.compose.ui.test.SemanticsMatcher.keyIsDefined(SemanticsProperties.EditableText) and androidx.compose.ui.test.isFocused()).fetchSemanticsNodes().isNotEmpty()
+    }
+
+    /** Types into the focused text field the way the remote does: OK makes it editable first. */
+    suspend fun typeInFocusedField(text: String) {
+        val editable = androidx.compose.ui.test.SemanticsMatcher.keyIsDefined(SemanticsProperties.EditableText)
+        eventually("a text field focused") { ui.runOnUiThread { ui.onAllNodes(editable and androidx.compose.ui.test.isFocused()).fetchSemanticsNodes().isNotEmpty() } }
+        val setText = androidx.compose.ui.test.hasSetTextAction() and androidx.compose.ui.test.isFocused()
+        assertTrue(ui.runOnUiThread { ui.onAllNodes(setText).fetchSemanticsNodes().isEmpty() }, "read-only until OK")
+        press(RemoteAction.Select)
+        eventually("editable") { ui.runOnUiThread { ui.onAllNodes(setText).fetchSemanticsNodes().isNotEmpty() } }
+        ui.onAllNodes(setText)[0].performTextReplacement(text)
+    }
 
     fun shows(text: String): Boolean = ui.runOnUiThread {
         ui.onAllNodes(androidx.compose.ui.test.hasText(text, substring = true), useUnmergedTree = true).fetchSemanticsNodes().any { it.isOnScreen() }

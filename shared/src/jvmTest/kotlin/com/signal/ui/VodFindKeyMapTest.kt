@@ -37,13 +37,35 @@ class VodFindKeyMapTest {
         focusedStartsWith("Remind me")
     }
 
+    // Milestone 6: a search on the Movies page that finds only movies.
+    @Test fun searchingInsideMovies() = keyMapTest(start = Route.Movies) {
+        val movie = unique(VodKind.MOVIE)
+        val name = VodRepository.displayName(movie)
+        focusedStartsWith("Recently added")
+        press(RemoteAction.Up, times = 2)
+        focusedStartsWith("Search movies")
+        eventually("the search shelf") { shows("Type at least 2 letters.") }
+        press(RemoteAction.Right)
+        typeInFocusedField(name)
+        ui.mainClock.advanceTimeBy(400)
+        eventually("the movie's poster") { shows("1 title") }
+        press(RemoteAction.Down)
+        eventually("the poster focused") { focusedText()?.startsWith(name) == true }
+        // Back: the field, then the column, then the nav bar.
+        press(RemoteAction.Back)
+        eventually("the field") { textFieldFocused() }
+        press(RemoteAction.Back)
+        focusedStartsWith("Search movies")
+        press(RemoteAction.Select)
+        eventually("the field again, query kept") { textFieldFocused() && shows("1 title") }
+    }
+
     @Test fun moviesInSearchOpenTheirPage() = keyMapTest {
         guideReady()
         val movie = unique(VodKind.MOVIE)
         val name = VodRepository.displayName(movie)
         ui.runOnIdle { app.navigator.go(Route.Search) }
-        eventually("the field focused") { ui.runOnUiThread { ui.onAllNodes(hasSetTextAction() and isFocused()).fetchSemanticsNodes().isNotEmpty() } }
-        ui.onAllNodes(hasSetTextAction())[0].performTextReplacement(name)
+        typeInFocusedField(name)
         ui.mainClock.advanceTimeBy(400)
         eventually("movie results") { shows("Movies · ") }
         // Only Movies: All, Channels, Programs, Movies.
