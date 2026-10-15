@@ -79,7 +79,11 @@ class ContractTest {
         check("vod-status", VodStatus.serializer(), VodStatus(true, 1200, 1000, 3, 150, true, "Matching 12 of 47", job.copy(job = "vod_enrich"), 1_500_000_000))
         check(
             "vod-rows", VodRows.serializer(),
-            VodRows(listOf(VodRow("src:v:603", "src", "MOVIE", "The Matrix", 1999, "matched", 603, "The Matrix", 1999), VodRow("src:s:9", "src", "SERIES", "Home Video", null, "pending", null, null, null)), 2),
+            VodRows(listOf(VodRow("src:v:603", "src", "MOVIE", "The Matrix", "EN - The Matrix (1999)", 1999, "matched", 603, "The Matrix", 1999), VodRow("src:s:9", "src", "SERIES", "Home Video", "Home Video", null, "pending", null, null, null)), 2),
+        )
+        check(
+            "vod-categories", kotlinx.serialization.builtins.ListSerializer(VodCategoryView.serializer()),
+            listOf(VodCategoryView("src", "Provider", "MOVIE", "3", "EN - ACTION", "Action", 120, false, "Action"), VodCategoryView("src", "Provider", "SERIES", "9", "ES - SERIES", "ES - SERIES", 0, true, null)),
         )
         check("tmdb-candidates", kotlinx.serialization.builtins.ListSerializer(TmdbCandidate.serializer()), listOf(TmdbCandidate(603, "The Matrix", null, 1999, "/matrix.jpg", "A hacker learns the truth.")))
         check("links", kotlinx.serialization.builtins.ListSerializer(LinkView.serializer()), listOf(LinkView("src:x:42", "FOX Sports 1", "US Sports", "Provider", true, true)))

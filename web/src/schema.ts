@@ -278,6 +278,9 @@ export const VodRow = z.object({
   itemId: z.string(),
   sourceId: z.string(),
   kind: z.enum(["MOVIE", "SERIES"]),
+  /** As the profile's TVs show it, after title cleanup. */
+  title: z.string(),
+  /** The provider's own name. */
   name: z.string(),
   year: z.number().nullable(),
   status: z.enum(["matched", "manual", "unmatched", "pending"]),
@@ -286,6 +289,18 @@ export const VodRow = z.object({
   tmdbYear: z.number().nullable(),
 });
 export const VodRows = z.object({ rows: z.array(VodRow), total: z.number() });
+/** server/AdminRoutes.kt → VodCategoryView: a provider movie or series category. */
+export const VodCategoryView = z.object({
+  sourceId: z.string(),
+  sourceName: z.string(),
+  kind: z.enum(["MOVIE", "SERIES"]),
+  categoryId: z.string(),
+  name: z.string(),
+  title: z.string(),
+  count: z.number(),
+  hidden: z.boolean(),
+  customName: z.string().nullable(),
+});
 export const LibraryRow = z.object({
   key: z.string(),
   kind: z.enum(["MOVIE", "SERIES"]),
@@ -305,5 +320,6 @@ export const TmdbCandidate = z.object({
 export type VodStatus = z.infer<typeof VodStatus>;
 export type VodRow = z.infer<typeof VodRow>;
 export type VodRows = z.infer<typeof VodRows>;
+export type VodCategoryView = z.infer<typeof VodCategoryView>;
 export type TmdbCandidate = z.infer<typeof TmdbCandidate>;
 export type LibraryRow = z.infer<typeof LibraryRow>;

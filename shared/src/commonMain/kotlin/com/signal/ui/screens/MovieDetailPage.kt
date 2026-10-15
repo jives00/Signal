@@ -111,10 +111,12 @@ fun MovieDetailPage(route: Route.MovieDetail) {
                 SText(metaLine(it.year, detail?.durationSec, detail?.rating ?: it.rating, detail?.genres.orEmpty(), detail?.contentRating), 26, Modifier.padding(vertical = 16.dp), weight = FontWeight.SemiBold)
                 HDivider()
             }
-            (detail?.plot ?: it.plot)?.let { plot -> SText(plot, 28, color = c.secondaryText, maxLines = 5) }
-            val credits = listOfNotNull(detail?.director?.let { d -> "Director: $d" }, detail?.cast?.let { cast -> "Cast: $cast" }).joinToString("   ")
-            if (credits.isNotEmpty()) SText(credits, 24, color = c.muted, maxLines = 2)
-            Spacer(Modifier.weight(1f))
+            // The plot takes whatever room the buttons leave, scrolling when it needs more.
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(28.dp)) {
+                (detail?.plot ?: it.plot)?.let { plot -> com.signal.ui.components.AutoScrollText(plot, 28, Modifier.weight(1f, fill = false), color = c.secondaryText) }
+                val credits = listOfNotNull(detail?.director?.let { d -> "Director: $d" }, detail?.cast?.let { cast -> "Cast: $cast" }).joinToString("   ")
+                if (credits.isNotEmpty()) SText(credits, 24, color = c.muted, maxLines = 2)
+            }
             if (position != null && position.durationMs > 0) {
                 Column {
                     SText("Resume from ${clockTime(position.positionMs)} · ${runtime(((position.durationMs - position.positionMs) / 1000).toInt())} left", 24, color = c.muted)

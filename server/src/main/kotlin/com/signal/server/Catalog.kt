@@ -143,7 +143,8 @@ class Catalog(dir: File, http: HttpClient, cipher: SecretCipher?) {
      * Follows the vod_categories setting: hidden titles are dropped at once, so matching skips them,
      * and a source with a category shown again is refreshed to get its titles back.
      */
-    suspend fun applyVodFilter(filter: VodCategoryFilter) = lock.withLock {
+    suspend fun applyVodFilter(all: VodCategoryFilter) = lock.withLock {
+        val filter = all.visibility
         if (vodFilterSet && filter == vodFilter) return@withLock
         val old = vodFilter.takeIf { vodFilterSet }
         vodFilter = filter
@@ -163,6 +164,9 @@ class Catalog(dir: File, http: HttpClient, cipher: SecretCipher?) {
         val demo = withContext(io) { repo.all() }.filter { it.kind == com.signal.model.SourceKind.DEMO }.map { it.id }.toSet()
         return vod.all().filter { it.sourceId !in demo }.also { vodCache = v to it }
     }
+
+    /** Every movie and series category of the enabled sources, hidden ones too, with its title count (0 when hidden). */
+    suspend fun vodCategories() = withContext(io) { db.vodQueries.allCategoriesCounted().executeAsList() }
 
     /** Every movie and series category name, for the title cleanup preview. */
     suspend fun vodCategoryNames(): List<String> = withContext(io) { db.vodQueries.allCategories().executeAsList().map { it.name } }

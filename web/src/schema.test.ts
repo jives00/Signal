@@ -17,6 +17,7 @@ import links from "./contract/links.json";
 import switchView from "./contract/switch.json";
 import vodStatus from "./contract/vod-status.json";
 import vodRows from "./contract/vod-rows.json";
+import vodCategories from "./contract/vod-categories.json";
 import tmdbCandidates from "./contract/tmdb-candidates.json";
 import library from "./contract/library.json";
 
@@ -35,6 +36,7 @@ const cases: [string, ZodTypeAny, unknown][] = [
   ["links", S.LinkView.array(), links],
   ["vod-status", S.VodStatus, vodStatus],
   ["vod-rows", S.VodRows, vodRows],
+  ["vod-categories", S.VodCategoryView.array(), vodCategories],
   ["tmdb-candidates", S.TmdbCandidate.array(), tmdbCandidates],
   ["library", S.LibraryRow.array(), library],
 ];

@@ -194,7 +194,7 @@ fun SeriesPage(route: Route.SeriesDetail) {
                     HDivider()
                 }
             }
-            (d?.plot ?: it.plot)?.let { plot -> item { SText(plot, 24, color = c.secondaryText, maxLines = 4) } }
+            (d?.plot ?: it.plot)?.let { plot -> item { com.signal.ui.components.AutoScrollText(plot, 24, color = c.secondaryText, lines = 8) } }
             item {
                 if (next != null) {
                     SButton(next.label, { play(next.episode) }, Modifier.fillMaxWidth(), focusRequester = primary, fillWidth = true,
@@ -256,7 +256,7 @@ private fun EpisodeRow(e: Episode, watched: Boolean, progress: Float?, focusRequ
                     SText(listOfNotNull(e.code, e.durationSec?.let { runtime(it) }).joinToString(" · "), 22, weight = FontWeight.SemiBold, color = if (focused) c.onAccent else c.secondaryText)
                     if (watched) Icon(SignalIcons.check, 26, if (focused) c.onAccent else c.accentText, Modifier.padding(start = 12.dp))
                 }
-                SText(e.title, 32, Modifier.padding(top = 4.dp), weight = FontWeight.ExtraBold, color = if (focused) c.onAccent else c.text, maxLines = 1)
+                SText(e.title, 32, Modifier.padding(top = 4.dp), weight = FontWeight.ExtraBold, color = if (focused) c.onAccent else c.text, maxLines = 2)
                 e.plot?.let { SText(it, 22, Modifier.padding(top = 4.dp), color = if (focused) c.onAccent else c.muted, maxLines = 1) }
             }
         }

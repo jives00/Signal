@@ -1,6 +1,8 @@
 package com.signal.server
 
+import com.signal.data.Settings
 import com.signal.match.NameCleanup
+import com.signal.match.VodCategoryFilter
 import com.signal.data.newId
 import com.signal.model.ChannelSort
 import com.signal.model.GroupSort
@@ -49,6 +51,8 @@ data class ChannelEdit(
 @Serializable data class ProfileTargets(val profiles: List<String>)
 @Serializable data class PlaylistItems(val profile: String, val streamIds: List<String> = emptyList(), val userChannelIds: List<String> = emptyList())
 @Serializable data class GroupEdit(val sourceId: String, val group: String, val profiles: List<String>, val hidden: Boolean? = null, val name: String? = null, val clearName: Boolean = false, val sort: String? = null)
+/** Movies & Series → Categories: hide, show or rename a category, by name, for the household. */
+@Serializable data class VodCategoryEdit(val name: String, val hidden: Boolean? = null, val customName: String? = null, val clearName: Boolean = false)
 @Serializable data class GroupMove(val sourceId: String, val group: String, val profile: String, val toIndex: Int)
 @Serializable data class MappingRequest(val streamId: String, val epgSourceId: String, val guideChannelId: String? = null)
 @Serializable data class QueueRequest(val profile: String, val skip: List<String> = emptyList())
@@ -105,6 +109,17 @@ data class GroupView(
 )
 
 @Serializable data class GroupsView(val groupSort: String, val channelSort: String, val groups: List<GroupView>)
+
+/**
+ * A provider movie or series category (PLAN §4.3.6 → Categories). [title] is what the profile's TVs
+ * show: the household's rename, or the name after title cleanup. A hidden category's titles are
+ * dropped, so its [count] is 0.
+ */
+@Serializable
+data class VodCategoryView(
+    val sourceId: String, val sourceName: String, val kind: String, val categoryId: String,
+    val name: String, val title: String, val count: Int, val hidden: Boolean, val customName: String?,
+)
 
 @Serializable data class PlaylistView(val id: String, val name: String, val channels: List<ChannelRow>)
 @Serializable data class ListsView(
@@ -295,6 +310,20 @@ fun Route.adminPageRoutes(companion: Companion) {
         call.edit {
             val order = groupsView(companion, channels.view(m.profile)).groups.filter { !it.hidden }.map { it.sourceId to it.name }
             edits.moveGroup(order, m.sourceId, m.group, m.toIndex, m.profile)
+        }
+    }
+
+    // ---- Movies & series categories: household-wide, since hidden ones' titles are dropped ----
+    get("/vod/categories") { call.answer { vodCategoriesView(companion, channels.view(call.profile())) } }
+    post("/vod/categories/edit") {
+        val r = call.receive<VodCategoryEdit>()
+        call.edit {
+            val old = VodCategoryFilter.parse(channels.view(SyncService.MAIN).householdSettings[Settings.Key.VOD_CATEGORIES.id])
+            var f = old
+            r.hidden?.let { f = f.withHidden(r.name, it) }
+            if (r.clearName) f = f.withName(r.name, null) else r.customName?.let { f = f.withName(r.name, it.take(100)) }
+            if (f == old) throw SyncRefused(400, "Nothing to change.")
+            edits.putSetting(SyncScope.HOUSEHOLD, Settings.Key.VOD_CATEGORIES.id, f.toJson(), listOf(SyncService.MAIN))
         }
     }
 
@@ -557,6 +586,19 @@ private suspend fun sourceViews(companion: Companion, view: AdminView): List<Sou
         SourceView(
             s.id, s.name, s.kind.name, s.url, s.username, s.password.isNotEmpty(), s.userAgent, s.referrer, s.enabled, s.liveFormat.name, s.connectionLimit,
             st?.lastRefreshedAt ?: 0, st?.lastError, st?.streams ?: 0, companion.catalog.refreshing == s.id,
+        )
+    }
+}
+
+private suspend fun vodCategoriesView(companion: Companion, view: AdminView): List<VodCategoryView> {
+    val filter = VodCategoryFilter.parse(view.householdSettings[Settings.Key.VOD_CATEGORIES.id])
+    val cleanup = NameCleanup.parse(view.profileSettings[Settings.Key.VOD_NAME_CLEANUP.id])
+    val sourceNames = view.sources.associate { it.first.id to it.first.name }
+    return companion.catalog.vodCategories().map { c ->
+        val custom = filter.renamed(c.name)
+        VodCategoryView(
+            c.source_id, sourceNames[c.source_id] ?: c.source_id, c.kind, c.category_id, c.name,
+            custom ?: if (cleanup.groups) cleanup.apply(c.name) else c.name, c.item_count.toInt(), filter.hides(c.name), custom,
         )
     }
 }

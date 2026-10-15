@@ -39,4 +39,26 @@ class VodCategoryFilterTest {
         assertFalse(VodCategoryFilter.NONE.hides("anything"))
         assertEquals(filter, VodCategoryFilter.parse("""{"show_only":["EN - *","ENGLISH *","NETFLIX *","SKY"],"hide":["*ASIA*","ENGLISH SERIES (TR)"]}"""))
     }
+
+    @Test fun oneCategoryHiddenOrShownWinsOverThePatterns() {
+        val shown = filter.withHidden("ES - PELÍCULAS", hide = false)
+        assertFalse(shown.hides("es - películas"), "shown by name, ignoring case")
+        assertTrue(shown.hides("FR - FILMS"))
+        val hidden = shown.withHidden("EN - ACTION", hide = true).withHidden("ES - PELÍCULAS", hide = true)
+        assertTrue(hidden.hides("EN - ACTION"))
+        assertTrue(hidden.hides("ES - PELÍCULAS"))
+        assertEquals(emptyList(), hidden.withHidden("EN - ACTION", hide = false).hidden.filter { it == "EN - ACTION" }, "unhiding takes it off the list")
+        assertFalse(hidden.withHidden("EN - ACTION", hide = false).hides("EN - ACTION"))
+        assertEquals(filter, filter.withHidden("EN - ACTION", hide = false), "already shown: nothing to add")
+        assertEquals(hidden, VodCategoryFilter.parse(hidden.toJson()))
+    }
+
+    @Test fun renamesAreByNameAndDontChangeVisibility() {
+        val f = filter.withName("EN - ACTION", "Action").withName("SKY", "  ")
+        assertEquals("Action", f.renamed("en - action"))
+        assertEquals(null, f.renamed("SKY"))
+        assertEquals(filter, f.visibility)
+        assertEquals(emptyMap(), f.withName("EN - ACTION", null).names)
+        assertEquals(f, VodCategoryFilter.parse(f.toJson()))
+    }
 }

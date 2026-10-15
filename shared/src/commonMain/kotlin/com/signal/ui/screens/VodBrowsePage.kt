@@ -356,7 +356,7 @@ fun PosterTile(
                     if (newEpisode) Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopStart) { NewEpisodeBadge() }
                 }
             }
-            SText(name, 22, Modifier.padding(start = 8.dp, top = 4.dp), weight = FontWeight.SemiBold, maxLines = 1)
+            SText(name, 22, Modifier.padding(start = 8.dp, top = 4.dp), weight = FontWeight.SemiBold, maxLines = 2)
             val meta = listOfNotNull(item.year?.toString(), if (unavailable) "Unavailable" else null).joinToString(" · ")
             if (meta.isNotEmpty()) SText(meta, 20, Modifier.padding(start = 8.dp), color = c.muted)
         }

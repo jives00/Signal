@@ -169,7 +169,7 @@ export const getLinks = (uc: string) => read(S.LinkView.array(), `/api/links/${e
 export const preferStream = (uc: string, streamId: string) => post(`/api/links/${enc(uc)}/preferred`, { streamId });
 
 // ---- Movies & Series (PLAN §4.3.12) ----
-export interface VodQuery { q?: string; kind?: "" | "MOVIE" | "SERIES"; status?: "" | "matched" | "manual" | "unmatched" | "pending"; offset?: number; limit?: number }
+export interface VodQuery { q?: string; kind?: "" | "MOVIE" | "SERIES"; status?: "" | "matched" | "manual" | "unmatched" | "pending"; offset?: number; limit?: number; profile?: string }
 export const getVodStatus = () => read(S.VodStatus, "/api/vod");
 export function getVodItems(f: VodQuery) {
   const p = new URLSearchParams();
@@ -180,6 +180,9 @@ export const searchTmdb = (kind: string, q: string, year?: number | null) =>
   read(S.TmdbCandidate.array(), `/api/vod/search?kind=${kind}&q=${enc(q)}${year ? `&year=${year}` : ""}`);
 export const setVodMatch = (itemId: string, tmdbId: number | null) => send<void>(`/api/vod/items/${enc(itemId)}/match`, { method: "PUT", body: JSON.stringify({ tmdbId }) });
 export const clearVodMatch = (itemId: string) => send<void>(`/api/vod/items/${enc(itemId)}/match`, { method: "DELETE" });
+export const getVodCategories = (profile: string) => read(S.VodCategoryView.array(), `/api/vod/categories?${q(profile)}`);
+/** Hides, shows or renames a category by name, for the whole household. */
+export const editVodCategory = (body: { name: string; hidden?: boolean; customName?: string; clearName?: boolean }) => post("/api/vod/categories/edit", body);
 export const runVod = () => send<void>("/api/vod/run", { method: "POST" });
 
 // ---- Library (PLAN §4.3.11) ----

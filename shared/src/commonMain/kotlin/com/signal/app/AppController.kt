@@ -62,7 +62,8 @@ class AppController(val platform: Platform, val log: Log) {
         providerPoster = { id -> nas.providerImageUrl(id) },
         tmdbPoster = { path -> nas.imageUrl(com.signal.nas.TmdbImages.POSTER, path) },
         cleanup = { settings.vodNameCleanup() },
-        cleanupChanges = settings.changes().map { settings.raw(Settings.Key.VOD_NAME_CLEANUP) }.distinctUntilChanged(),
+        cleanupChanges = settings.changes().map { settings.raw(Settings.Key.VOD_NAME_CLEANUP) to settings.vodCategoryFilter().names }.distinctUntilChanged(),
+        categoryName = { settings.vodCategoryFilter().renamed(it) },
     )
     val vodDetails = com.signal.data.VodDetailRepository(db, sources, platform.io, log)
     val watch = com.signal.data.WatchRepository(db, settings, platform.io)
@@ -201,7 +202,7 @@ class AppController(val platform: Platform, val log: Log) {
         // refreshed, since its titles were never kept.
         scope.launch {
             var applied: com.signal.match.VodCategoryFilter? = null
-            settings.changes().map { settings.vodCategoryFilter() }.distinctUntilChanged().collect { filter ->
+            settings.changes().map { settings.vodCategoryFilter().visibility }.distinctUntilChanged().collect { filter ->
                 val old = applied
                 applied = filter
                 runCatching { vod.dropHidden(filter) }.onSuccess { if (it > 0) log.info("VOD: dropped $it titles in hidden categories") }

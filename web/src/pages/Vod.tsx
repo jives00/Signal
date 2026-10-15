@@ -1,26 +1,28 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { Link } from "react-router-dom";
-import { addToLibrary, clearVodMatch, getLibrary, getVodItems, removeFromLibrary, getVodStatus, runVod, searchTmdb, setVodMatch, tmdbImage, type VodQuery } from "../admin";
+import { addToLibrary, clearVodMatch, editVodCategory, getLibrary, getVodCategories, getVodItems, removeFromLibrary, getVodStatus, runVod, searchTmdb, setVodMatch, tmdbImage, type VodQuery } from "../admin";
 import { ago, size } from "../api";
 import { ApplyTo, profileNames, useProfiles, useToast } from "../context";
-import type { LibraryRow, TmdbCandidate, VodRow, VodRows, VodStatus } from "../schema";
+import type { LibraryRow, TmdbCandidate, VodCategoryView, VodRow, VodRows, VodStatus } from "../schema";
 
 const PAGE = 100;
 const statusLabel: Record<VodRow["status"], string> = { matched: "Matched", manual: "Fixed by hand", unmatched: "No match", pending: "Not tried yet" };
 
 /**
- * Movies & Series (PLAN §4.3.11–4.3.12): the catalog with TMDB matching, and each profile's Library.
+ * Movies & Series (PLAN §4.3.11–4.3.12): the catalog with TMDB matching, the provider's categories,
+ * and each profile's Library.
  */
 export default function Vod() {
-  const [tab, setTab] = useState<"catalog" | "library">("catalog");
+  const [tab, setTab] = useState<"catalog" | "categories" | "library">("catalog");
   return (
     <div className="page">
       <h1>Movies &amp; Series</h1>
       <div className="tabs" role="tablist">
         <button role="tab" aria-selected={tab === "catalog"} className={tab === "catalog" ? "on" : ""} onClick={() => setTab("catalog")}>Catalog</button>
+        <button role="tab" aria-selected={tab === "categories"} className={tab === "categories" ? "on" : ""} onClick={() => setTab("categories")}>Categories</button>
         <button role="tab" aria-selected={tab === "library"} className={tab === "library" ? "on" : ""} onClick={() => setTab("library")}>Library</button>
       </div>
-      {tab === "catalog" ? <Catalog /> : <Library />}
+      {tab === "catalog" ? <Catalog /> : tab === "categories" ? <Categories /> : <Library />}
     </div>
   );
 }
@@ -31,7 +33,7 @@ export default function Vod() {
  */
 function Catalog() {
   const { say, save } = useToast();
-  const { applyTo, profiles } = useProfiles();
+  const { applyTo, profiles, profile } = useProfiles();
   const [status, setStatus] = useState<VodStatus | null>(null);
   const [page, setPage] = useState<VodRows | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -42,8 +44,8 @@ function Catalog() {
 
   const loadStatus = useCallback(() => { getVodStatus().then(setStatus).catch((e: Error) => setError(e.message)); }, []);
   const load = useCallback(() => {
-    getVodItems({ ...filter, offset, limit: PAGE }).then((p) => { setPage(p); setError(null); }).catch((e: Error) => setError(e.message));
-  }, [filter, offset]);
+    getVodItems({ ...filter, offset, limit: PAGE, profile }).then((p) => { setPage(p); setError(null); }).catch((e: Error) => setError(e.message));
+  }, [filter, offset, profile]);
   useEffect(load, [load]);
   useEffect(() => {
     loadStatus();
@@ -118,7 +120,7 @@ function Catalog() {
               <tbody>
                 {page.rows.map((r) => (
                   <tr key={r.itemId}>
-                    <td>{r.name}<div className="detail small">{r.sourceId}</div></td>
+                    <td>{r.title}{r.name !== r.title && <div className="detail small">{r.name}</div>}</td>
                     <td>{r.kind === "MOVIE" ? "Movie" : "Series"}</td>
                     <td>{r.year ?? ""}</td>
                     <td>
@@ -149,7 +151,7 @@ function Catalog() {
 /** Search TMDB and pick the right title, or say there's none. */
 function FixMatch({ row, onDone, onCancel }: { row: VodRow; onDone: () => void; onCancel: () => void }) {
   const { say } = useToast();
-  const [query, setQuery] = useState(row.name);
+  const [query, setQuery] = useState(row.title);
   const [year, setYear] = useState(row.year ? String(row.year) : "");
   const [results, setResults] = useState<TmdbCandidate[] | null>(null);
   const [busy, setBusy] = useState(false);
@@ -170,7 +172,7 @@ function FixMatch({ row, onDone, onCancel }: { row: VodRow; onDone: () => void; 
 
   return (
     <div className="card form suggestion">
-      <h2>Fix match: {row.name}</h2>
+      <h2>Fix match: {row.title}</h2>
       <form className="row" onSubmit={search}>
         <input type="search" value={query} onChange={(e) => setQuery(e.target.value)} aria-label="Search TMDB" />
         <input type="number" placeholder="Year" value={year} onChange={(e) => setYear(e.target.value)} aria-label="Year" style={{ width: 90 }} />
@@ -197,6 +199,105 @@ function FixMatch({ row, onDone, onCancel }: { row: VodRow; onDone: () => void; 
         <button className="link" onClick={onCancel}>Cancel</button>
       </div>
     </div>
+  );
+}
+
+/**
+ * The provider's movie and series categories (PLAN §4.3.6 → Categories), like Groups for live TV:
+ * hide or show, rename, and filters. These are household-wide: a hidden category's titles are
+ * dropped from every TV's catalog, so they're out of browsing, Search and TMDB matching too. Titles
+ * show as the shown profile's cleanup makes them.
+ */
+function Categories() {
+  const { profile } = useProfiles();
+  const { save } = useToast();
+  const [rows, setRows] = useState<VodCategoryView[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [filter, setFilter] = useState("");
+  const [kind, setKind] = useState<"" | "MOVIE" | "SERIES">("");
+  const [show, setShow] = useState<"visible" | "hidden" | "">("visible");
+  const [source, setSource] = useState("");
+  const [renamed, setRenamed] = useState(false);
+
+  const load = useCallback(() => {
+    getVodCategories(profile).then((r) => { setRows(r); setError(null); }).catch((e: Error) => setError(e.message));
+  }, [profile]);
+  useEffect(load, [load]);
+
+  const edit = (c: VodCategoryView, patch: { hidden?: boolean; customName?: string; clearName?: boolean }, message: string) =>
+    save(message, () => editVodCategory({ name: c.name, ...patch }), load);
+  const rename = (c: VodCategoryView) => {
+    const name = window.prompt("Category name (empty for the provider's)", c.customName ?? c.title);
+    if (name === null) return;
+    edit(c, name.trim() && name.trim() !== c.name ? { customName: name.trim() } : { clearName: true }, "Renamed on every TV");
+  };
+
+  const sources = [...new Map((rows ?? []).map((c) => [c.sourceId, c.sourceName])).entries()];
+  const text = filter.toLowerCase();
+  const shown = (rows ?? []).filter((c) =>
+    (!show || c.hidden === (show === "hidden")) &&
+    (!kind || c.kind === kind) &&
+    (!source || c.sourceId === source) &&
+    (!renamed || c.customName !== null) &&
+    (!text || c.title.toLowerCase().includes(text) || c.name.toLowerCase().includes(text)));
+  const hiddenCount = rows?.filter((c) => c.hidden).length ?? 0;
+
+  return (
+    <>
+      <p className="detail">
+        For every profile: titles in a hidden category are left out of the TVs' catalogs, Search and TMDB matching. Showing one again
+        refreshes its source to bring the titles back, which takes a few minutes. Hiding and renaming go by name, so they cover the
+        movie and series categories of every source with that name.
+      </p>
+      {error && <p className="error-text">{error}</p>}
+      {rows && (
+        <>
+          <div className="filters">
+            <input type="search" placeholder="Filter categories" value={filter} onChange={(e) => setFilter(e.target.value)} aria-label="Filter categories" />
+            <select value={kind} onChange={(e) => setKind(e.target.value as typeof kind)} aria-label="Kind">
+              <option value="">Movies and series</option>
+              <option value="MOVIE">Movies</option>
+              <option value="SERIES">Series</option>
+            </select>
+            <select value={show} onChange={(e) => setShow(e.target.value as typeof show)} aria-label="Hidden">
+              <option value="visible">Visible only</option>
+              <option value="hidden">Hidden only</option>
+              <option value="">Hidden and visible</option>
+            </select>
+            {sources.length > 1 && (
+              <select value={source} onChange={(e) => setSource(e.target.value)} aria-label="Source">
+                <option value="">Every source</option>
+                {sources.map(([id, name]) => <option key={id} value={id}>{name}</option>)}
+              </select>
+            )}
+            <label className="check"><input type="checkbox" checked={renamed} onChange={(e) => setRenamed(e.target.checked)} /> Renamed only</label>
+          </div>
+          <p className="detail">{shown.length.toLocaleString()} of {rows.length.toLocaleString()} categories · {hiddenCount.toLocaleString()} hidden</p>
+          <div className="table-wrap">
+            <table className="table">
+              <thead><tr><th>Category</th><th>Kind</th>{sources.length > 1 && <th>Source</th>}<th>Titles</th><th /></tr></thead>
+              <tbody>
+                {shown.map((c) => (
+                  <tr key={`${c.sourceId}|${c.kind}|${c.categoryId}`} className={c.hidden ? "dim" : ""}>
+                    <td>
+                      {c.title}{c.hidden && <span className="tag quiet">Hidden</span>}{c.customName && <span className="tag quiet">Renamed</span>}
+                      {c.name !== c.title && <div className="detail small">{c.name}</div>}
+                    </td>
+                    <td>{c.kind === "MOVIE" ? "Movies" : "Series"}</td>
+                    {sources.length > 1 && <td className="detail">{c.sourceName}</td>}
+                    <td>{c.hidden ? "" : c.count.toLocaleString()}</td>
+                    <td className="actions">
+                      <button onClick={() => edit(c, { hidden: !c.hidden }, c.hidden ? "Shown on every TV · its source is refreshing" : "Hidden on every TV")}>{c.hidden ? "Unhide" : "Hide"}</button>
+                      <button onClick={() => rename(c)}>Rename</button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
+    </>
   );
 }
 

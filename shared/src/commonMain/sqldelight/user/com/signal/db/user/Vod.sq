@@ -131,6 +131,15 @@ GROUP BY c.source_id, c.category_id
 HAVING item_count > 0
 ORDER BY src.created_at, c.position;
 
+-- The web admin's Categories tab: every category, hidden ones (no titles kept) too.
+allCategoriesCounted:
+SELECT c.source_id, c.kind, c.category_id, c.name, count(i.id) AS item_count
+FROM vod_category c
+JOIN source src ON src.id = c.source_id AND src.enabled = 1
+LEFT JOIN vod_item i ON i.source_id = c.source_id AND i.kind = c.kind AND i.category_id = c.category_id
+GROUP BY c.source_id, c.kind, c.category_id
+ORDER BY src.created_at, c.kind, c.position;
+
 itemsInCategory:
 SELECT i.*, t.tmdb_id AS nas_tmdb, t.poster AS nas_poster FROM vod_item i
 LEFT JOIN vod_tmdb t ON t.item_id = i.id

@@ -1,6 +1,8 @@
 package com.signal.server
 
+import com.signal.data.Settings
 import com.signal.data.VodRepository
+import com.signal.match.NameCleanup
 import com.signal.model.VodKind
 import com.signal.nas.NasVodPaths
 import io.ktor.http.CacheControl
@@ -36,6 +38,9 @@ data class VodRow(
     val itemId: String,
     val sourceId: String,
     val kind: String,
+    /** The title as the profile's TVs show it, after title cleanup. */
+    val title: String,
+    /** The provider's own name for it. */
     val name: String,
     val year: Int?,
     /** matched, manual, unmatched, or pending (not tried yet). */
@@ -115,9 +120,12 @@ fun Route.vodAdminRoutes(companion: Companion) {
         )
     }
 
-    // The catalog with each title's match: search, filter by kind and status, paged.
+    // The catalog with each title's match: search, filter by kind and status, paged. Titles are cleaned
+    // with the rules of ?profile= (PLAN §4.3.6 → Categories).
     get("/vod/items") {
         if (companion.tmdbStore == null) return@get call.respondText("The database isn't connected yet.", status = HttpStatusCode.ServiceUnavailable)
+        val profile = call.request.queryParameters["profile"]?.takeIf { it.isNotBlank() } ?: SyncService.MAIN
+        val rules = NameCleanup.parse(AdminView(companion.sync.liveItems(), profile).profileSettings[Settings.Key.VOD_NAME_CLEANUP.id])
         val q = call.request.queryParameters["q"]?.trim()?.lowercase().orEmpty()
         val kind = call.request.queryParameters["kind"]
         val status = call.request.queryParameters["status"]
@@ -126,11 +134,12 @@ fun Route.vodAdminRoutes(companion: Companion) {
         val matches = companion.tmdbStore!!.matches().associateBy { it.vodItemId }
         val rows = companion.vodItems().asSequence()
             .filter { kind == null || it.kind.name == kind }
-            .filter { q.isEmpty() || it.name.lowercase().contains(q) }
-            .map { item ->
+            .map { item -> item to VodRepository.displayNameOf(item.name, rules) }
+            .filter { (item, title) -> q.isEmpty() || title.lowercase().contains(q) || item.name.lowercase().contains(q) }
+            .map { (item, title) ->
                 val m = matches[item.id]
                 val t = m?.tmdbId?.let { companion.vod.entryTitle(item.kind.name, it) }
-                VodRow(item.id, item.sourceId, item.kind.name, VodRepository.displayName(item), item.year, m?.status ?: "pending", m?.tmdbId, t?.first, t?.second)
+                VodRow(item.id, item.sourceId, item.kind.name, title, item.name, item.year, m?.status ?: "pending", m?.tmdbId, t?.first, t?.second)
             }
             .filter { status == null || it.status == status }
             .toList()

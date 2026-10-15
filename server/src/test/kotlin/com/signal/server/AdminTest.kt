@@ -194,6 +194,34 @@ class AdminTest {
         assertEquals("Renamed", hidden.s("title"))
     }
 
+    @Test fun vodCategoriesHideShowAndRenameForTheHousehold() = testApplication {
+        application { signalModule(companion) }
+        client.demo()
+        suspend fun categories() = json.parseToJsonElement(client.send("GET", "/api/vod/categories?profile=main")).jsonArray.map { it.jsonObject }
+        for (i in 0 until 100) { if (categories().isNotEmpty()) break; delay(50) }
+        val comedy = categories().first { it.s("name") == "Comedy" && it.s("kind") == "MOVIE" }
+        assertEquals("false", comedy.s("hidden"))
+        assertTrue(comedy["count"]!!.jsonPrimitive.int > 0)
+
+        client.send("POST", "/api/vod/categories/edit", """{"name":"Comedy","hidden":true}""")
+        client.send("POST", "/api/vod/categories/edit", """{"name":"Action","customName":"Explosions"}""")
+        val after = categories()
+        assertEquals("true", after.first { it.s("name") == "Comedy" }.s("hidden"))
+        assertEquals("Explosions", after.first { it.s("name") == "Action" }.s("title"))
+        assertEquals("Explosions", after.first { it.s("name") == "Action" }.s("customName"))
+        // The catalog drops the hidden category's titles.
+        for (i in 0 until 100) { if (categories().first { it.s("name") == "Comedy" }["count"]!!.jsonPrimitive.int == 0) break; delay(50) }
+        assertEquals(0, categories().first { it.s("name") == "Comedy" }["count"]!!.jsonPrimitive.int)
+
+        client.send("POST", "/api/vod/categories/edit", """{"name":"Comedy","hidden":false}""")
+        client.send("POST", "/api/vod/categories/edit", """{"name":"Action","clearName":true}""")
+        val back = categories()
+        assertEquals("false", back.first { it.s("name") == "Comedy" }.s("hidden"))
+        assertEquals("Action", back.first { it.s("name") == "Action" }.s("title"))
+        val refused = client.post("/api/vod/categories/edit") { contentType(ContentType.Application.Json); setBody("""{"name":"Comedy","hidden":false}""") }
+        assertEquals(400, refused.status.value, "nothing to change")
+    }
+
     @Test fun mappingQueueAndManualMappings() = testApplication {
         application { signalModule(companion) }
         val sources = client.demo()
