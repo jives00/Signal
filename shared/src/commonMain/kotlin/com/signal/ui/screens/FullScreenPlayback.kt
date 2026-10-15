@@ -289,22 +289,24 @@ private fun InfoBar(
 @Composable
 private fun OptionsRow(channel: Channel, state: PlaybackState, first: FocusRequester, row: FocusRequester, onRecall: () -> Unit) {
     val app = LocalApp.current
-    val returnTo = remember { FocusRequester() }
-    val options = buildList<Pair<String, () -> Unit>> {
-        add("Audio" to { app.panel.open(audioPicker(app, channel, state), returnTo) })
-        add("Subtitles" to { app.panel.open(subtitlePicker(app, channel, state), returnTo) })
-        add("Aspect ratio" to { app.panel.open(aspectPicker(app, channel), returnTo) })
-        if (app.menus.linkedStreams(channel) != null) add("Stream" to { app.panel.open(app.menus.streamPage(channel), returnTo) })
-        add((if (channel.isFavorite) "Remove favorite" else "Favorite") to { app.scope.launch { app.channels.setFavorite(channel, !channel.isFavorite) } })
-        add("Add to playlist…" to { app.panel.open(app.menus.addToPlaylistPage { listOf(channel) }, returnTo) })
-        add("Previous channel" to onRecall)
+    // A picker returns focus to the button that opened it: the row's focusRestorer doesn't restore on a
+    // direct requestFocus(), so handing the panel the row put focus back on the first button.
+    val options = buildList<Pair<String, (FocusRequester) -> Unit>> {
+        add("Audio" to { back -> app.panel.open(audioPicker(app, channel, state), back) })
+        add("Subtitles" to { back -> app.panel.open(subtitlePicker(app, channel, state), back) })
+        add("Aspect ratio" to { back -> app.panel.open(aspectPicker(app, channel), back) })
+        if (app.menus.linkedStreams(channel) != null) add("Stream" to { back -> app.panel.open(app.menus.streamPage(channel), back) })
+        add((if (channel.isFavorite) "Remove favorite" else "Favorite") to { _ -> app.scope.launch { app.channels.setFavorite(channel, !channel.isFavorite) } })
+        add("Add to playlist…" to { back -> app.panel.open(app.menus.addToPlaylistPage { listOf(channel) }, back) })
+        add("Previous channel" to { _ -> onRecall() })
     }
     Row(
-        Modifier.fillMaxWidth().padding(top = 24.dp).focusRequester(row).focusRequester(returnTo).focusRestorer(),
+        Modifier.fillMaxWidth().padding(top = 24.dp).focusRequester(row).focusRestorer(),
         horizontalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         options.forEachIndexed { i, (label, action) ->
-            com.signal.ui.components.SButton(label, onSelect = action, focusRequester = if (i == 0) first else null)
+            val requester = if (i == 0) first else remember(label) { FocusRequester() }
+            com.signal.ui.components.SButton(label, onSelect = { action(requester) }, focusRequester = requester)
         }
     }
 }

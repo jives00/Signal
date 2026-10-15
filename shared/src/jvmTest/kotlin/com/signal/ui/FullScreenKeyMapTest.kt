@@ -107,6 +107,20 @@ class FullScreenKeyMapTest {
         assertEquals("Aspect ratio", panelTitle)
     }
 
+    // Back from a picker put focus on Audio, not the button that opened it (user, 2026-10-15).
+    @Test fun backFromAPickerReturnsToItsButton() = keyMapTest {
+        toFullScreen()
+        press(RemoteAction.Select)
+        focusedStartsWith("Audio")
+        press(RemoteAction.Right)
+        focusedStartsWith("Subtitles")
+        press(RemoteAction.Select)
+        eventually("subtitle picker") { panelTitle == "Subtitles" }
+        press(RemoteAction.Back)
+        eventually("picker closed") { !app.panel.isOpen }
+        focusedStartsWith("Subtitles")
+    }
+
     @Test fun infoBarPlayPauseRecalls() = keyMapTest {
         toFullScreen()
         val start = current!!
