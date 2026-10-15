@@ -111,7 +111,16 @@ class SearchRepository(
      * Channels matching every word as a word prefix: favorites first, then exact, prefix, contains
      * (PLAN §4.3.14). A channel with the query as one of its voice names comes before all of them.
      */
-    suspend fun channels(query: String, limit: Int = 60): List<Channel> {
+    suspend fun channels(query: String, limit: Int = 60): List<Channel> = channelHits(query, limit).map { it.channel }
+
+    /**
+     * A channel search hit and how it matched, for voice commands to choose between acting and
+     * asking (PLAN §4.3.14 → Voice commands, phase 2). [exact] is a voice name or the whole name.
+     */
+    data class ChannelHit(val channel: Channel, val exact: Boolean, val favorite: Boolean)
+
+    /** [channels], with how each matched. */
+    suspend fun channelHits(query: String, limit: Int = 60): List<ChannelHit> {
         val words = SearchText.words(query)
         if (words.isEmpty()) return emptyList()
         val folded = words.joinToString(" ")
@@ -129,10 +138,11 @@ class SearchRepository(
                         else -> 2
                     }
                     Triple(e, rank, e.order)
-                }.sortedWith(compareBy({ it.second != -1 }, { !it.first.favorite }, { it.second }, { it.third })).take(limit).map { it.first.streamId }
+                }.sortedWith(compareBy({ it.second != -1 }, { !it.first.favorite }, { it.second }, { it.third })).take(limit)
+                    .map { Triple(it.first.streamId, it.second <= 0, it.first.favorite) }
             }
         }
-        return hits.mapNotNull { channels.channelByStream(it) }
+        return hits.mapNotNull { (id, exact, favorite) -> channels.channelByStream(id)?.let { ChannelHit(it, exact, favorite) } }
     }
 
     /**

@@ -8,12 +8,72 @@ sealed interface VoiceCommand {
     /** "Switch to NBC", "watch ESPN", or just a channel's name. */
     data class Tune(val channel: String) : VoiceCommand
 
+    // Playback (PLAN §4.3.14 → Voice commands, phase 2). What they do depends on what's playing.
+    data object Pause : VoiceCommand
+    data object Resume : VoiceCommand
+    data object Stop : VoiceCommand
+    data object StartOver : VoiceCommand
+    /** The next episode in a series, the next channel on live TV. */
+    data object Next : VoiceCommand
+    data object NextEpisode : VoiceCommand
+    /** Last-channel recall. */
+    data object LastChannel : VoiceCommand
+    /** As the remote's Channel up (-1) and Channel down (+1). */
+    data class ChannelStep(val step: Int) : VoiceCommand
+    data class Seek(val byMs: Long) : VoiceCommand
+
+    data class Open(val page: Page) : VoiceCommand
+    enum class Page { HOME, GUIDE, FAVORITES, MOVIES, SERIES, SEARCH, SETTINGS }
+
+    /** Captions on, off, or toggled (null). */
+    data class Captions(val on: Boolean?) : VoiceCommand
+    data class Audio(val language: Language) : VoiceCommand
+
+    /** The program on a channel now, or on the one playing when [channel] is null. */
+    data class WhatsOn(val channel: String?) : VoiceCommand
+
+    /** A spoken language and the codes tracks give it (ISO 639-1 and -2). */
+    enum class Language(val spoken: String, val codes: Set<String>) {
+        ENGLISH("english", setOf("en", "eng")), SPANISH("spanish", setOf("es", "spa")), FRENCH("french", setOf("fr", "fre", "fra")),
+        GERMAN("german", setOf("de", "ger", "deu")), ITALIAN("italian", setOf("it", "ita")), PORTUGUESE("portuguese", setOf("pt", "por")),
+        RUSSIAN("russian", setOf("ru", "rus")), JAPANESE("japanese", setOf("ja", "jpn")), KOREAN("korean", setOf("ko", "kor")),
+        CHINESE("chinese", setOf("zh", "chi", "zho")), HINDI("hindi", setOf("hi", "hin")), ARABIC("arabic", setOf("ar", "ara"));
+
+        fun matches(language: String?, label: String): Boolean =
+            language?.lowercase()?.substringBefore('-') in codes || label.lowercase().contains(spoken)
+    }
+
     companion object {
         /** How commands start and end, as whole phrases for the recognizer. */
         private val commandPhrases = listOf(
             "switch to", "change to", "change the channel to", "change channel to", "turn to", "flip to", "go to",
             "tune to", "move to", "watch", "put on", "show me", "play", "please", "channel", "now", "hey", "ok",
         )
+
+        /** The playback, page and player commands, whole (PLAN §4.3.14 → Voice commands, phase 2). */
+        private val fixedPhrases: List<String> = buildList {
+            addAll(listOf(
+                "pause", "pause it", "pause this", "resume", "unpause", "keep playing", "continue", "play it",
+                "stop", "stop playing", "start over", "restart", "from the beginning", "play from the beginning",
+                "next", "next episode", "play the next episode", "next channel", "channel up", "channel down",
+                "last channel", "previous channel", "flip back", "go back to the last channel",
+                "go home", "open", "the", "my", "home", "guide", "the guide", "tv guide", "live tv", "favorites", "movies",
+                "series", "shows", "tv shows", "search", "settings", "page",
+                "what's on", "what is on", "what's playing on", "what's on now",
+                "audio", "language", "audio in", "change the audio to", "switch the audio to",
+            ))
+            for (thing in listOf("captions", "closed captions", "subtitles")) {
+                add(thing)
+                for (state in listOf("on", "off")) { add("$thing $state"); add("turn $state $thing"); add("turn $thing $state"); add("turn $state the $thing") }
+            }
+            Language.entries.forEach { add(it.spoken); add("${it.spoken} audio") }
+            // Seeks as whole phrases, so a stray number never joins a channel's name.
+            val amounts = listOf(5, 10, 15, 20, 30, 45).map { "${SpokenNumbers.say(it)} seconds" } +
+                listOf("a minute", "one minute") + listOf(2, 3, 4, 5, 10, 15, 20, 30).map { "${SpokenNumbers.say(it)} minutes" }
+            val seekVerbs = listOf("back", "go back", "skip back", "jump back", "rewind", "skip ahead", "skip forward", "jump ahead", "forward", "fast forward", "ahead")
+            addAll(seekVerbs)
+            for (verb in seekVerbs) for (amount in amounts) add("$verb $amount")
+        }
 
         /**
          * What the recognizer may hear, as phrases it strings together: the commands' own, and the
@@ -27,6 +87,7 @@ sealed interface VoiceCommand {
          */
         fun phrases(channelNames: Collection<String>, initials: Set<String>): Set<String> {
             val out = HashSet<String>(commandPhrases)
+            out += fixedPhrases
             fun spelled(word: String) = if (word in initials) word.toList().joinToString(" ") else null
             for (name in channelNames) {
                 val words = name.split(' ').filter { it.isNotEmpty() }
@@ -107,11 +168,76 @@ sealed interface VoiceCommand {
         fun parse(heard: String): VoiceCommand? {
             var text = heard.lowercase().replace(unknown, " ").replace(nonWord, " ").trim().replace(spaces, " ")
             text = text.removePrefix(fillers)
+            // "what's" arrives as "what s" once the apostrophe goes.
+            text = text.replace(whats, "whats")
+            command(text.replace(politeEnd, "").trim())?.let { return it }
             text = tunePrefix.find(text)?.let { text.substring(it.range.last + 1) } ?: text
             text = text.replace(trailing, "").trim()
             text = SpokenNumbers.toDigits(joinLetters(text))
             return if (text.isEmpty()) null else Tune(text)
         }
+
+        /** A playback, page or player command said whole, or null for a channel (or nothing). */
+        private fun command(text: String): VoiceCommand? {
+            when (text) {
+                "pause", "pause it", "pause this", "pause the movie", "pause the show", "pause the video" -> return Pause
+                "resume", "unpause", "keep playing", "continue", "play", "play it" -> return Resume
+                "stop", "stop playing", "stop it" -> return Stop
+                "start over", "restart", "from the beginning", "play from the beginning", "start from the beginning" -> return StartOver
+                "next" -> return Next
+                "next episode", "play the next episode", "the next episode" -> return NextEpisode
+                "next channel", "channel down" -> return ChannelStep(1)
+                "channel up" -> return ChannelStep(-1)
+                "last channel", "previous channel", "flip back", "go back to the last channel", "the last channel" -> return LastChannel
+                "rewind" -> return Seek(-DEFAULT_SEEK_MS)
+                "fast forward", "skip ahead", "skip forward", "jump ahead" -> return Seek(DEFAULT_SEEK_MS)
+                "skip back", "jump back" -> return Seek(-DEFAULT_SEEK_MS)
+            }
+            page.matchEntire(text)?.let { m ->
+                return Open(when (m.groupValues[1]) {
+                    "home", "home screen" -> Page.HOME
+                    "guide", "tv guide", "live tv" -> Page.GUIDE
+                    "favorites", "favourites" -> Page.FAVORITES
+                    "movies" -> Page.MOVIES
+                    "series", "shows", "tv shows" -> Page.SERIES
+                    "search" -> Page.SEARCH
+                    else -> Page.SETTINGS
+                })
+            }
+            captions.matchEntire(text)?.let { m ->
+                val state = m.groupValues[1].ifEmpty { m.groupValues[3] }
+                return Captions(if (state.isEmpty()) null else state == "on")
+            }
+            (audioFirst.matchEntire(text) ?: audioLast.matchEntire(text))?.let { m ->
+                return Audio(Language.entries.first { it.spoken == m.groupValues[1] })
+            }
+            whatsOn.matchEntire(text)?.let { m ->
+                val channel = m.groupValues[1].replace(trailing, "").trim()
+                return WhatsOn(if (channel.isEmpty()) null else SpokenNumbers.toDigits(joinLetters(channel)))
+            }
+            seek.matchEntire(SpokenNumbers.toDigits(text))?.let { m ->
+                val (verb, amount, unit) = m.destructured
+                val back = verb.endsWith("back") || verb.startsWith("back") || verb == "rewind"
+                val n = when (amount) { "" -> null; "a", "an" -> 1L; else -> amount.toLong() }
+                // A bare "back" or "forward" isn't a seek: it needs an amount.
+                if (n == null) return null
+                val ms = n * if (unit.startsWith("min")) 60_000L else 1_000L
+                return Seek(if (back) -ms else ms)
+            }
+            return null
+        }
+
+        const val DEFAULT_SEEK_MS = 30_000L
+
+        private val whats = Regex("""^(what s|what is)\b""")
+        private val politeEnd = Regex("""(\s+(please|now))+$""")
+        private val page = Regex("""^(?:(?:go|open|show me|show|take me)\s+)?(?:to\s+)?(?:the\s+|my\s+)?(home|home screen|guide|tv guide|live tv|favorites|favourites|movies|series|shows|tv shows|search|settings)(?:\s+(?:page|screen))?$""")
+        private val captions = Regex("""^(?:turn\s+|switch\s+)?(on|off)?\s*(?:the\s+)?(?:closed captions|captions|closed captioning|subtitles|subs|cc)(?:\s+(on|off))?$""")
+        private val languages = Language.entries.joinToString("|") { it.spoken }
+        private val audioFirst = Regex("""^(?:(?:switch|change|set)\s+(?:the\s+)?)?(?:audio|language)\s+(?:to\s+|in\s+)?($languages)$""")
+        private val audioLast = Regex("""^($languages)\s+(?:audio|language)$""")
+        private val whatsOn = Regex("""^whats\s+(?:on|playing)(?:\s+now)?(?:\s+on)?(?:\s+(.*))?$""")
+        private val seek = Regex("""^(back|backward|backwards|go back|skip back|jump back|rewind|forward|forwards|ahead|go ahead|skip ahead|skip forward|jump ahead|jump forward|fast forward)(?:\s+by)?(?:\s+(\d+|a|an))?(?:\s+(seconds?|secs?|minutes?|mins?))?$""")
 
         /** "n b c" → "nbc": initials spoken one letter at a time, as channel names write them. */
         internal fun joinLetters(text: String): String =
