@@ -177,10 +177,10 @@ fun SButton(
 
 /** Logo tile: the channel's logo, or its initials until one loads and as the fallback (PLAN §3). */
 @Composable
-fun LogoTile(name: String, logoUrl: String?, width: Int, height: Int, modifier: Modifier = Modifier, onAccent: Boolean = false) {
+fun LogoTile(name: String, logoUrl: String?, width: Int, height: Int, modifier: Modifier = Modifier, onAccent: Boolean = false, tile: Boolean = true) {
     val c = SignalTheme.colors
     Box(
-        modifier.size(width.dp, height.dp).background(if (onAccent) Color.White.copy(alpha = 0.16f) else c.neutral400),
+        modifier.size(width.dp, height.dp).background(if (!tile) Color.Transparent else if (onAccent) Color.White.copy(alpha = 0.16f) else c.neutral400),
         contentAlignment = Alignment.Center,
     ) {
         val initials = @Composable {

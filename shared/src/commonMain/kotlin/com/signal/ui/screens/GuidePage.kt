@@ -529,7 +529,7 @@ private fun GuideRow(
         ) {
             val ink = if (channelFocused || moving) c.onAccent else c.text
             if (showNumbers()) SText(ch.number.toString(), 20, Modifier.width(56.dp), color = if (channelFocused || moving) c.onAccent else c.muted)
-            LogoTile(ch.displayName, ch.logoUrl, 96, 56, onAccent = channelFocused || moving)
+            LogoTile(ch.displayName, ch.logoUrl, 96, 56, onAccent = channelFocused || moving, tile = false)
             SText((if (moving) "↕ " else "") + ch.displayName, 24, Modifier.padding(start = 16.dp).weight(1f), weight = FontWeight.SemiBold, color = ink)
             if (playing) Box(Modifier.width(8.dp).height(8.dp).background(if (channelFocused) c.onAccent else c.accent))
         }
@@ -605,7 +605,7 @@ private fun DetailsStrip(app: AppController, ch: Channel?, p: Program?, now: Lon
     Column(Modifier.fillMaxSize().padding(horizontal = 64.dp, vertical = 40.dp)) {
         if (ch == null) return@Column
         Row(verticalAlignment = Alignment.CenterVertically) {
-            LogoTile(ch.displayName, ch.logoUrl, 80, 48)
+            LogoTile(ch.displayName, ch.logoUrl, 80, 48, tile = false)
             SText(labelOf(ch), 26, Modifier.padding(start = 24.dp), weight = FontWeight.SemiBold, color = c.accentText)
             if (p != null) {
                 val status = if (p.isOn(now)) " · On now" else ""
