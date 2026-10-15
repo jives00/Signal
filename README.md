@@ -2,6 +2,11 @@
 
 A personal IPTV player for the Nvidia Shield (Android TV), with an optional companion service on a home NAS. Signal plays the live channels, guide (EPG) and on-demand content from IPTV sources the user supplies (M3U links or Xtream Codes logins). It ships no streams, channel lists or provider data of its own.
 
+## Voice commands
+
+The remote's mic button can talk to Signal instead of Google Assistant. Turning it on takes one adb
+command per TV: see [docs/voice-commands.md](docs/voice-commands.md).
+
 ## Build
 
 Requirements: JDK 17 and the Android SDK (platform 36).

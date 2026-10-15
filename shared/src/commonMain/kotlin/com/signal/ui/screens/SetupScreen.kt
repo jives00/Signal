@@ -99,7 +99,8 @@ fun SetupScreen() {
                     FirstSync.EMPTY -> "This TV is paired as $pairedAs. The NAS has no sources yet: add one here, and your other TVs get it too."
                     FirstSync.FAILED -> "This TV is paired as $pairedAs, but the NAS didn't answer. Add a source here; it syncs once the NAS is back."
                 }
-                SText(text, 26, Modifier.padding(top = 8.dp, bottom = 48.dp), color = c.muted, maxLines = 2)
+                SText(text, 26, Modifier.padding(top = 8.dp, bottom = 16.dp), color = c.muted, maxLines = 2)
+                if (app.platform.voice != null) SText("To use the remote's mic button for channels, see Settings → Voice commands, or Devices in the web admin.", 22, Modifier.padding(bottom = 32.dp), color = c.muted)
                 Column(Modifier.width(900.dp)) {
                     ListRow("Add a source", detail = "M3U or Xtream Codes", onSelect = { step = SetupStep.SOURCE }, focusRequester = first)
                 }

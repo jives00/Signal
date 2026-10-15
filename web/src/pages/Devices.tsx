@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { copySections, ownProfile } from "../admin";
 import { useProfiles, useToast } from "../context";
 import DeviceSettings from "./DeviceSettings";
+import VoiceSetup from "./VoiceSetup";
 import {
   ago, approveDevice, cleanCode, createProfile, deleteProfile, forgetDevice, getDevices, getSync, renameDevice, renameProfile,
   setDeviceProfile, type Device, type ProfileSummary,
@@ -50,7 +51,7 @@ export default function Devices() {
     setBusy(true);
     try {
       const device = await approveDevice(code);
-      setMessage(`Approved ${device.name}. It finishes pairing on its own in a moment.`);
+      setMessage(`Approved ${device.name}. It finishes pairing on its own in a moment. For voice commands on it, see Voice commands below.`);
       setCode("");
       load();
     } catch (e) {
@@ -151,6 +152,8 @@ export default function Devices() {
         </table>
       )}
       {settingsFor && <DeviceSettings device={settingsFor} onClose={() => setSettingsFor(null)} />}
+
+      <VoiceSetup />
 
       <section className="section">
         <h2 className="section-title">Profiles</h2>

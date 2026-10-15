@@ -259,3 +259,10 @@ label.button.file input { position: absolute; inset: 0; opacity: 0; cursor: poin
 
 .card.suggestion { margin-bottom: 12px; }
 .card.suggestion input[type="search"] { width: 100%; max-width: 480px; }
+
+/* Devices → Voice commands: adb commands to copy. */
+.voice-setup ol { padding-left: 20px; line-height: 1.6; }
+.voice-setup li { margin-bottom: 10px; }
+.command { display: flex; align-items: center; gap: 12px; margin: 6px 0; background: var(--surface); padding: 8px 12px; }
+.command code { flex: 1; font-family: ui-monospace, Consolas, monospace; font-size: 13px; overflow-x: auto; white-space: nowrap; }
+.voice-setup code { font-family: ui-monospace, Consolas, monospace; }

@@ -447,7 +447,7 @@ private fun VoiceSection(voice: com.signal.platform.VoiceSetup) {
         )
         ListRow("Speech model", detail = model, onSelect = null)
         SectionTitle("Turning it on")
-        text("Android TV has no setting for this, so it's done once from a computer with adb. Turn on network debugging in the TV's Developer options, then run:")
+        text("Android TV has no setting for this, so it's done once from a computer with adb. Every step is in the web admin under Devices → Voice commands. In short: turn on network debugging in the TV's Developer options, then run:")
         text("adb connect <the TV's address>:5555")
         text("adb shell cmd role add-role-holder android.app.role.ASSISTANT ${voice.packageName}")
         text("The mic button then talks to Signal everywhere, instead of Google Assistant.")
