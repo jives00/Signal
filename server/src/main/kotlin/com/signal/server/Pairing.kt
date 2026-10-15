@@ -17,8 +17,14 @@ import io.ktor.server.routing.patch
 import io.ktor.server.routing.post
 import kotlinx.serialization.Serializable
 
+/**
+ * Approve device, with where it goes (PLAN §9.1): [profile] is a profile's ID, or "own" for a new
+ * profile of its own (a copy of Main, named after it); [newProfile] names a new profile, a copy of
+ * [copyFrom] or empty. Neither: as Settings → Companion says for new devices, and an existing
+ * device keeps its profile.
+ */
 @Serializable
-data class ApproveRequest(val code: String)
+data class ApproveRequest(val code: String, val profile: String? = null, val newProfile: String? = null, val copyFrom: String? = null)
 
 @Serializable
 data class RenameRequest(val name: String)
@@ -55,9 +61,23 @@ fun Route.deviceAdminRoutes(companion: Companion) {
 
     post("/devices/approve") {
         val store = call.deviceStore(companion) ?: return@post
-        val code = runCatching { call.receive<ApproveRequest>().code }.getOrDefault("")
-        val device = companion.pairings.approve(code, store)
-        if (device == null) call.respondText("No device is showing that code. Codes last 10 minutes; check the TV.", status = HttpStatusCode.NotFound)
+        val r = runCatching { call.receive<ApproveRequest>() }.getOrDefault(ApproveRequest(""))
+        val notShowing = "No device is showing that code. Codes last 10 minutes; check the TV."
+        val name = companion.pairings.waiting(r.code) ?: return@post call.respondText(notShowing, status = HttpStatusCode.NotFound)
+        // The chosen profile, made first: the device gets its key only once it's placed.
+        val chosen = try {
+            when {
+                r.newProfile?.isNotBlank() == true -> companion.sync.createProfile(r.newProfile.trim().take(100), r.copyFrom?.takeIf { it.isNotBlank() }).id
+                r.profile == CompanionSettings.OWN -> companion.sync.createProfile(name, SyncService.MAIN).id
+                r.profile != null -> r.profile.takeIf { companion.sync.hasProfile(it) } ?: throw SyncRefused(404, "That profile no longer exists. Reload the page.")
+                else -> null
+            }
+        } catch (e: SyncRefused) {
+            return@post call.respondText(e.message.orEmpty(), status = HttpStatusCode.fromValue(e.status))
+        }
+        val device = companion.pairings.approve(r.code, store, chosen)
+        if (device == null) call.respondText(notShowing, status = HttpStatusCode.NotFound)
+        else if (chosen != null) call.respond(device)
         else {
             // New devices join Main, or get their own profile, as Settings → Companion says (PLAN §9.1).
             val fresh = device.lastSyncAt == 0L && device.profileId == SyncService.MAIN

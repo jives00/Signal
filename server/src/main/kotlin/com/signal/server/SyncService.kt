@@ -261,6 +261,8 @@ class SyncService(private val companion: Companion) {
         true
     }
 
+    fun hasProfile(id: String): Boolean = store().profiles().any { it.id == id }
+
     fun assignDevice(deviceId: String, profileId: String): Boolean {
         if (store().profiles().none { it.id == profileId }) throw SyncRefused(404, "No such profile")
         val ok = companion.devices?.setProfile(deviceId, profileId) == true

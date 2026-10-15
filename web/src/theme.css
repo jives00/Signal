@@ -266,3 +266,8 @@ label.button.file input { position: absolute; inset: 0; opacity: 0; cursor: poin
 .command { display: flex; align-items: center; gap: 12px; margin: 6px 0; background: var(--surface); padding: 8px 12px; }
 .command code { flex: 1; font-family: ui-monospace, Consolas, monospace; font-size: 13px; overflow-x: auto; white-space: nowrap; }
 .voice-setup code { font-family: ui-monospace, Consolas, monospace; }
+
+/* Devices → Approve device: which profile it joins. */
+.approve .placement { margin-top: 12px; align-items: end; gap: 16px; flex-wrap: wrap; }
+.approve .placement label { display: flex; flex-direction: column; gap: 4px; color: var(--muted); font-size: 13px; }
+.approve .placement label.check { flex-direction: row; align-items: center; gap: 8px; color: var(--text); font-size: 15px; }

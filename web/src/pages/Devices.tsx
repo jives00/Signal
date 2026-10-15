@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
-import { copySections, ownProfile } from "../admin";
+import { copySections, getSettings, ownProfile } from "../admin";
 import { useProfiles, useToast } from "../context";
 import DeviceSettings from "./DeviceSettings";
 import VoiceSetup from "./VoiceSetup";
@@ -20,7 +20,14 @@ export default function Devices() {
   const [message, setMessage] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [settingsFor, setSettingsFor] = useState<Device | null>(null);
-  const { reloadProfiles } = useProfiles();
+  const { reloadProfiles, profile } = useProfiles();
+  // Where Approve puts the device (PLAN §9.1): "" follows Settings → Companion, else a profile ID,
+  // "own", or "new" with a name.
+  const [placement, setPlacement] = useState("");
+  const [newName, setNewName] = useState("");
+  const [copyMain, setCopyMain] = useState(true);
+  const [ownByDefault, setOwnByDefault] = useState(false);
+  useEffect(() => { getSettings(profile).then((s) => setOwnByDefault(s.companion.newDeviceProfile === "own")).catch(() => setOwnByDefault(false)); }, [profile]);
   const { save } = useToast();
 
   const load = useCallback(() => {
@@ -50,10 +57,17 @@ export default function Devices() {
     if (code.length !== 6 || busy) return;
     setBusy(true);
     try {
-      const device = await approveDevice(code);
-      setMessage(`Approved ${device.name}. It finishes pairing on its own in a moment. For voice commands on it, see Voice commands below.`);
+      const device = await approveDevice(code,
+        placement === "" ? {}
+          : placement === "new" ? { newProfile: newName.trim(), copyFrom: copyMain ? "main" : null }
+          : { profile: placement });
+      const into = placement === "new" ? newName.trim() : profiles.find((p) => p.id === device.profileId)?.name ?? (placement === "own" ? device.name : "its profile");
+      setMessage(`Approved ${device.name} into ${into}. It finishes pairing on its own in a moment. For voice commands on it, see Voice commands below.`);
       setCode("");
+      setPlacement("");
+      setNewName("");
       load();
+      reloadProfiles();
     } catch (e) {
       setMessage((e as Error).message);
     } finally {
@@ -112,8 +126,25 @@ export default function Devices() {
             onChange={(e) => { setCode(cleanCode(e.target.value)); setMessage(null); }}
             aria-label="Pairing code"
           />
-          <button className="primary" type="submit" disabled={code.length !== 6 || busy}>Approve</button>
+          <button className="primary" type="submit" disabled={code.length !== 6 || busy || (placement === "new" && !newName.trim())}>Approve</button>
         </div>
+        <div className="row placement">
+          <label>Profile
+            <select value={placement} onChange={(e) => setPlacement(e.target.value)}>
+              <option value="">{ownByDefault ? "Its own profile (the default)" : "Main (the default)"}</option>
+              {profiles.filter((p) => p.id !== "main" || ownByDefault).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+              {!ownByDefault && <option value="own">Its own profile, named after it</option>}
+              <option value="new">New profile…</option>
+            </select>
+          </label>
+          {placement === "new" && (
+            <>
+              <label>Name<input value={newName} placeholder="Kids, Bedroom…" onChange={(e) => setNewName(e.target.value)} /></label>
+              <label className="check"><input type="checkbox" checked={copyMain} onChange={(e) => setCopyMain(e.target.checked)} /> Start as a copy of Main</label>
+            </>
+          )}
+        </div>
+        <p className="detail">Devices on the same profile share favorites, hidden channels and playlists. The default is set in Settings → Companion.</p>
         {message && <p className="detail">{message}</p>}
       </form>
 

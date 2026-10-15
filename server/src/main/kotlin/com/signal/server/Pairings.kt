@@ -45,12 +45,20 @@ class Pairings(private val now: () -> Long = System::currentTimeMillis) {
         return PairStatus(PairState.APPROVED, apiKey = key, deviceName = p.deviceName)
     }
 
+    /** The name of the device showing [code], or null when none is. */
+    @Synchronized
+    fun waiting(code: String): String? {
+        prune()
+        return pending.values.firstOrNull { it.code == code.trim() && it.apiKey == null }?.request?.name?.take(100)
+    }
+
     /**
      * The web admin's Approve device: finds the pairing showing [code], hands it a new key, and
-     * saves the device. Null when no device is showing that code.
+     * saves the device. Null when no device is showing that code. A [profileId] places it before
+     * the key is handed over, so its first sync is already in that profile.
      */
     @Synchronized
-    fun approve(code: String, store: DeviceStore): Device? {
+    fun approve(code: String, store: DeviceStore, profileId: String? = null): Device? {
         prune()
         val p = pending.values.firstOrNull { it.code == code.trim() && it.apiKey == null } ?: return null
         val key = DeviceKeys.newKey()
@@ -58,9 +66,10 @@ class Pairings(private val now: () -> Long = System::currentTimeMillis) {
         val r = p.request
         val device = Device(r.deviceId, r.name.take(100), r.model.take(100), r.appVersion.take(30), pairedAt = at, lastSeenAt = at)
         store.save(device, DeviceKeys.hash(key))
+        if (profileId != null) store.setProfile(device.id, profileId)
         p.apiKey = key
         p.deviceName = device.name
-        return device
+        return store.all().firstOrNull { it.id == device.id } ?: device
     }
 
     private fun prune() {

@@ -116,12 +116,13 @@ class SyncTest {
         fun channelRow(uc: String) = db.userChannelQueries.profileRow(uc, settings.profileId).executeAsOneOrNull()
     }
 
-    private suspend fun ApplicationTestBuilder.paired(tv: Tv): Tv {
+    /** [placement] adds fields to the approval, like `"profile":"own"`. */
+    private suspend fun ApplicationTestBuilder.paired(tv: Tv, placement: String = ""): Tv {
         val started: PairStarted = json.decodeFromString(client.post(NasPaths.PAIR) {
             contentType(ContentType.Application.Json)
             setBody(json.encodeToString(PairRequest.serializer(), PairRequest(tv.settings.deviceId, tv.name, "SHIELD", "0.3.0")))
         }.bodyAsText())
-        client.post("/api/devices/approve") { contentType(ContentType.Application.Json); setBody("""{"code":"${started.code}"}""") }
+        client.post("/api/devices/approve") { contentType(ContentType.Application.Json); setBody("""{"code":"${started.code}"${if (placement.isEmpty()) "" else ",$placement"}}""") }
         tv.key = json.decodeFromString<PairStatus>(client.get(NasPaths.pairStatus(started.pairingId)).bodyAsText()).apiKey!!
         tv.client = client
         return tv
@@ -302,6 +303,47 @@ class SyncTest {
         assertTrue(b.sync().profileChanged)
         assertEquals("main", b.settings.profileId)
         assertEquals(listOf(uc), b.favorites())
+    }
+
+    /** Approve device can choose the profile (PLAN §9.1); the first sync is already in it. */
+    @Test fun approvalPlacesTheDeviceBeforeItsFirstSync() = testApplication {
+        application { signalModule(companion) }
+        val a = paired(Tv("a"))
+        val uc = a.addChannel("s:x:1")
+        a.db.listsQueries.addFavorite("main", uc, "a0")
+        a.sync()
+
+        val kids = companion.sync.createProfile("Kids", copyFrom = null)
+        val b = paired(Tv("b"), """"profile":"${kids.id}"""")
+        b.sync()
+        assertEquals(kids.id, b.settings.profileId)
+        assertEquals(emptyList(), b.favorites(), "Kids started empty, and nothing of Main's came first")
+
+        val c = paired(Tv("c"), """"newProfile":"Den","copyFrom":"main"""")
+        c.sync()
+        assertEquals("Den", c.engine.state.value.profileName)
+        assertEquals(listOf(uc), c.favorites(), "a copy of Main")
+
+        val d = paired(Tv("Bedroom"), """"profile":"own"""")
+        d.sync()
+        assertEquals("Bedroom", d.engine.state.value.profileName)
+        assertEquals(listOf(uc), d.favorites(), "its own profile starts as a copy of Main")
+
+        // No choice: Main, as Settings → Companion says by default.
+        val e = paired(Tv("e"))
+        e.sync()
+        assertEquals("main", e.settings.profileId)
+    }
+
+    @Test fun approvalToAProfileThatsGoneLeavesTheCodeWaiting() = testApplication {
+        application { signalModule(companion) }
+        val started: PairStarted = json.decodeFromString(client.post(NasPaths.PAIR) {
+            contentType(ContentType.Application.Json)
+            setBody(json.encodeToString(PairRequest.serializer(), PairRequest("dev-x", "X", "SHIELD", "0.3.0")))
+        }.bodyAsText())
+        val refused = client.post("/api/devices/approve") { contentType(ContentType.Application.Json); setBody("""{"code":"${started.code}","profile":"gone"}""") }
+        assertEquals(HttpStatusCode.NotFound, refused.status)
+        assertEquals("X", companion.pairings.waiting(started.code), "still waiting, so it can be approved again")
     }
 
     @Test fun aSettingsFileRoundTrips() = testApplication {

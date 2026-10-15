@@ -41,7 +41,9 @@ export async function send<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export const getDevices = () => send<Device[]>("/api/devices");
-export const approveDevice = (code: string) => send<Device>("/api/devices/approve", { method: "POST", body: JSON.stringify({ code }) });
+/** [placement]: a profile ID, "own", or a new profile by name (PLAN §9.1); none follows Settings → Companion. */
+export type Placement = { profile?: string; newProfile?: string; copyFrom?: string | null };
+export const approveDevice = (code: string, placement: Placement = {}) => send<Device>("/api/devices/approve", { method: "POST", body: JSON.stringify({ code, ...placement }) });
 export const renameDevice = (id: string, name: string) => send<void>(`/api/devices/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify({ name }) });
 export const forgetDevice = (id: string) => send<void>(`/api/devices/${encodeURIComponent(id)}`, { method: "DELETE" });
 
