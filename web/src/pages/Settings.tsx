@@ -1,5 +1,4 @@
-import { useCallback, useEffect, useState, type FormEvent } from "react";
-import { Link } from "react-router-dom";
+import { useCallback, useEffect, useState, type FormEvent, type ReactNode } from "react";
 import { getSettings, putCompanionSettings, putSetting } from "../admin";
 import { ApplyTo, profileNames, useProfiles, useToast } from "../context";
 import type { CompanionSettingsView, SettingsView } from "../schema";
@@ -12,26 +11,87 @@ const profileSettings: { section: string; key: string; label: string; options: [
   { section: "Live TV & guide", key: "favorites_sort", label: "Favorites order", options: [[null, "Manual"], ["A_Z", "A–Z"], ["NUMBER", "Channel number"]] },
   { section: "Live TV & guide", key: "reminder_lead_minutes", label: "Reminder time", options: [["0", "At the start"], [null, "1 minute before"], ["2", "2 minutes before"], ["5", "5 minutes before"]] },
   { section: "Live TV & guide", key: "reminder_auto_switch", label: "When a reminder fires", options: [[null, "Ask"], ["true", "Switch to the channel"]] },
-  { section: "Appearance", key: "start_page", label: "Start page", options: [[null, "Home"], ["LIVE_TV", "Live TV"], ["MOVIES", "Movies"], ["SERIES", "Series"], ["LAST_CHANNEL", "Last channel, full screen"]] },
-  { section: "Appearance", key: "clock_24h", label: "Time format", options: [[null, "The TV's own"], ["false", "12-hour"], ["true", "24-hour"]] },
-  { section: "Appearance", key: "show_numbers", label: "Channel numbers", options: [[null, "Shown"], ["false", "Hidden"]] },
+  { section: "Display", key: "start_page", label: "Start page", options: [[null, "Home"], ["LIVE_TV", "Live TV"], ["MOVIES", "Movies"], ["SERIES", "Series"], ["LAST_CHANNEL", "Last channel, full screen"]] },
+  { section: "Display", key: "clock_24h", label: "Time format", options: [[null, "The TV's own"], ["false", "12-hour"], ["true", "24-hour"]] },
+  { section: "Display", key: "show_numbers", label: "Channel numbers", options: [[null, "Shown"], ["false", "Hidden"]] },
 ];
 
-/**
- * Settings (PLAN §4.3.18 → 11): the TV's settings for the shown profile, in the same sections, and
- * Settings → Companion, which only the web admin has. Device settings are on each device's page.
- */
-export default function Settings() {
-  const { profile, applyTo, profiles } = useProfiles();
-  const { save, say } = useToast();
+/** Loads the settings for the shown profile, and the companion's own. */
+function useSettings() {
+  const { profile } = useProfiles();
   const [data, setData] = useState<SettingsView | null>(null);
-  const [companion, setCompanion] = useState<CompanionSettingsView | null>(null);
   const [error, setError] = useState<string | null>(null);
-
   const load = useCallback(() => {
-    getSettings(profile).then((d) => { setData(d); setCompanion(d.companion); setError(null); }).catch((e: Error) => setError(e.message));
+    getSettings(profile).then((d) => { setData(d); setError(null); }).catch((e: Error) => setError(e.message));
   }, [profile]);
   useEffect(load, [load]);
+  return { data, error, load };
+}
+
+function SettingsPage({ title, error, children }: { title: string; error: string | null; children?: ReactNode }) {
+  return (
+    <div className="page">
+      <h1>{title}</h1>
+      {error ? <p className="error-text">{error}</p> : children}
+    </div>
+  );
+}
+
+/**
+ * Settings → Appearance (PLAN §4.3.18 → 11): the TV's settings for the shown profile, in the same
+ * sections. Device settings are on each device's page.
+ */
+export function Appearance() {
+  const { applyTo, profiles } = useProfiles();
+  const { save } = useToast();
+  const { data, error, load } = useSettings();
+  const sections = [...new Set(profileSettings.map((s) => s.section))];
+  const applied = `Saved · applied to ${profileNames(applyTo, profiles)}`;
+
+  return (
+    <SettingsPage title="Appearance" error={error}>
+      {data && <>
+        <ApplyTo />
+        {sections.map((section) => (
+          <section key={section} className="section">
+            <h2 className="section-title">{section}</h2>
+            <div className="settings">
+              {profileSettings.filter((s) => s.section === section).map((s) => (
+                <label key={s.key}>
+                  <span>{s.label}</span>
+                  <select value={data.profile[s.key] ?? ""} onChange={(e) => save(applied, () => putSetting("profile", s.key, e.target.value || null, applyTo), load)}>
+                    {s.options.map(([v, l]) => <option key={l} value={v ?? ""}>{l}</option>)}
+                  </select>
+                </label>
+              ))}
+            </div>
+          </section>
+        ))}
+      </>}
+    </SettingsPage>
+  );
+}
+
+/** Settings → Name cleanup (PLAN §4.3.2): channel names and movie and series titles, per profile. */
+export function NameCleanupSettings() {
+  const { data, error, load } = useSettings();
+  return (
+    <SettingsPage title="Name cleanup" error={error}>
+      {data && <>
+        <ApplyTo />
+        <NameCleanup saved={data.profile["name_cleanup"]} onSaved={load} />
+        <NameCleanup target="VOD" saved={data.profile["vod_name_cleanup"]} onSaved={load} />
+      </>}
+    </SettingsPage>
+  );
+}
+
+/** Settings → Companion: the NAS companion's own settings, which only the web admin has. */
+export function CompanionSettings() {
+  const { say } = useToast();
+  const { data, error, load } = useSettings();
+  const [companion, setCompanion] = useState<CompanionSettingsView | null>(null);
+  useEffect(() => { if (data) setCompanion(data.companion); }, [data]);
 
   async function saveCompanion(event: FormEvent) {
     event.preventDefault();
@@ -39,41 +99,9 @@ export default function Settings() {
     try { await putCompanionSettings(companion); say("Saved"); load(); } catch (e) { say((e as Error).message, true); }
   }
 
-  if (error) return <div className="page"><h1>Settings</h1><p className="error-text">{error}</p></div>;
-  if (!data || !companion) return <div className="page"><h1>Settings</h1></div>;
-  const sections = [...new Set(profileSettings.map((s) => s.section))];
-  const applied = `Saved · applied to ${profileNames(applyTo, profiles)}`;
-
   return (
-    <div className="page">
-      <h1>Settings</h1>
-      <ApplyTo />
-      {sections.map((section) => (
-        <section key={section} className="section">
-          <h2 className="section-title">{section}</h2>
-          <div className="settings">
-            {profileSettings.filter((s) => s.section === section).map((s) => (
-              <label key={s.key}>
-                <span>{s.label}</span>
-                <select value={data.profile[s.key] ?? ""} onChange={(e) => save(applied, () => putSetting("profile", s.key, e.target.value || null, applyTo), load)}>
-                  {s.options.map(([v, l]) => <option key={l} value={v ?? ""}>{l}</option>)}
-                </select>
-              </label>
-            ))}
-          </div>
-        </section>
-      ))}
-
-      <NameCleanup saved={data.profile["name_cleanup"]} onSaved={load} />
-      <NameCleanup target="VOD" saved={data.profile["vod_name_cleanup"]} onSaved={load} />
-
-      <section className="section">
-        <h2 className="section-title">Guide data</h2>
-        <p className="detail">EPG sources, the default one and time shifts are on <Link className="inline" to="/sources">Sources</Link>; channel mappings on <Link className="inline" to="/mapping">Guide mapping</Link>. Shared by every device.</p>
-      </section>
-
-      <section className="section">
-        <h2 className="section-title">Companion</h2>
+    <SettingsPage title="Companion" error={error}>
+      {companion && <section className="section">
         <p className="detail">The NAS companion's own settings, here instead of in its environment, so changing them needs no restart.</p>
         <form className="settings" onSubmit={saveCompanion}>
           <label><span>Nightly run</span>
@@ -106,7 +134,7 @@ export default function Settings() {
           <div className="row"><button className="primary" type="submit">Save</button></div>
         </form>
         <p className="detail small">A device offline longer than the delete retention does a full re-sync when it's back. The TMDB key matches movies and series to TMDB for posters, lists and genres; it can be the same key Trakt uses.</p>
-      </section>
-    </div>
+      </section>}
+    </SettingsPage>
   );
 }

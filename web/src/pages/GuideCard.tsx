@@ -73,7 +73,7 @@ export default function GuideCard() {
 
       <div className="row schedule">
         <span className="detail">
-          Nightly at {status.schedule.time} ({status.schedule.timeZone}){status.nextRunAt ? `, next ${new Date(status.nextRunAt).toLocaleString()}` : ""} · <Link className="inline" to="/settings">change</Link> · <Link className="inline" to="/sources">refresh on Sources</Link>
+          Nightly at {status.schedule.time} ({status.schedule.timeZone}){status.nextRunAt ? `, next ${new Date(status.nextRunAt).toLocaleString()}` : ""} · <Link className="inline" to="/settings/companion">change</Link> · <Link className="inline" to="/sources">refresh on Sources</Link>
         </span>
       </div>
     </section>

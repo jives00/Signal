@@ -183,7 +183,7 @@ export default function Sources() {
         {data && data.epgSources.some((e) => e.enabled) && (
           <div className="row">
             <button onClick={() => refreshGuide()} disabled={data.guideBuilding}>Refresh all</button>
-            <span className="detail">The guide also refreshes nightly · <Link className="inline" to="/settings">schedule</Link></span>
+            <span className="detail">The guide also refreshes nightly · <Link className="inline" to="/settings/companion">schedule</Link></span>
           </div>
         )}
         {epgForm && (

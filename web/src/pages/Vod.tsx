@@ -11,14 +11,14 @@ const PAGE = 100;
 const statusLabel: Record<VodRow["status"], string> = { matched: "Matched", manual: "Fixed by hand", unmatched: "No match", pending: "Not tried yet" };
 
 /**
- * Movies & Series (PLAN §4.3.11–4.3.12): the catalog with TMDB matching, the provider's categories,
+ * Movies & Shows (PLAN §4.3.11–4.3.12): the catalog with TMDB matching, the provider's categories,
  * and each profile's Library.
  */
 export default function Vod() {
   const [tab, setTab] = useState<"catalog" | "categories" | "library">("catalog");
   return (
     <div className="page">
-      <h1>Movies &amp; Series</h1>
+      <h1>Movies &amp; Shows</h1>
       <div className="tabs" role="tablist">
         <button role="tab" aria-selected={tab === "catalog"} className={tab === "catalog" ? "on" : ""} onClick={() => setTab("catalog")}>Catalog</button>
         <button role="tab" aria-selected={tab === "categories"} className={tab === "categories" ? "on" : ""} onClick={() => setTab("categories")}>Categories</button>
@@ -70,7 +70,7 @@ function Catalog() {
   return (
     <>
       {status && !status.keySet && (
-        <p className="detail">Matching needs a TMDB API key: add one in <Link to="/settings">Settings → Companion</Link>. Until then the TVs show the provider's own posters and categories.</p>
+        <p className="detail">Matching needs a TMDB API key: add one in <Link to="/settings/companion">Settings → Companion</Link>. Until then the TVs show the provider's own posters and categories.</p>
       )}
       {status && (
         <div className="cards">

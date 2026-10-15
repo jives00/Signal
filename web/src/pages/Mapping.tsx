@@ -5,7 +5,7 @@ import type { GuideChannelInfo, ManualMapping, QueueView } from "../schema";
 import { Program } from "./Channels";
 
 /**
- * Guide mapping (PLAN §4.3.18 → 7): a work queue of visible channels with no guide data, favorites
+ * EPG mapping (PLAN §4.3.18 → 7): a work queue of visible channels with no guide data, favorites
  * first, with suggestions from every EPG source. Accepting one from a non-default source sets that
  * channel's EPG source too. Keys: 1–3 accept, S skips, / searches. Mappings are household-wide.
  */
@@ -13,7 +13,7 @@ export default function Mapping() {
   const [tab, setTab] = useState<"queue" | "manual">("queue");
   return (
     <div className="page">
-      <h1>Guide mapping</h1>
+      <h1>EPG mapping</h1>
       <div className="tabs" role="tablist">
         <button role="tab" aria-selected={tab === "queue"} className={tab === "queue" ? "on" : ""} onClick={() => setTab("queue")}>Unmapped channels</button>
         <button role="tab" aria-selected={tab === "manual"} className={tab === "manual" ? "on" : ""} onClick={() => setTab("manual")}>Manual mappings</button>

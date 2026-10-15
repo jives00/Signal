@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { NavLink, Route, Routes } from "react-router-dom";
+import { Navigate, NavLink, Route, Routes } from "react-router-dom";
 import { backUpNow, getStatus, getSync, health, type Status, type SyncStatus } from "./api";
 import { ProfileProvider, ToastProvider, useProfiles, useToast } from "./context";
 import Backups from "./pages/Backups";
@@ -11,26 +11,40 @@ import Jobs from "./pages/Jobs";
 import Lists from "./pages/Lists";
 import Mapping from "./pages/Mapping";
 import Reminders from "./pages/Reminders";
-import Settings from "./pages/Settings";
+import { Appearance, CompanionSettings, NameCleanupSettings } from "./pages/Settings";
 import Sources from "./pages/Sources";
 import Switch from "./pages/Switch";
 import Vod from "./pages/Vod";
 
-/** The sidebar (PLAN §4.3.18). Name cleanup is a section of Settings. */
-const pages: { path: string; title: string; ready: boolean; soon?: string }[] = [
-  { path: "/", title: "Dashboard", ready: true },
-  { path: "/sources", title: "Sources", ready: true },
-  { path: "/channels", title: "Channels", ready: true },
-  { path: "/favorites", title: "Favorites & playlists", ready: true },
-  { path: "/groups", title: "Groups", ready: true },
-  { path: "/mapping", title: "Guide mapping", ready: true },
-  { path: "/switch", title: "Provider switch", ready: true },
-  { path: "/vod", title: "Movies & Series", ready: true },
-  { path: "/reminders", title: "Reminders", ready: true },
-  { path: "/settings", title: "Settings", ready: true },
-  { path: "/devices", title: "Devices & profiles", ready: true },
-  { path: "/backups", title: "Backups", ready: true },
-  { path: "/jobs", title: "Jobs & logs", ready: true },
+type Page = { path: string; title: string };
+
+/** The sidebar (PLAN §4.3.18): Dashboard, then sections with a header and their pages. */
+const nav: { header?: string; pages: Page[] }[] = [
+  { pages: [{ path: "/", title: "Dashboard" }] },
+  {
+    header: "Live TV",
+    pages: [
+      { path: "/channels", title: "Channels" },
+      { path: "/favorites", title: "Favorites & Playlists" },
+      { path: "/groups", title: "Groups" },
+      { path: "/mapping", title: "EPG Mapping" },
+      { path: "/reminders", title: "Reminders" },
+    ],
+  },
+  { header: "Video on Demand", pages: [{ path: "/vod", title: "Movies & Shows" }] },
+  {
+    header: "Administration",
+    pages: [
+      { path: "/sources", title: "Sources" },
+      { path: "/switch", title: "Provider Switch" },
+      { path: "/devices", title: "Devices & Profiles" },
+      { path: "/settings/appearance", title: "Appearance" },
+      { path: "/settings/name-cleanup", title: "Name Cleanup" },
+      { path: "/settings/companion", title: "Companion" },
+      { path: "/backups", title: "Backups" },
+      { path: "/jobs", title: "Jobs & Logs" },
+    ],
+  },
 ];
 
 export default function App() {
@@ -76,13 +90,12 @@ function Shell() {
           <button className="link menu" onClick={() => setMenuOpen(!menuOpen)} aria-expanded={menuOpen}>Menu</button>
         </div>
         <nav className="nav" onClick={() => setMenuOpen(false)}>
-          {pages.map((p) =>
-            p.ready ? (
-              <NavLink key={p.path} to={p.path} end>{p.title}</NavLink>
-            ) : (
-              <span key={p.path} className="soon" title={p.soon}>{p.title}</span>
-            ),
-          )}
+          {nav.map((group, i) => (
+            <div key={group.header ?? i} className="nav-group">
+              {group.header && <div className="nav-header">{group.header}</div>}
+              {group.pages.map((p) => <NavLink key={p.path} to={p.path} end>{p.title}</NavLink>)}
+            </div>
+          ))}
         </nav>
       </aside>
       <div className="main">
@@ -110,7 +123,10 @@ function Shell() {
           <Route path="/switch" element={<Switch />} />
           <Route path="/vod" element={<Vod />} />
           <Route path="/reminders" element={<Reminders />} />
-          <Route path="/settings" element={<Settings />} />
+          <Route path="/settings" element={<Navigate to="/settings/appearance" replace />} />
+          <Route path="/settings/appearance" element={<Appearance />} />
+          <Route path="/settings/name-cleanup" element={<NameCleanupSettings />} />
+          <Route path="/settings/companion" element={<CompanionSettings />} />
           <Route path="/devices" element={<Devices />} />
           <Route path="/backups" element={<Backups />} />
           <Route path="/jobs" element={<Jobs />} />
