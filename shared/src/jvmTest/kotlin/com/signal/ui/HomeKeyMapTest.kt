@@ -60,6 +60,21 @@ class HomeKeyMapTest {
         assertEquals(plays, platform.player.played.size, "and back again")
     }
 
+    // A guide preview isn't the last played channel: Home goes back to the one last full screen (PLAN §4.3.1).
+    @Test fun aGuidePreviewDoesNotReplaceTheHero() = keyMapTest {
+        toFullScreen()
+        val watched = current!!
+        ui.runOnIdle { app.navigator.go(Route.LiveTv) }
+        liveTvReady()
+        press(RemoteAction.Down)
+        eventually("next row") { focusedText()?.contains(watched.displayName) == false }
+        press(RemoteAction.Select)
+        eventually("preview tuned") { current?.key != watched.key }
+        ui.runOnIdle { app.navigator.go(Route.Home) }
+        heroFocused()
+        eventually("the hero back on the last played channel") { current?.stream?.id == watched.stream.id }
+    }
+
     @Test fun withNoFavoritesTheRowOffersToAddThem() = keyMapTest {
         heroFocused()
         press(RemoteAction.Down)

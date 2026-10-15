@@ -72,9 +72,13 @@ fun HomePage() {
         // The hero has focus and autoplays as soon as Home opens (PLAN §4.3.1 → Focus). Focus first:
         // finding the channel reads the database.
         chrome.focusContent()
-        // A channel already playing (from Live TV's preview) carries on: retuning rebuffers and jumps.
-        val playing = app.playback.current.value != null && app.platform.player.state.value.status != com.signal.player.PlaybackState.Status.IDLE
-        if (!playing) app.playback.startingChannel()?.let { app.playback.tune(it, fullScreen = false, group = groupFor(it)) }
+        // The last played channel already playing (from Live TV or full screen) carries on: retuning
+        // rebuffers and jumps. Anything else playing is a guide preview, which doesn't count (PLAN §4.3.1).
+        val start = app.playback.startingChannel()
+        val now = app.playback.current.value
+        val playing = now != null && app.platform.player.state.value.status != com.signal.player.PlaybackState.Status.IDLE
+        val carriesOn = playing && (start == null || now!!.isSameChannel(start))
+        if (!carriesOn && start != null) app.playback.tune(start, fullScreen = false, group = groupFor(start))
     }
     DisposableEffect(Unit) {
         // Leaving Home stops the preview, except into a screen that shows video (Live TV, full screen),
@@ -116,6 +120,10 @@ fun HomePage() {
 }
 
 /** Full screen zaps within the group the channel was tuned from (PLAN §4.3.3 → Current group). */
+/** The same stream, or another stream of the same user channel (after a failover). */
+private fun Channel.isSameChannel(other: Channel): Boolean =
+    stream.id == other.stream.id || (userChannelId != null && userChannelId == other.userChannelId)
+
 internal fun groupFor(channel: Channel): ChannelGroup =
     if (channel.isFavorite) ChannelGroup.Favorites
     else ChannelGroup.Provider(channel.stream.sourceId, channel.stream.groupName, channel.stream.groupName)
