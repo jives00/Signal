@@ -126,9 +126,12 @@ class VodEnricher(
                 m == null || (m.status == VodMatch.UNMATCHED && m.attemptedAt < retryBefore)
             }
             // The same title in several sources is looked up once: one group per lookup.
-            val groups = pending.groupBy { item ->
+            val byLookup = pending.groupBy { item ->
                 "${item.kind}|${item.tmdbId ?: ""}|${TitleNormalizer.key(TitleNormalizer.query(item.name))}|${TitleNormalizer.year(item) ?: ""}"
             }.values
+            // Movies and series take turns: the catalog lists every movie first, and in catalog order
+            // the series waited nights for their turn, with no Lists or Genres meanwhile.
+            val groups = interleave(byLookup.partition { it.first().kind == VodKind.MOVIE })
             val matched = AtomicInteger()
             val unmatched = AtomicInteger()
             val done = AtomicInteger()
@@ -310,5 +313,16 @@ class VodEnricher(
             ListSpec(VodKind.SERIES.name, AIRING, "/tv/on_the_air"),
             ListSpec(VodKind.SERIES.name, TOP_RATED, "/tv/top_rated"),
         )
+
+        /** a1, b1, a2, b2, …, then the rest of the longer list. */
+        internal fun <T> interleave(lists: Pair<List<T>, List<T>>): List<T> {
+            val (a, b) = lists
+            return buildList(a.size + b.size) {
+                for (i in 0 until maxOf(a.size, b.size)) {
+                    a.getOrNull(i)?.let(::add)
+                    b.getOrNull(i)?.let(::add)
+                }
+            }
+        }
     }
 }

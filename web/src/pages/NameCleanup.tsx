@@ -1,9 +1,8 @@
 import { useEffect, useState, type FormEvent } from "react";
-import { previewCleanup, putSetting, type NameCleanupRules } from "../admin";
+import { previewCleanup, putSetting, type CleanupTarget, type NameCleanupRules } from "../admin";
 import { profileNames, useProfiles, useToast } from "../context";
 import type { CleanupPreview } from "../schema";
 
-const KEY = "name_cleanup";
 type Where = "START" | "END" | "ANYWHERE";
 const whereLabel: Record<Where, string> = { START: "at the start", END: "at the end", ANYWHERE: "anywhere" };
 const none: NameCleanupRules = { presets: [], custom: [], groups: false };
@@ -27,9 +26,12 @@ function encode(r: NameCleanupRules): string | null {
 /**
  * Name cleanup (PLAN §4.3.18 → 6): common prefixes and suffixes to remove, plus the user's own,
  * with a live count of the real names each change affects. Edits are a draft until Save, so trying patterns doesn't
- * fill the Undo history. Displayed names only: matching and the guide keep the raw name.
+ * fill the Undo history. Displayed names only: matching and the guide keep the raw name. Channels and
+ * movie and series titles (`target="VOD"`, PLAN §4.3.6) each have their own rules.
  */
-export default function NameCleanup({ saved, onSaved }: { saved: string | undefined; onSaved: () => void }) {
+export default function NameCleanup({ saved, onSaved, target = "CHANNELS" }: { saved: string | undefined; onSaved: () => void; target?: CleanupTarget }) {
+  const vod = target === "VOD";
+  const key = vod ? "vod_name_cleanup" : "name_cleanup";
   const { profile, applyTo, profiles } = useProfiles();
   const { save } = useToast();
   const [rules, setRules] = useState<NameCleanupRules>(() => parse(saved));
@@ -44,10 +46,10 @@ export default function NameCleanup({ saved, onSaved }: { saved: string | undefi
   // Debounced, so typing a rule doesn't send a preview per key.
   useEffect(() => {
     const t = setTimeout(() => {
-      previewCleanup(rules, profile).then((p) => { setPreview(p); setError(null); }).catch((e: Error) => setError(e.message));
+      previewCleanup(rules, profile, target).then((p) => { setPreview(p); setError(null); }).catch((e: Error) => setError(e.message));
     }, 300);
     return () => clearTimeout(t);
-  }, [rules, profile]);
+  }, [rules, profile, target]);
 
   const dirty = encode(rules) !== encode(parse(saved));
   const togglePreset = (id: string) =>
@@ -62,8 +64,10 @@ export default function NameCleanup({ saved, onSaved }: { saved: string | undefi
 
   return (
     <section className="section">
-      <h2 className="section-title">Name cleanup</h2>
-      <p className="detail">Removes text from channel names on the TV: at the start, at the end or anywhere. Only what's shown changes: guide matching and search still use the provider's name, and a channel you renamed keeps your name.</p>
+      <h2 className="section-title">{vod ? "Movie and series title cleanup" : "Name cleanup"}</h2>
+      {vod
+        ? <p className="detail">Removes text from movie and series titles on the TV, like the provider's "EN - " tags. Only what's shown changes: matching titles to TMDB and search still use the provider's name.</p>
+        : <p className="detail">Removes text from channel names on the TV: at the start, at the end or anywhere. Only what's shown changes: guide matching and search still use the provider's name, and a channel you renamed keeps your name.</p>}
 
       <fieldset>
         <legend>Common patterns</legend>
@@ -90,7 +94,7 @@ export default function NameCleanup({ saved, onSaved }: { saved: string | undefi
           ))}
         </ul>
         <form className="row" onSubmit={add} style={{ marginTop: 8 }}>
-          <input value={text} onChange={(e) => setText(e.target.value)} placeholder={regex ? String.raw`\(\d{4}-\d\d-\d\d.*\)` : "US: or HD"} aria-label="Text to remove" className={regex ? "mono" : undefined} />
+          <input value={text} onChange={(e) => setText(e.target.value)} placeholder={regex ? String.raw`\(\d{4}-\d\d-\d\d.*\)` : vod ? "EN - or (US)" : "US: or HD"} aria-label="Text to remove" className={regex ? "mono" : undefined} />
           <select value={at} onChange={(e) => setAt(e.target.value as Where)} aria-label="Where">
             <option value="START">At the start</option>
             <option value="END">At the end</option>
@@ -102,14 +106,14 @@ export default function NameCleanup({ saved, onSaved }: { saved: string | undefi
       </fieldset>
 
       <label className="check" style={{ marginTop: 12 }}>
-        <input type="checkbox" checked={rules.groups} onChange={(e) => setRules({ ...rules, groups: e.target.checked })} /> Clean group names too
+        <input type="checkbox" checked={rules.groups} onChange={(e) => setRules({ ...rules, groups: e.target.checked })} /> {vod ? "Clean category names too" : "Clean group names too"}
       </label>
 
       <div className="row" style={{ marginTop: 12 }}>
         <button
           className="primary"
           disabled={!dirty}
-          onClick={() => save(`Saved · applied to ${profileNames(applyTo, profiles)}`, () => putSetting("profile", KEY, encode(rules), applyTo), onSaved)}
+          onClick={() => save(`Saved · applied to ${profileNames(applyTo, profiles)}`, () => putSetting("profile", key, encode(rules), applyTo), onSaved)}
         >
           Save
         </button>
@@ -119,8 +123,8 @@ export default function NameCleanup({ saved, onSaved }: { saved: string | undefi
       {error && <p className="error-text">{error}</p>}
       {preview && (
         <p className="detail">
-          {preview.channelsChanged.toLocaleString()} of {preview.channels.toLocaleString()} channel names change
-          {rules.groups && `, and ${preview.groupsChanged.toLocaleString()} of ${preview.groups.toLocaleString()} group names`}
+          {preview.channelsChanged.toLocaleString()} of {preview.channels.toLocaleString()} {vod ? "titles" : "channel names"} change
+          {rules.groups && `, and ${preview.groupsChanged.toLocaleString()} of ${preview.groups.toLocaleString()} ${vod ? "category" : "group"} names`}
           {dirty && " (not saved yet)"}.
         </p>
       )}

@@ -5,12 +5,16 @@ import app.cash.sqldelight.coroutines.mapToList
 import app.cash.sqldelight.coroutines.mapToOne
 import com.signal.db.user.UserDatabase
 import com.signal.match.CharacterCleanup
+import com.signal.match.NameCleanup
+import com.signal.match.VodCategoryFilter
 import com.signal.match.SearchText
 import com.signal.match.VodTitles
 import com.signal.model.VodItem
 import com.signal.model.VodKind
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
 
@@ -25,6 +29,10 @@ enum class VodSort(val label: String) { RECENT("Recently added"), A_Z("A–Z"), 
 class VodRepository(
     private val db: UserDatabase,
     private val io: CoroutineDispatcher,
+    /** The profile's title cleanup rules (PLAN §4.3.6 → Categories): applied to every title and, opted in, category names. */
+    private val cleanup: () -> NameCleanup = { NameCleanup.NONE },
+    /** Emits when [cleanup] changes, so category names follow it. */
+    private val cleanupChanges: Flow<Any?> = flowOf(Unit),
     /** A provider poster through the companion's cache, for titles TMDB has none for; null when it's out of reach. */
     private val providerPoster: (String) -> String? = { null },
     /** A TMDB poster path as a URL: the companion's cached copy, or TMDB's CDN when it's out of reach. */
@@ -44,8 +52,9 @@ class VodRepository(
 
     data class CategoryEntry(val sourceId: String, val categoryId: String, val name: String, val count: Int)
 
-    fun categories(kind: VodKind): Flow<List<CategoryEntry>> = db.vodQueries.categories(kind.name).asFlow().mapToList(io).map { rows ->
-        rows.map { CategoryEntry(it.source_id, it.category_id, it.name, it.item_count.toInt()) }
+    fun categories(kind: VodKind): Flow<List<CategoryEntry>> = combine(db.vodQueries.categories(kind.name).asFlow().mapToList(io), cleanupChanges) { rows, _ ->
+        val rules = cleanup()
+        rows.map { CategoryEntry(it.source_id, it.category_id, if (rules.groups) rules.apply(it.name) else it.name, it.item_count.toInt()) }
     }
 
     /** How many titles of [kind] the enabled sources have: Movies and Series hide at 0 (PLAN §4.1). */
@@ -63,6 +72,28 @@ class VodRepository(
 
     /** Every title of every enabled source: for the companion's matcher. */
     suspend fun all(): List<VodItem> = withContext(io) { db.vodQueries.allItems(::row).executeAsList() }
+
+    /**
+     * Drops the titles of every category [filter] hides (PLAN §4.3.6 → Categories). A refresh already
+     * leaves them out; this catches a catalog loaded before the filter was set or changed. One
+     * category per transaction, so the screens' reads get in between. Returns how many were dropped.
+     */
+    suspend fun dropHidden(filter: VodCategoryFilter): Int {
+        if (filter.isEmpty) return 0
+        val hidden = withContext(io) { db.vodQueries.allCategories().executeAsList() }.filter { filter.hides(it.name) }
+        var dropped = 0
+        for (c in hidden) dropped += withContext(io) {
+            val n = db.vodQueries.countInCategory(c.source_id, c.kind, c.category_id).executeAsOne().toInt()
+            if (n > 0) db.vodQueries.deleteCategoryItems(c.source_id, c.kind, c.category_id)
+            n
+        }
+        return dropped
+    }
+
+    /** Sources with a category [old] hid and [new] shows: their titles only come back with a refresh. */
+    suspend fun sourcesUnhidden(old: VodCategoryFilter, new: VodCategoryFilter): Set<String> = withContext(io) {
+        db.vodQueries.allCategories().executeAsList().filter { old.hides(it.name) && !new.hides(it.name) }.map { it.source_id }.toSet()
+    }
 
     /** Emits whenever the catalog, the sources or the TMDB matches change. */
     fun catalogChanges(): Flow<Unit> = db.vodQueries.catalogTick().asFlow().map { }
@@ -195,12 +226,17 @@ class VodRepository(
 
         private val yearSuffix = Regex("""\s*[(\[](19\d{2}|20\d{2})[)\]]\s*$""")
 
-        /** The title as shown: cleaned up, without a trailing "(1995)" when the year shows beside it. */
-        fun displayName(item: VodItem): String = displayNameOf(item.name)
+        /** The title as shown: the item's cleaned [VodItem.title], else the name without its trailing year. */
+        fun displayName(item: VodItem): String = item.title.ifEmpty { displayNameOf(item.name) }
 
-        fun displayNameOf(name: String): String {
+        /**
+         * A name cleaned up, then the [rules] applied, without a trailing "(1995)" when the year shows
+         * beside it. Title keys and Search use it with no rules, so cleanup never changes matching.
+         */
+        fun displayNameOf(name: String, rules: NameCleanup = NameCleanup.NONE): String {
             val clean = CharacterCleanup.clean(name, removeEmoji = true).ifEmpty { name }
-            return clean.replace(yearSuffix, "").ifEmpty { clean }
+            val ruled = rules.apply(clean)
+            return ruled.replace(yearSuffix, "").ifEmpty { ruled }
         }
 
         /**
@@ -257,6 +293,7 @@ class VodRepository(
             url = url,
             position = position.toInt(),
             titleKey = title_key,
+            title = displayNameOf(name, cleanup()),
         )
     }
 }

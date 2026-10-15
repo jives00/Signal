@@ -5,7 +5,8 @@ import kotlinx.serialization.json.Json
 
 /**
  * Name cleanup rules (PLAN §4.3.2 → Name cleanup rules): bulk removal of prefixes and suffixes from
- * displayed channel names, and optionally group names. One profile setting holds the whole rule set
+ * displayed channel names (optionally group names), or movie and series titles (optionally category
+ * names). Each is one profile setting (name_cleanup, vod_name_cleanup) holding the whole rule set
  * as JSON, so it syncs like any other setting.
  *
  * Rules run on the name after [CharacterCleanup], so a plain `|` or `HD` catches every variant. They
@@ -19,8 +20,14 @@ data class NameCleanup(
     /** Off by default: with country codes removed, "US| Sports" and "UK| Sports" would read the same. */
     val groups: Boolean = false,
 ) {
-    /** The common patterns, picked from a list. Each one's regex keeps group 1. */
-    enum class Preset(val label: String, val example: String, pattern: String) {
+    /** What a rule set cleans: channel names (and groups), or movie and series titles (and categories). */
+    enum class Target { CHANNELS, VOD }
+
+    /**
+     * The common patterns, picked from a list. Each one's regex keeps group 1. A [once] pattern runs
+     * only in the first pass, so it can't eat into the title it uncovered ("EN - WWE - Raw" keeps "WWE - Raw").
+     */
+    enum class Preset(val label: String, val example: String, pattern: String, val target: Target = Target.CHANNELS, val once: Boolean = false) {
         COUNTRY(
             "Country codes at the start", "US: ESPN, |UK| BBC One → ESPN, BBC One",
             """^(?:\|\s*[A-Z]{2,3}\s*\||\[\s*[A-Z]{2,3}\s*]|\(\s*[A-Z]{2,3}\s*\)|[A-Z]{2,3}\s*[:|])\s*(.+)$""",
@@ -37,6 +44,18 @@ data class NameCleanup(
             "Backup, VIP and event markers at the end", "ESPN (Backup), DAZN 1 VIP → ESPN, DAZN 1",
             // Known words only: event channels carry real information in brackets, like "(Home) (2026-10-16 19:03)".
             """(?i)^(.+?)(?:\s*[\[(]\s*(?:BACKUP|BKP|ALT|VIP|LIVE|EVENT|LIVE[- ]EVENTS?|EVENTS?[- ]ONLY|ONLY[- ]EVENTS?)\s*[\])]|[\s|\-]+(?:VIP|BACKUP))+\s*$""",
+        ),
+        VOD_PREFIX(
+            "Provider tags at the start", "EN - Heat, NF - Heat, 4K-TOP - Heat → Heat",
+            // An all-caps code (EN, NF, 4K-EN, EN-TOP, D+, 007), then a dash with a space before it. Not a
+            // colon: that would take "X-MEN:" and "CSI:" too.
+            """^[\p{Lu}\p{N}][\p{Lu}\p{N}+]{0,5}(?:-[\p{Lu}\p{N}+]{1,5})?\s+-\s*(.+)$""",
+            Target.VOD, once = true,
+        ),
+        VOD_COUNTRY(
+            "Country codes at the end", "Reckoning (US), Lupin (2021) (FR) → Reckoning, Lupin",
+            """^(.+?)(?:\s*\(\s*\p{Lu}{2,3}\s*\))+\s*$""",
+            Target.VOD,
         ),
         ;
 
@@ -58,20 +77,21 @@ data class NameCleanup(
     fun invalidRules(): List<Rule> = custom.filter { it.text.isNotBlank() && compile(it) == null }
 
     /** One compiled rule: keep group 1 of a whole-name match, or remove every match. */
-    private class Step(val regex: Regex, val keep: Boolean)
+    private class Step(val regex: Regex, val keep: Boolean, val once: Boolean = false)
 
     // Not serialized: kotlinx.serialization skips delegated properties.
     private val compiled: List<Step> by lazy {
-        Preset.entries.filter { it in presets }.map { Step(it.regex, keep = true) } + custom.mapNotNull { compile(it) }
+        Preset.entries.filter { it in presets }.map { Step(it.regex, keep = true, once = it.once) } + custom.mapNotNull { compile(it) }
     }
 
     /** The displayed name: the rules applied until nothing changes. Never blank. */
     fun apply(name: String): String {
         if (compiled.isEmpty()) return name
         var current = name
-        repeat(MAX_PASSES) {
+        repeat(MAX_PASSES) { pass ->
             val before = current
             for (step in compiled) {
+                if (step.once && pass > 0) continue
                 val result = if (step.keep) {
                     step.regex.matchEntire(current)?.groupValues?.get(1) ?: continue
                 } else {
@@ -89,6 +109,8 @@ data class NameCleanup(
 
     companion object {
         val NONE = NameCleanup()
+        /** The presets that apply to [target], in the order they run. */
+        fun presets(target: Target): List<Preset> = Preset.entries.filter { it.target == target }
         private const val MAX_PASSES = 4
         private const val SEPARATORS = "|:-·/"
         private const val WORD = """[\p{L}\p{N}]"""

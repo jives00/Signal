@@ -5,6 +5,7 @@ import app.cash.sqldelight.coroutines.mapToList
 import com.signal.db.user.UserDatabase
 import com.signal.demo.DemoData
 import com.signal.demo.DemoVod
+import com.signal.match.VodCategoryFilter
 import com.signal.model.VodCategory
 import com.signal.model.VodItem
 import com.signal.model.VodKind
@@ -43,6 +44,8 @@ class SourceRepository(
     private val secrets: SecretBox,
     private val io: CoroutineDispatcher,
     private val log: Log,
+    /** Movie and series categories to leave out of the catalog (PLAN §4.3.6 → Categories). */
+    private val vodFilter: () -> VodCategoryFilter = { VodCategoryFilter.NONE },
 ) {
     fun sources(): Flow<List<Source>> = db.sourceQueries.all().asFlow().mapToList(io).map { rows -> rows.map { it.toModel() } }
 
@@ -198,23 +201,28 @@ class SourceRepository(
                 db.transaction { batch.forEach { db.vodQueries.insertStaging(it.toStagingRow()) } }
                 batch.clear()
             }
+            fun cats(m: Map<String, String>, kind: VodKind) = m.entries.mapIndexed { i, (id, name) -> VodCategory(source.id, kind, id, name, i) }
+            val categories = demo?.categories
+                ?: (cats(XtreamParser.categories(xtream(source, "get_vod_categories")), VodKind.MOVIE) +
+                    cats(XtreamParser.categories(xtream(source, "get_series_categories")), VodKind.SERIES))
+            // Hidden categories' titles never reach staging: the filter matches the names as stored.
+            val filter = vodFilter()
+            val hidden = categories.filter { filter.hides(it.toRow().name) }.map { it.kind to it.categoryId }.toSet()
+            var skipped = 0
             fun add(item: VodItem) {
+                if ((item.kind to item.categoryId) in hidden) { skipped++; return }
                 batch += item
                 if (item.kind == VodKind.MOVIE) movies++ else series++
                 if (batch.size >= STAGING_BATCH) flush()
             }
-            val categories = if (demo != null) {
+            if (demo != null) {
                 demo.items.forEach(::add)
-                demo.categories
             } else {
-                fun cats(m: Map<String, String>, kind: VodKind) = m.entries.mapIndexed { i, (id, name) -> VodCategory(source.id, kind, id, name, i) }
-                val movieCats = XtreamParser.categories(xtream(source, "get_vod_categories"))
-                val seriesCats = XtreamParser.categories(xtream(source, "get_series_categories"))
                 streamList(source, "get_vod_streams") { obj, i -> XtreamParser.movie(source, obj, i)?.let(::add) }
                 streamList(source, "get_series") { obj, i -> XtreamParser.seriesItem(source, obj, i)?.let(::add) }
-                cats(movieCats, VodKind.MOVIE) + cats(seriesCats, VodKind.SERIES)
             }
             flush()
+            if (skipped > 0) log.info("Left out $skipped titles in ${hidden.size} hidden categories")
             // Providers answer the big lists with an empty `[]` at times (the user's did on 2026-10-13, while
             // its live list came through). That's a failed refresh, not an emptied catalog.
             if (movies + series == 0 && db.vodQueries.countForSource(source.id).executeAsOne() > 0) {

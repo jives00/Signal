@@ -77,6 +77,19 @@ deleteAllForSource {
     DELETE FROM vod_item_staging WHERE source_id = :sourceId;
 }
 
+-- ---- Hidden categories (VodCategoryFilter): their titles are dropped, so nothing else has to filter -------
+
+allCategories:
+SELECT source_id, kind, category_id, name FROM vod_category;
+
+countInCategory:
+SELECT count(*) FROM vod_item WHERE source_id = ? AND kind = ? AND category_id = ?;
+
+deleteCategoryItems {
+    DELETE FROM vod_fts WHERE docid IN (SELECT rowid FROM vod_item WHERE source_id = :sourceId AND kind = :kind AND category_id = :categoryId);
+    DELETE FROM vod_item WHERE source_id = :sourceId AND kind = :kind AND category_id = :categoryId;
+}
+
 -- ---- A refresh: the lists stream into staging, then swap in whole -------------------------------
 
 clearStaging:

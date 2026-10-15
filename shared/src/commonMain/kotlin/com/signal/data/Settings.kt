@@ -4,6 +4,7 @@ import app.cash.sqldelight.coroutines.asFlow
 import app.cash.sqldelight.coroutines.mapToList
 import com.signal.db.user.UserDatabase
 import com.signal.match.NameCleanup
+import com.signal.match.VodCategoryFilter
 import com.signal.model.ChannelSort
 import com.signal.model.GroupSort
 import kotlinx.coroutines.CoroutineScope
@@ -45,6 +46,10 @@ class Settings(private val db: UserDatabase, private val io: CoroutineDispatcher
         REMOVE_EMOJI(Scope.PROFILE, "remove_emoji"),
         // Name cleanup rules as JSON (NameCleanup); unset is none.
         NAME_CLEANUP(Scope.PROFILE, "name_cleanup"),
+        // The same for movie and series titles; kept apart from channels (PLAN §4.3.6 → Categories).
+        VOD_NAME_CLEANUP(Scope.PROFILE, "vod_name_cleanup"),
+        // Which provider movie and series categories to keep, as JSON (VodCategoryFilter); unset is all.
+        VOD_CATEGORIES(Scope.HOUSEHOLD, "vod_categories"),
         DEFAULT_EPG_SOURCE(Scope.HOUSEHOLD, "default_epg_source"),
         REMINDER_LEAD_MINUTES(Scope.PROFILE, "reminder_lead_minutes"),
         REMINDER_AUTO_SWITCH(Scope.PROFILE, "reminder_auto_switch"),
@@ -150,10 +155,28 @@ class Settings(private val db: UserDatabase, private val io: CoroutineDispatcher
     // Parsed once per value: it's read for every channel a list builds.
     private var cleanupCache: Pair<String?, NameCleanup> = null to NameCleanup.NONE
 
+    private var vodCleanupCache: Pair<String?, NameCleanup> = null to NameCleanup.NONE
+    private var vodFilterCache: Pair<String?, VodCategoryFilter> = null to VodCategoryFilter.NONE
+
     fun nameCleanup(): NameCleanup {
         val raw = raw(Key.NAME_CLEANUP)
         return synchronized(this) {
             cleanupCache.takeIf { it.first == raw }?.second ?: NameCleanup.parse(raw).also { cleanupCache = raw to it }
+        }
+    }
+
+    /** Movie and series title cleanup: read for every title a grid loads. */
+    fun vodNameCleanup(): NameCleanup {
+        val raw = raw(Key.VOD_NAME_CLEANUP)
+        return synchronized(this) {
+            vodCleanupCache.takeIf { it.first == raw }?.second ?: NameCleanup.parse(raw).also { vodCleanupCache = raw to it }
+        }
+    }
+
+    fun vodCategoryFilter(): VodCategoryFilter {
+        val raw = raw(Key.VOD_CATEGORIES)
+        return synchronized(this) {
+            vodFilterCache.takeIf { it.first == raw }?.second ?: VodCategoryFilter.parse(raw).also { vodFilterCache = raw to it }
         }
     }
 

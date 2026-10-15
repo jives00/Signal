@@ -1,5 +1,6 @@
 package com.signal.server
 
+import com.signal.match.NameCleanup
 import com.signal.data.newId
 import com.signal.model.ChannelSort
 import com.signal.model.GroupSort
@@ -412,7 +413,9 @@ fun Route.adminPageRoutes(companion: Companion) {
         }
     }
     put("/settings") { val r = call.receive<SettingRequest>(); call.edit { edits.putSetting(r.scope, r.key, r.value, targets(r.profiles)) } }
-    post("/cleanup/preview") { val r = call.receive<CleanupPreviewRequest>(); call.answer { channels.cleanupPreview(call.profile(), r.rules) } }
+    post("/cleanup/preview") { val r = call.receive<CleanupPreviewRequest>(); call.answer {
+            if (r.target == NameCleanup.Target.VOD) vodCleanupPreview(companion, r.rules) else channels.cleanupPreview(call.profile(), r.rules)
+        } }
     put("/settings/companion") {
         val v = call.receive<CompanionSettingsView>()
         val error = companion.settings.save(v)

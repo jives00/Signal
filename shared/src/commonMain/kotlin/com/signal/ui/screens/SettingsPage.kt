@@ -108,7 +108,7 @@ fun SettingsPage() {
                     section == Section.SOURCES -> SourcesSection(app, onAdd = { adding = true }, onEdit = { editing = it }, returnTo = contentFocus)
                     section == Section.CHANNELS -> ChannelsSection(app, contentFocus)
                     section == Section.LIVE_TV -> LiveTvGuideSection(app, contentFocus)
-                    section == Section.MOVIES -> MoviesSection(app)
+                    section == Section.MOVIES -> MoviesSection(app, contentFocus)
                     section == Section.APPEARANCE -> AppearanceSection(app, contentFocus)
                     section == Section.NAS -> NasSection(app, onForm = { nasForm = it }, returnTo = contentFocus)
                     section == Section.GUIDE_DATA -> GuideDataSection(app)
@@ -213,7 +213,7 @@ private fun ChannelsSection(app: AppController, returnTo: FocusRequester) {
                 }, subtitle = "Favorites and playlists always keep their manual order."), returnTo)
             })
         }
-        nameCleanupRows(app, cleanup, returnTo) { tick++ }
+        nameCleanupRows(app, cleanup, NameCleanup.Target.CHANNELS, returnTo) { tick++ }
         item { SectionTitle("Hidden channels") }
         if (hiddenChannels.isEmpty()) item { ListRow("None", enabled = false, onSelect = null) }
         items(hiddenChannels, key = { "c:" + it.key }) { ch ->
@@ -229,12 +229,16 @@ private fun ChannelsSection(app: AppController, returnTo: FocusRequester) {
 
 /**
  * Name cleanup rules (PLAN §4.3.2): common patterns to switch on, plus the user's own text to remove
- * at the start or end of names. The web admin has the same rules with a live preview.
+ * at the start or end of names. The web admin has the same rules with a live preview. Channels and
+ * movie and series titles each have their own list ([target]).
  */
-private fun LazyListScope.nameCleanupRows(app: AppController, cleanup: NameCleanup, returnTo: FocusRequester, changed: () -> Unit) {
-    fun save(c: NameCleanup) { app.settings.put(Settings.Key.NAME_CLEANUP, c.encode()); changed() }
-    item { SectionTitle("Name cleanup") }
-    items(NameCleanup.Preset.entries, key = { "preset:${it.name}" }) { p ->
+private fun LazyListScope.nameCleanupRows(app: AppController, cleanup: NameCleanup, target: NameCleanup.Target, returnTo: FocusRequester, changed: () -> Unit) {
+    val vod = target == NameCleanup.Target.VOD
+    val key = if (vod) Settings.Key.VOD_NAME_CLEANUP else Settings.Key.NAME_CLEANUP
+    val things = if (vod) "titles" else "names"
+    fun save(c: NameCleanup) { app.settings.put(key, c.encode()); changed() }
+    item { SectionTitle(if (vod) "Title cleanup" else "Name cleanup") }
+    items(NameCleanup.presets(target), key = { "preset:${it.name}" }) { p ->
         val on = p in cleanup.presets
         ListRow(p.label, detail = if (on) "On" else "Off", onSelect = {
             app.panel.open(PanelPage.Actions(p.label, listOf(
@@ -248,14 +252,14 @@ private fun LazyListScope.nameCleanupRows(app: AppController, cleanup: NameClean
         // Regex rules are made in the web admin; the TV lists them so they can be deleted.
         val what = if (rule.regex) "pattern ${rule.text}" else "\"${rule.text}\""
         ListRow("Remove $what ${atLabel(rule.at)}", detail = "Delete", onSelect = {
-            app.panel.open(PanelPage.Confirm("Delete rule", "Names will show $what ${atLabel(rule.at)} again.", "Delete") {
+            app.panel.open(PanelPage.Confirm("Delete rule", "${things.replaceFirstChar { it.uppercase() }} will show $what ${atLabel(rule.at)} again.", "Delete") {
                 save(cleanup.copy(custom = cleanup.custom.filterIndexed { j, _ -> j != i }))
             }, returnTo)
         })
     }
     item(key = "rule:add") {
         ListRow("Add text to remove", onSelect = {
-            app.panel.open(PanelPage.Actions("Remove text from names", NameCleanup.At.entries.map { at ->
+            app.panel.open(PanelPage.Actions("Remove text from $things", NameCleanup.At.entries.map { at ->
                 PanelAction(atLabel(at).replaceFirstChar { it.uppercase() }) {
                     PanelPage.TextInput("Text to remove ${atLabel(at)}", "", confirmLabel = "Add") { text ->
                         if (text.isNotBlank()) save(cleanup.copy(custom = cleanup.custom + NameCleanup.Rule(text.trim(), at)))
@@ -265,7 +269,7 @@ private fun LazyListScope.nameCleanupRows(app: AppController, cleanup: NameClean
         })
     }
     item(key = "cleanup-groups") {
-        ListRow("Clean group names too", detail = if (cleanup.groups) "On" else "Off", onSelect = { save(cleanup.copy(groups = !cleanup.groups)) })
+        ListRow(if (vod) "Clean category names too" else "Clean group names too", detail = if (cleanup.groups) "On" else "Off", onSelect = { save(cleanup.copy(groups = !cleanup.groups)) })
     }
 }
 
@@ -288,17 +292,24 @@ private fun channelSortLabel(s: ChannelSort) = when (s) {
     ChannelSort.A_Z -> "A–Z"
 }
 
-/** Settings → Movies & Series (PLAN §4.3.15, section 4). VOD category tools and default sorts come later. */
+/**
+ * Settings → Movies & Series (PLAN §4.3.15, section 4): playback and title cleanup. Which categories
+ * show is a household setting with no screen yet (VodCategoryFilter). Default sorts come later.
+ */
 @Composable
-private fun MoviesSection(app: AppController) {
+private fun MoviesSection(app: AppController, returnTo: FocusRequester) {
     var tick by remember { mutableStateOf(0) }
     val autoplay = remember(tick) { app.settings.bool(Settings.Key.AUTOPLAY_NEXT, true) }
-    Column(Modifier.width(1100.dp)) {
-        SectionTitle("Playback")
-        ListRow("Autoplay next episode", detail = if (autoplay) "On · asks \"Still watching?\" after 3 in a row" else "Off", onSelect = {
-            app.settings.put(Settings.Key.AUTOPLAY_NEXT, (!autoplay).toString())
-            tick++
-        })
+    val cleanup = remember(tick) { app.settings.vodNameCleanup() }
+    LazyColumn(Modifier.width(1100.dp)) {
+        item { SectionTitle("Playback") }
+        item {
+            ListRow("Autoplay next episode", detail = if (autoplay) "On · asks \"Still watching?\" after 3 in a row" else "Off", onSelect = {
+                app.settings.put(Settings.Key.AUTOPLAY_NEXT, (!autoplay).toString())
+                tick++
+            })
+        }
+        nameCleanupRows(app, cleanup, NameCleanup.Target.VOD, returnTo) { tick++ }
     }
 }
 

@@ -126,7 +126,8 @@ data class ChannelRow(
 data class ChannelPage(val total: Int, val offset: Int, val rows: List<ChannelRow>)
 
 /** Name cleanup's live preview (PLAN §4.3.18 → Name cleanup): unsaved rules against the real names. */
-@Serializable data class CleanupPreviewRequest(val rules: NameCleanup)
+/** [target] VOD previews movie and series titles; the counts then mean titles and categories. */
+@Serializable data class CleanupPreviewRequest(val rules: NameCleanup, val target: NameCleanup.Target = NameCleanup.Target.CHANNELS)
 @Serializable data class CleanupPresetView(val id: String, val label: String, val example: String)
 @Serializable data class CleanupSample(val before: String, val after: String)
 @Serializable
@@ -243,7 +244,7 @@ class AdminChannels(private val companion: Companion) {
         val groups = streams.map { it.groupName }.distinct()
         val groupChanges = if (rules.groups) changes(groups) else emptyList()
         return CleanupPreview(
-            presets = NameCleanup.Preset.entries.map { CleanupPresetView(it.name, it.label, it.example) },
+            presets = NameCleanup.presets(NameCleanup.Target.CHANNELS).map { CleanupPresetView(it.name, it.label, it.example) },
             channels = channels.size,
             channelsChanged = channelChanges.size,
             groups = groups.size,
@@ -363,4 +364,29 @@ class AdminChannels(private val companion: Companion) {
         }
         return visible.count { refs[it.id] != null } to visible.size
     }
+}
+
+/**
+ * The Movies & Series cleanup preview (PLAN §4.3.6 → Categories): how many shown titles and category
+ * names [rules] change, the same shape as the channel preview.
+ */
+suspend fun vodCleanupPreview(companion: Companion, rules: NameCleanup, samples: Int = 80): CleanupPreview {
+    val names = companion.catalog.vodItems().map { it.name }
+    fun spread(l: List<CleanupSample>) = if (l.size <= samples) l else List(samples) { l[it * l.size / samples] }
+    val titleChanges = names.mapNotNull { n ->
+        val before = com.signal.data.VodRepository.displayNameOf(n)
+        com.signal.data.VodRepository.displayNameOf(n, rules).takeIf { it != before }?.let { CleanupSample(before, it) }
+    }
+    val categories = companion.catalog.vodCategoryNames()
+    val categoryChanges = if (rules.groups) categories.mapNotNull { n -> rules.apply(n).takeIf { it != n }?.let { CleanupSample(n, it) } } else emptyList()
+    return CleanupPreview(
+        presets = NameCleanup.presets(NameCleanup.Target.VOD).map { CleanupPresetView(it.name, it.label, it.example) },
+        channels = names.size,
+        channelsChanged = titleChanges.size,
+        groups = categories.size,
+        groupsChanged = categoryChanges.size,
+        channelSamples = spread(titleChanges.distinctBy { it.before }),
+        groupSamples = spread(categoryChanges),
+        invalidRules = rules.invalidRules().map { it.text },
+    )
 }

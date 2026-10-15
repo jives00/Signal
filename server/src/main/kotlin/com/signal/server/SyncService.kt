@@ -160,6 +160,10 @@ class SyncService(private val companion: Companion) {
             itemsCache = null
             log.info("$by: ${written.size} changes; now at revision $rev")
             companion.events.tryEmit(SyncEvent(SyncEvent.SETTINGS, rev = rev ?: 0))
+            // Hidden movie and series categories: the catalog drops their titles (PLAN §4.3.6 → Categories).
+            if (written.any { it.scope == SyncScope.HOUSEHOLD && it.type == SyncType.SETTING && it.id == com.signal.data.Settings.Key.VOD_CATEGORIES.id }) {
+                companion.onSourcesChanged()
+            }
             if (written.any { it.scope == SyncScope.HOUSEHOLD && (it.type == SyncType.SOURCE || it.type == SyncType.EPG_SOURCE) }) {
                 companion.onSourcesChanged()
                 val after = guideInputs()

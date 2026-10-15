@@ -178,6 +178,62 @@ class VodRepositoryTest {
         assertEquals(0, vod.fillMissingKeys())
     }
 
+    @Test fun hiddenCategoriesAreLeftOutDroppedAndBroughtBack(): Unit = runBlocking {
+        var filter = com.signal.match.VodCategoryFilter.NONE
+        val http = HttpClient(MockEngine { req ->
+            when (req.url.parameters["action"]) {
+                null -> respond("""{"user_info":{"auth":1}}""")
+                "get_live_categories", "get_live_streams" -> respond("[]")
+                "get_vod_categories" -> respond("""[{"category_id":"3","category_name":"EN - ACTION"},{"category_id":"4","category_name":"ES - PELÍCULAS"}]""")
+                "get_vod_streams" -> respond("""[{"stream_id":7,"name":"EN - Heat (1995)","category_id":"3"},{"stream_id":8,"name":"ES - Calor","category_id":"4"}]""")
+                "get_series_categories" -> respond("""[{"category_id":"9","category_name":"ESPAÑA SERIES"}]""")
+                "get_series" -> respond("""[{"series_id":5,"name":"La Casa","category_id":"9"}]""")
+                else -> respondError(HttpStatusCode.NotFound)
+            }
+        })
+        val sources = SourceRepository(db, http, box, Dispatchers.IO, Log { _, _ -> }, vodFilter = { filter })
+        sources.save(xtream)
+        sources.refresh("x").getOrThrow()
+        assertEquals(2L, vod.count(VodKind.MOVIE).first())
+
+        // Set on a catalog loaded before it: the hidden titles go at once, from Search too.
+        val englishOnly = com.signal.match.VodCategoryFilter(showOnly = listOf("EN - *"))
+        assertEquals(2, vod.dropHidden(englishOnly))
+        assertEquals(listOf("x:v:7"), vod.recentlyAdded(VodKind.MOVIE).map { it.id })
+        assertEquals(0L, vod.count(VodKind.SERIES).first())
+        assertEquals(listOf("EN - ACTION"), vod.categories(VodKind.MOVIE).first().map { it.name }, "an emptied category leaves the column")
+        assertEquals(0, db.vodQueries.countInCategory("x", "MOVIE", "4").executeAsOne().toInt())
+
+        // A refresh never keeps them.
+        filter = englishOnly
+        sources.refresh("x").getOrThrow()
+        assertEquals(1L, vod.count(VodKind.MOVIE).first())
+        assertEquals(0L, vod.count(VodKind.SERIES).first())
+
+        // Shown again: the source needs a refresh to bring them back.
+        val alsoSeries = com.signal.match.VodCategoryFilter(showOnly = listOf("EN - *", "ESPAÑA *"))
+        assertEquals(setOf("x"), vod.sourcesUnhidden(englishOnly, alsoSeries))
+        assertEquals(emptySet(), vod.sourcesUnhidden(alsoSeries, englishOnly))
+        filter = alsoSeries
+        sources.refresh("x").getOrThrow()
+        assertEquals(1L, vod.count(VodKind.SERIES).first())
+    }
+
+    @Test fun titlesAndCategoriesShowTheCleanupRules(): Unit = runBlocking {
+        var rules = com.signal.match.NameCleanup(presets = setOf(com.signal.match.NameCleanup.Preset.VOD_PREFIX, com.signal.match.NameCleanup.Preset.VOD_COUNTRY))
+        val cleaned = VodRepository(db, Dispatchers.IO, cleanup = { rules })
+        db.vodQueries.insertCategory(com.signal.db.user.Vod_category("x", "SERIES", "1", "EN - DRAMA", 0))
+        sources().save(xtream)
+        db.vodQueries.insertItem(com.signal.db.user.Vod_item("x:s:1", "x", "SERIES", "1", "EN - Lupin (2021) (FR)", "1", null, 2021, null, 0, null, null, null, null, 0, "", ""))
+        val item = cleaned.item("x:s:1")!!
+        assertEquals("Lupin", VodRepository.displayName(item), "the tag, the country, then the year")
+        assertEquals("EN - Lupin (2021) (FR)", item.name, "matching keeps the provider's name")
+        assertEquals("EN - DRAMA", cleaned.categories(VodKind.SERIES).first().single().name)
+        rules = rules.copy(groups = true)
+        assertEquals("DRAMA", cleaned.categories(VodKind.SERIES).first().single().name)
+        assertEquals("EN - Lupin (2021) (FR)", VodRepository.displayName(vod.item("x:s:1")!!), "no rules: the year isn't last")
+    }
+
     @Test fun sortsAndDisplayNames() {
         fun item(name: String, year: Int?, rating: Double?, added: Long) = VodItem("x:v:$name", "x", VodKind.MOVIE, name, name, "1", year = year, rating = rating, addedAt = added)
         val items = listOf(item("Beta (2001)", 2001, 6.0, 30), item("alpha", 1999, 9.0, 10), item("Gamma", null, null, 20))

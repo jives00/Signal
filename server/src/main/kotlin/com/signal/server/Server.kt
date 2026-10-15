@@ -142,7 +142,12 @@ class Companion(
         catalog.load()
         for (signal in sourcesChanged) {
             runCatching {
-                val wanted = sync.liveItems().filter { it.scope == com.signal.sync.SyncScope.HOUSEHOLD && it.type == com.signal.sync.SyncType.SOURCE }
+                // The filter first, so a source refreshed below already leaves hidden titles out.
+                val household = sync.liveItems().filter { it.scope == com.signal.sync.SyncScope.HOUSEHOLD }
+                val filterRaw = household.firstOrNull { it.type == com.signal.sync.SyncType.SETTING && it.id == com.signal.data.Settings.Key.VOD_CATEGORIES.id }
+                    ?.fields?.get("value")?.let { (it as? kotlinx.serialization.json.JsonPrimitive)?.content }
+                catalog.applyVodFilter(com.signal.match.VodCategoryFilter.parse(filterRaw))
+                val wanted = household.filter { it.type == com.signal.sync.SyncType.SOURCE }
                     .map { com.signal.sync.SyncFields.source(it.id, it.fields) }
                 catalog.match(wanted)
             }.onFailure { org.slf4j.LoggerFactory.getLogger("Catalog").warn("Catalog update failed: ${it.message}") }

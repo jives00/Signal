@@ -53,7 +53,7 @@ class AppController(val platform: Platform, val log: Log) {
     val db = UserDatabase(platform.createUserDatabaseDriver())
     val settings = Settings(db, platform.io)
     val http = platform.createHttpClient()
-    val sources = SourceRepository(db, http, platform.secretBox, platform.io, log)
+    val sources = SourceRepository(db, http, platform.secretBox, platform.io, log, vodFilter = { settings.vodCategoryFilter() })
     val channels = ChannelRepository(db, settings, platform.io)
     val switches = com.signal.data.SwitchRepository(db, settings, platform.io)
     // Posters the companion matched come from its image cache, or TMDB's CDN when it's out of reach (PLAN §4.3.12).
@@ -61,6 +61,8 @@ class AppController(val platform: Platform, val log: Log) {
         db, platform.io,
         providerPoster = { id -> nas.providerImageUrl(id) },
         tmdbPoster = { path -> nas.imageUrl(com.signal.nas.TmdbImages.POSTER, path) },
+        cleanup = { settings.vodNameCleanup() },
+        cleanupChanges = settings.changes().map { settings.raw(Settings.Key.VOD_NAME_CLEANUP) }.distinctUntilChanged(),
     )
     val vodDetails = com.signal.data.VodDetailRepository(db, sources, platform.io, log)
     val watch = com.signal.data.WatchRepository(db, settings, platform.io)
@@ -193,6 +195,22 @@ class AppController(val platform: Platform, val log: Log) {
             sources.all().forEach { epg.ensureForSource(it) }
             // The NAS build first when paired; the device builds its own only when that gives nothing (PLAN §6).
             if (installNasGuide() == null && guideIsStale()) rebuildGuide()
+        }
+        // Hidden movie and series categories (PLAN §4.3.6 → Categories): titles cached before the filter
+        // arrived, or before it changed, are dropped now. A category it shows again needs its source
+        // refreshed, since its titles were never kept.
+        scope.launch {
+            var applied: com.signal.match.VodCategoryFilter? = null
+            settings.changes().map { settings.vodCategoryFilter() }.distinctUntilChanged().collect { filter ->
+                val old = applied
+                applied = filter
+                runCatching { vod.dropHidden(filter) }.onSuccess { if (it > 0) log.info("VOD: dropped $it titles in hidden categories") }
+                if (old != null) vod.sourcesUnhidden(old, filter).forEach { sources.refresh(it) }
+            }
+        }
+        // New title cleanup rules: the grids reload, so the titles show them.
+        scope.launch {
+            settings.changes().map { settings.raw(Settings.Key.VOD_NAME_CLEANUP) }.distinctUntilChanged().drop(1).collect { vodVersion.value++ }
         }
         // The catalog changed (a refresh, a source enabled or removed, new TMDB matches): saved titles
         // find their copy in today's sources (PLAN §4.3.11 → Across providers).

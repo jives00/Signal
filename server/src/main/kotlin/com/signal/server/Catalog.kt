@@ -4,6 +4,7 @@ import app.cash.sqldelight.driver.jdbc.sqlite.JdbcSqliteDriver
 import com.signal.data.Log
 import com.signal.data.SourceRepository
 import com.signal.db.user.UserDatabase
+import com.signal.match.VodCategoryFilter
 import com.signal.model.Source
 import com.signal.platform.SecretBox
 import io.ktor.client.HttpClient
@@ -59,7 +60,7 @@ class Catalog(dir: File, http: HttpClient, cipher: SecretCipher?) {
             override fun encrypt(plain: String) = cipher?.encrypt(plain) ?: plain
             override fun decrypt(cipher0: String) = cipher?.decrypt(cipher0) ?: cipher0
         }
-        repo = SourceRepository(db, http, box, io, Log { level, message -> if (level == "I") log.info(message) else log.warn(message) })
+        repo = SourceRepository(db, http, box, io, Log { level, message -> if (level == "I") log.info(message) else log.warn(message) }, vodFilter = { vodFilter })
         vod = com.signal.data.VodRepository(db, io)
     }
 
@@ -134,6 +135,25 @@ class Catalog(dir: File, http: HttpClient, cipher: SecretCipher?) {
         }
     }
 
+    /** The household's hidden movie and series categories (PLAN §4.3.6 → Categories), from the synced setting. */
+    @Volatile private var vodFilter: VodCategoryFilter = VodCategoryFilter.NONE
+    @Volatile private var vodFilterSet = false
+
+    /**
+     * Follows the vod_categories setting: hidden titles are dropped at once, so matching skips them,
+     * and a source with a category shown again is refreshed to get its titles back.
+     */
+    suspend fun applyVodFilter(filter: VodCategoryFilter) = lock.withLock {
+        if (vodFilterSet && filter == vodFilter) return@withLock
+        val old = vodFilter.takeIf { vodFilterSet }
+        vodFilter = filter
+        vodFilterSet = true
+        val dropped = vod.dropHidden(filter)
+        if (dropped > 0) log.info("Dropped $dropped titles in hidden categories")
+        old?.let { vod.sourcesUnhidden(it, filter) }.orEmpty().forEach { refreshLocked(it) }
+        if (dropped > 0) withContext(io) { reloadStreams() }
+    }
+
     @Volatile private var vodCache: Pair<Int, List<com.signal.model.VodItem>>? = null
 
     /** Every movie and series of the enabled sources, for enrichment (PLAN §4.3.12). Demo titles are made up, so they're left out. */
@@ -143,6 +163,9 @@ class Catalog(dir: File, http: HttpClient, cipher: SecretCipher?) {
         val demo = withContext(io) { repo.all() }.filter { it.kind == com.signal.model.SourceKind.DEMO }.map { it.id }.toSet()
         return vod.all().filter { it.sourceId !in demo }.also { vodCache = v to it }
     }
+
+    /** Every movie and series category name, for the title cleanup preview. */
+    suspend fun vodCategoryNames(): List<String> = withContext(io) { db.vodQueries.allCategories().executeAsList().map { it.name } }
 
     suspend fun vodItem(id: String): com.signal.model.VodItem? = vod.item(id)
 

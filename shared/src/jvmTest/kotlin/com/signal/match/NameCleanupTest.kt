@@ -117,4 +117,34 @@ class NameCleanupTest {
         assertEquals(NameCleanup.NONE, NameCleanup.parse("not json"))
         assertEquals(NameCleanup.NONE, NameCleanup.parse(null))
     }
+
+    @Test fun providerTagsAtTheStartOfTitles() {
+        val c = presets(Preset.VOD_PREFIX)
+        assertEquals("Heat (1995)", c.apply("EN - Heat (1995)"))
+        assertEquals("Code 8", c.apply("NF - Code 8"))
+        assertEquals("Diablo (2025)", c.apply("4K-TOP - Diablo (2025)"))
+        assertEquals("Pita Hall (2025)", c.apply("4K-D+  -Pita Hall (2025)"))
+        assertEquals("Gotti", c.apply("TOP - Gotti"))
+        assertEquals("Dirty Jobs", c.apply("DSC+ - Dirty Jobs"))
+        // Once only: what the tag uncovers is the title, tag-like or not.
+        assertEquals("WWE - Raw", c.apply("EN - WWE - Raw"))
+        // Not a colon, not mixed case, and a title's own dash stays.
+        assertEquals("X-MEN: Apocalypse", c.apply("X-MEN: Apocalypse"))
+        assertEquals("CSI: Vegas", c.apply("CSI: Vegas"))
+        assertEquals("Spider-Man - Homecoming", c.apply("Spider-Man - Homecoming"))
+    }
+
+    @Test fun countryCodesAtTheEndOfTitles() {
+        val c = presets(Preset.VOD_COUNTRY)
+        assertEquals("Reckoning", c.apply("Reckoning (US)"))
+        assertEquals("Lupin (2021)", c.apply("Lupin (2021) (FR)"))
+        assertEquals("Desperate Lies (2024)", c.apply("Desperate Lies (2024) (ARG)"))
+        assertEquals("Pacific Rim (IMAX)", c.apply("Pacific Rim (IMAX)"))
+        assertEquals("Pandora (us)", c.apply("Pandora (us)"))
+    }
+
+    @Test fun eachTargetHasItsOwnPresets() {
+        assertEquals(listOf(Preset.VOD_PREFIX, Preset.VOD_COUNTRY), NameCleanup.presets(NameCleanup.Target.VOD))
+        assertEquals(listOf(Preset.COUNTRY, Preset.TAG, Preset.QUALITY, Preset.MARKERS), NameCleanup.presets(NameCleanup.Target.CHANNELS))
+    }
 }

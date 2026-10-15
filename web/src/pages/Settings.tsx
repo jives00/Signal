@@ -65,6 +65,7 @@ export default function Settings() {
       ))}
 
       <NameCleanup saved={data.profile["name_cleanup"]} onSaved={load} />
+      <NameCleanup target="VOD" saved={data.profile["vod_name_cleanup"]} onSaved={load} />
 
       <section className="section">
         <h2 className="section-title">Guide data</h2>

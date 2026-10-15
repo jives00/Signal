@@ -30,6 +30,8 @@ data class VodItem(
     val position: Int = 0,
     /** For matching titles across sources and with the guide ([com.signal.match.VodTitles.nameKey]). */
     val titleKey: String = "",
+    /** The title as shown, after the profile's cleanup rules; empty for items built outside the catalog's queries. */
+    val title: String = "",
 )
 
 data class VodCategory(val sourceId: String, val kind: VodKind, val categoryId: String, val name: String, val position: Int)
