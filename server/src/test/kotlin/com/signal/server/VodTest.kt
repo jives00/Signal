@@ -171,6 +171,15 @@ class VodTest {
         // The web admin's list.
         val rows = client.get("/api/vod/items?status=manual").bodyAsText()
         assertTrue("\"tmdbTitle\":\"Inception\"" in rows, rows)
+
+        // Sorted by a column, empty values last in either direction.
+        fun ids(query: String) = json.decodeFromString<VodRows>(runBlocking { client.get("/api/vod/items?$query").bodyAsText() }).rows.map { it.itemId }
+        assertEquals(listOf("p:s:1", "p:v:1", "p:v:2", "q:v:9", "p:v:3"), ids("sort=title"))
+        assertEquals(listOf("p:v:3", "q:v:9", "p:v:2", "p:v:1", "p:s:1"), ids("sort=title&dir=desc"))
+        assertEquals(listOf("q:v:9", "p:v:3", "p:s:1"), ids("sort=year").take(3))
+        assertEquals(listOf("p:s:1", "p:v:3", "q:v:9"), ids("sort=year&dir=desc").take(3))
+        // No such category: nothing.
+        assertEquals(emptyList(), ids("category=Nope"))
     }
 
     @Test fun withoutAKeyNothingIsAsked(): Unit = runBlocking {

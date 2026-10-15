@@ -3,6 +3,7 @@ import { getSnapshotSummary, importSettings, restorePart } from "../admin";
 import { backUpNow, deleteSnapshot, getDevices, getSync, itemSummary, type Device, type Snapshot, type SyncStatus } from "../api";
 import { useProfiles, useToast } from "../context";
 import type { SnapshotSummary } from "../schema";
+import { useSorted } from "../sort";
 
 /**
  * Backups (PLAN §4.3.18 → 13, §9.3): the snapshots with a summary, Back up now, restoring
@@ -59,6 +60,7 @@ export default function Backups() {
 
   const profileName = (id: string) => profiles.find((p) => p.id === id)?.name ?? "A deleted profile";
   const deviceName = (id: string) => devices.find((d) => d.id === id)?.name ?? "A forgotten device";
+  const table = useSorted(status?.snapshots, { reason: (s) => s.reason, taken: (s) => s.createdAt, items: (s) => s.items });
 
   return (
     <div className="page">
@@ -79,9 +81,9 @@ export default function Backups() {
       {status && status.snapshots.length === 0 && <p className="detail">No backups yet.</p>}
       {status && status.snapshots.length > 0 && (
         <table className="table">
-          <thead><tr><th>Backup</th><th>Taken</th><th>Items</th><th /></tr></thead>
+          <thead><tr>{table.header("reason", "Backup")}{table.header("taken", "Taken")}{table.header("items", "Items")}<th /></tr></thead>
           <tbody>
-            {status.snapshots.map((s) => (
+            {table.rows.map((s) => (
               <tr key={s.id} className={open?.id === s.id ? "selected" : ""}>
                 <td>{s.reason}</td>
                 <td>{new Date(s.createdAt).toLocaleString()}</td>

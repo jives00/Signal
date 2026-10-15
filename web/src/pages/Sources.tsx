@@ -7,6 +7,7 @@ import {
 import { ago, buildGuide } from "../api";
 import { useToast } from "../context";
 import type { EpgSourceView, SourceView, SourcesView } from "../schema";
+import { useSorted } from "../sort";
 
 const blank: SourceForm = { name: "", kind: "XTREAM", url: "", username: "", password: "", userAgent: "", referrer: "", enabled: true, liveFormat: "TS", connectionLimit: 2 };
 
@@ -77,6 +78,13 @@ export default function Sources() {
     save("Saved", () => updateEpgSource(e.id, { timeShiftMinutes: n }), load);
   }
 
+  const sourceTable = useSorted(data?.sources, {
+    name: (s) => s.name, kind: (s) => s.kind, login: (s) => s.username, streams: (s) => s.streams, refreshed: (s) => s.lastRefreshedAt,
+  });
+  const epgTable = useSorted(data?.epgSources, {
+    name: (e) => e.name, guide: (e) => (e.error ? null : e.channels), shift: (e) => e.timeShiftMinutes, refreshed: (e) => e.refreshedAt,
+  });
+
   const f = editing?.form;
   const set = (patch: Partial<SourceForm>) => setEditing((e) => (e ? { ...e, form: { ...e.form, ...patch } } : e));
 
@@ -90,9 +98,9 @@ export default function Sources() {
         {data && data.sources.length === 0 && <p className="detail">No sources yet. Add one here or on a TV.</p>}
         {data && data.sources.length > 0 && (
           <table className="table">
-            <thead><tr><th>Name</th><th>Type</th><th>Login</th><th>Channels</th><th>Last refresh</th><th /></tr></thead>
+            <thead><tr>{sourceTable.header("name", "Name")}{sourceTable.header("kind", "Type")}{sourceTable.header("login", "Login")}{sourceTable.header("streams", "Channels")}{sourceTable.header("refreshed", "Last refresh")}<th /></tr></thead>
             <tbody>
-              {data.sources.map((s) => (
+              {sourceTable.rows.map((s) => (
                 <tr key={s.id} className={s.enabled ? "" : "dim"}>
                   <td>{s.name}{!s.enabled && <span className="tag">Disabled</span>}<div className="detail small">{s.url}</div></td>
                   <td>{s.kind === "XTREAM" ? "Xtream Codes" : s.kind}</td>
@@ -155,14 +163,14 @@ export default function Sources() {
         <p className="detail">The guide uses the default first, then the others in this order for channels the default doesn't cover.</p>
         {data && data.epgSources.length > 0 && (
           <table className="table">
-            <thead><tr><th>Order</th><th>Name</th><th>Guide</th><th>Time shift</th><th>Last refresh</th><th /></tr></thead>
+            <thead><tr>{!epgTable.sorted && <th>Order</th>}{epgTable.header("name", "Name")}{epgTable.header("guide", "Guide")}{epgTable.header("shift", "Time shift")}{epgTable.header("refreshed", "Last refresh")}<th /></tr></thead>
             <tbody>
-              {data.epgSources.map((e, i) => (
+              {epgTable.rows.map((e, i) => (
                 <tr key={e.id} className={e.enabled ? "" : "dim"}>
-                  <td className="nowrap">
+                  {!epgTable.sorted && <td className="nowrap">
                     <button className="link" disabled={i === 0} onClick={() => save("Moved", () => moveEpgSource(e.id, i - 1), load)} aria-label="Move up">↑</button>
                     <button className="link" disabled={i === data.epgSources.length - 1} onClick={() => save("Moved", () => moveEpgSource(e.id, i + 1), load)} aria-label="Move down">↓</button>
-                  </td>
+                  </td>}
                   <td>{e.name}{e.isDefault && <span className="tag">Default</span>}{!e.enabled && <span className="tag">Disabled</span>}<div className="detail small">{e.kind === "XMLTV" ? e.url : e.kind === "XTREAM" ? "The source's own xmltv.php" : "Demo"}</div></td>
                   <td>{e.error ? <span className="error-text">{e.error}</span> : `${e.channels.toLocaleString()} channels · ${e.programs.toLocaleString()} programs`}</td>
                   <td>{e.timeShiftMinutes ? `${e.timeShiftMinutes > 0 ? "+" : ""}${e.timeShiftMinutes} min` : "None"}</td>

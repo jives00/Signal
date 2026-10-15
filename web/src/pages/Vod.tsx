@@ -4,6 +4,7 @@ import { addToLibrary, clearVodMatch, editVodCategory, getLibrary, getVodCategor
 import { ago, size } from "../api";
 import { ApplyTo, profileNames, useProfiles, useToast } from "../context";
 import type { LibraryRow, TmdbCandidate, VodCategoriesView, VodCategoryView, VodRow, VodRows, VodStatus } from "../schema";
+import { SortHeader, useSorted } from "../sort";
 
 const categorySorts = [["PROVIDER", "Provider order"], ["A_Z", "A–Z"], ["Z_A", "Z–A"], ["MANUAL", "Manual"]] as const;
 
@@ -40,12 +41,14 @@ function Catalog() {
   const [filter, setFilter] = useState<VodQuery>({});
   const [offset, setOffset] = useState(0);
   const [fixing, setFixing] = useState<VodRow | null>(null);
+  const [categories, setCategories] = useState<VodCategoryView[]>([]);
 
   const loadStatus = useCallback(() => { getVodStatus().then(setStatus).catch((e: Error) => setError(e.message)); }, []);
   const load = useCallback(() => {
     getVodItems({ ...filter, offset, limit: PAGE, profile }).then((p) => { setPage(p); setError(null); }).catch((e: Error) => setError(e.message));
   }, [filter, offset, profile]);
   useEffect(load, [load]);
+  useEffect(() => { getVodCategories(profile).then((v) => setCategories(v.categories)).catch(() => setCategories([])); }, [profile]);
   useEffect(() => {
     loadStatus();
     // While matching runs, the counts move.
@@ -62,6 +65,15 @@ function Catalog() {
     try { await runVod(); say("Matching started"); loadStatus(); } catch (e) { say((e as Error).message, true); }
   };
   const done = () => { setFixing(null); load(); loadStatus(); };
+
+  // One entry per name: the filter, like hiding and renaming, covers that name in every source.
+  // Hidden categories have no titles in the catalog, so they're left out.
+  const categoryOptions = [...new Map(categories.filter((c) => !c.hidden && (!filter.kind || c.kind === filter.kind)).map((c) => [c.name, c.title])).entries()]
+    .sort((a, b) => a[1].localeCompare(b[1], undefined, { numeric: true, sensitivity: "base" }));
+  const kindChanged = (kind: VodQuery["kind"]) => {
+    const keep = !filter.category || categories.some((c) => c.name === filter.category && !c.hidden && (!kind || c.kind === kind));
+    update({ kind, ...(keep ? {} : { category: undefined }) });
+  };
 
   const pending = status ? status.titles - status.matched - status.manual - status.unmatched : 0;
   return (
@@ -92,10 +104,14 @@ function Catalog() {
 
       <div className="filters">
         <input type="search" placeholder="Search titles" value={text} onChange={(e) => setText(e.target.value)} aria-label="Search" />
-        <select value={filter.kind ?? ""} onChange={(e) => update({ kind: e.target.value as VodQuery["kind"] })} aria-label="Kind">
+        <select value={filter.kind ?? ""} onChange={(e) => kindChanged(e.target.value as VodQuery["kind"])} aria-label="Kind">
           <option value="">Movies and series</option>
           <option value="MOVIE">Movies</option>
           <option value="SERIES">Series</option>
+        </select>
+        <select value={filter.category ?? ""} onChange={(e) => update({ category: e.target.value || undefined })} aria-label="Category">
+          <option value="">Every category</option>
+          {categoryOptions.map(([name, title]) => <option key={name} value={name}>{title}</option>)}
         </select>
         <select value={filter.status ?? ""} onChange={(e) => update({ status: e.target.value as VodQuery["status"] })} aria-label="Match">
           <option value="">Any match</option>
@@ -115,13 +131,23 @@ function Catalog() {
           <p className="detail">{page.total.toLocaleString()} titles{page.total > PAGE && ` · ${offset + 1}–${Math.min(offset + PAGE, page.total)}`}</p>
           <div className="table-wrap">
             <table className="table">
-              <thead><tr><th>Title</th><th>Kind</th><th>Year</th><th>TMDB</th><th /></tr></thead>
+              <thead>
+                <tr>
+                  <SortHeader column="title" label="Title" state={filter} onSort={update} />
+                  <SortHeader column="kind" label="Kind" state={filter} onSort={update} />
+                  <SortHeader column="year" label="Year" state={filter} onSort={update} />
+                  <SortHeader column="category" label="Category" state={filter} onSort={update} className="wide" />
+                  <SortHeader column="tmdb" label="TMDB" state={filter} onSort={update} />
+                  <th />
+                </tr>
+              </thead>
               <tbody>
                 {page.rows.map((r) => (
                   <tr key={r.itemId}>
                     <td>{r.title}{r.name !== r.title && <div className="detail small">{r.name}</div>}</td>
                     <td>{r.kind === "MOVIE" ? "Movie" : "Series"}</td>
                     <td>{r.year ?? ""}</td>
+                    <td className="wide">{r.category}</td>
                     <td>
                       {r.tmdbId ? <>{r.tmdbTitle ?? `#${r.tmdbId}`}{r.tmdbYear ? ` (${r.tmdbYear})` : ""}</> : <span className="detail">{statusLabel[r.status]}</span>}
                       {r.status === "manual" && <span className="tag quiet">Fixed</span>}
@@ -257,6 +283,11 @@ function Categories() {
     (!renamed || c.customName !== null) &&
     (!text || c.title.toLowerCase().includes(text) || c.name.toLowerCase().includes(text)));
   const hiddenCount = rows?.filter((c) => c.hidden).length ?? 0;
+  const table = useSorted(shown, {
+    title: (c) => c.title, kind: (c) => c.kind, source: (c) => c.sourceName, count: (c) => (c.hidden ? null : c.count),
+  });
+  // Reordering only makes sense in the order the TVs show.
+  const reorder = !!kind && !table.sorted;
 
   return (
     <>
@@ -296,14 +327,15 @@ function Categories() {
           <p className="detail">
             {shown.length.toLocaleString()} of {rows.length.toLocaleString()} categories · {hiddenCount.toLocaleString()} hidden
             {!kind && " · pick Movies or Series to reorder"}
+            {kind && table.sorted && " · click the sorted column again to reorder"}
           </p>
           <div className="table-wrap">
             <table className="table">
-              <thead><tr>{kind && <th />}<th>Category</th><th>Kind</th>{sources.length > 1 && <th>Source</th>}<th>Titles</th><th /></tr></thead>
+              <thead><tr>{reorder && <th />}{table.header("title", "Category")}{table.header("kind", "Kind")}{sources.length > 1 && table.header("source", "Source")}{table.header("count", "Titles")}<th /></tr></thead>
               <tbody>
-                {shown.map((c) => {
+                {table.rows.map((c) => {
                   const i = order.indexOf(c.name);
-                  const movable = !!kind && !c.hidden;
+                  const movable = reorder && !c.hidden;
                   return (
                   <tr
                     key={`${c.sourceId}|${c.kind}|${c.categoryId}`}
@@ -313,7 +345,7 @@ function Categories() {
                     onDragOver={(e) => e.preventDefault()}
                     onDrop={(e) => { e.preventDefault(); if (dragging !== null && movable) move(dragging, i); setDragging(null); }}
                   >
-                    {kind && (
+                    {reorder && (
                       <td className="nowrap">
                         {movable && <>
                           <span className="grip" aria-hidden>⋮⋮</span>
@@ -358,6 +390,7 @@ function Library() {
     getLibrary(profile).then((r) => { setRows(r); setError(null); }).catch((e: Error) => setError(e.message));
   }, [profile]);
   useEffect(load, [load]);
+  const table = useSorted(rows, { title: (r) => r.title, kind: (r) => r.kind, year: (r) => r.year, added: (r) => r.addedAt || null });
 
   return (
     <>
@@ -366,9 +399,9 @@ function Library() {
       {rows && rows.length === 0 && <p className="detail">Nothing in the Library.</p>}
       {rows && rows.length > 0 && (
         <table className="table">
-          <thead><tr><th>Title</th><th>Kind</th><th>Year</th><th>Added</th><th /></tr></thead>
+          <thead><tr>{table.header("title", "Title")}{table.header("kind", "Kind")}{table.header("year", "Year")}{table.header("added", "Added")}<th /></tr></thead>
           <tbody>
-            {rows.map((r) => (
+            {table.rows.map((r) => (
               <tr key={r.key}>
                 <td>{r.title}{!r.available && <span className="tag warn">Unavailable</span>}</td>
                 <td>{r.kind === "MOVIE" ? "Movie" : "Series"}</td>

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { send, type Device } from "../api";
 import { EditResult } from "../schema";
 import { useToast } from "../context";
+import { useSorted } from "../sort";
 
 const labels: Record<string, string> = {
   last_played_channel: "Last played channel",
@@ -23,6 +24,8 @@ export default function DeviceSettings({ device, onClose }: { device: Device; on
   }, [device.id]);
   useEffect(load, [load]);
 
+  const table = useSorted(settings ? Object.entries(settings) : null, { key: ([k]) => labels[k] ?? k, value: ([, v]) => v });
+
   const clear = (key: string) => save("Cleared on the device", async () => EditResult.parse(
     await send<unknown>(`/api/devices/${encodeURIComponent(device.id)}/settings`, { method: "PUT", body: JSON.stringify({ key, value: null }) }),
   ), load);
@@ -33,8 +36,9 @@ export default function DeviceSettings({ device, onClose }: { device: Device; on
       {settings && Object.keys(settings).length === 0 && <p className="detail">None synced yet.</p>}
       {settings && Object.keys(settings).length > 0 && (
         <table className="table">
+          <thead><tr>{table.header("key", "Setting")}{table.header("value", "Value")}<th /></tr></thead>
           <tbody>
-            {Object.entries(settings).map(([k, v]) => (
+            {table.rows.map(([k, v]) => (
               <tr key={k}>
                 <td>{labels[k] ?? k}</td>
                 <td className="detail small mono">{v.length > 80 ? `${v.slice(0, 80)}…` : v}</td>

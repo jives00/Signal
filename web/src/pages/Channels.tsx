@@ -4,6 +4,7 @@ import {
   type ChannelAction, type ChannelColumn, type ChannelQuery,
 } from "../admin";
 import { ApplyTo, profileNames, store, stored, useProfiles, useToast } from "../context";
+import { SortHeader } from "../sort";
 import type { ChannelPage, ChannelRow, GroupView, GuideChannelInfo, LinkView, ProgramBrief, SourcesView } from "../schema";
 
 const PAGE = 100;
@@ -30,19 +31,6 @@ export function GuideCell({ row }: { row: ChannelRow }) {
       <span className={g.how === "manual" ? "tag" : "tag quiet"}>{g.how === "manual" ? "Manual" : "Auto"}</span>
       <span className="detail small">{g.override ? `${g.epgSourceName} (override)` : g.fallback ? `${g.epgSourceName} (fallback)` : g.epgSourceName}</span>
     </span>
-  );
-}
-
-/** A column header that sorts the table: ascending, then descending, then back to the app's order. */
-function SortHeader({ column, label, filter, onSort, className }: {
-  column: ChannelColumn; label: string; filter: ChannelQuery; onSort: (patch: Partial<ChannelQuery>) => void; className?: string;
-}) {
-  const active = filter.sort === column;
-  const next = !active ? { sort: column, dir: "asc" as const } : filter.dir === "asc" ? { sort: column, dir: "desc" as const } : { sort: undefined, dir: undefined };
-  return (
-    <th className={className} aria-sort={active ? (filter.dir === "desc" ? "descending" : "ascending") : "none"}>
-      <button className="sort" onClick={() => onSort(next)}>{label}<span className="arrow" aria-hidden>{active ? (filter.dir === "desc" ? "▼" : "▲") : ""}</span></button>
-    </th>
   );
 }
 
@@ -158,12 +146,12 @@ export default function Channels() {
                 <tr>
                   <th><input type="checkbox" checked={allChecked} onChange={() => setSelected(allChecked ? new Set() : new Set(rows.map((r) => r.streamId)))} aria-label="Select page" /></th>
                   <th />
-                  <SortHeader column="number" label="No." filter={filter} onSort={update} />
-                  <SortHeader column="name" label="Name" filter={filter} onSort={update} />
-                  <SortHeader column="source" label="Source · group" filter={filter} onSort={update} className="wide" />
-                  <SortHeader column="guide" label="Guide" filter={filter} onSort={update} />
+                  <SortHeader column="number" label="No." state={filter} onSort={update} />
+                  <SortHeader column="name" label="Name" state={filter} onSort={update} />
+                  <SortHeader column="source" label="Source · group" state={filter} onSort={update} className="wide" />
+                  <SortHeader column="guide" label="Guide" state={filter} onSort={update} />
                   <th className="wide">Now · next</th>
-                  <SortHeader column="lists" label="Lists" filter={filter} onSort={update} />
+                  <SortHeader column="lists" label="Lists" state={filter} onSort={update} />
                 </tr>
               </thead>
               <tbody>

@@ -624,7 +624,7 @@ private suspend fun sourceViews(companion: Companion, view: AdminView): List<Sou
     }
 }
 
-private suspend fun vodCategoriesView(companion: Companion, view: AdminView): VodCategoriesView {
+internal suspend fun vodCategoriesView(companion: Companion, view: AdminView): VodCategoriesView {
     val filter = VodCategoryFilter.parse(view.householdSettings[Settings.Key.VOD_CATEGORIES.id])
     val cleanup = NameCleanup.parse(view.profileSettings[Settings.Key.VOD_NAME_CLEANUP.id])
     val sourceNames = view.sources.associate { it.first.id to it.first.name }

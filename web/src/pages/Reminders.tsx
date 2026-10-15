@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { clock, deleteReminder, getReminders } from "../admin";
 import { profileNames, useProfiles, useToast } from "../context";
 import type { ReminderView } from "../schema";
+import { useSorted } from "../sort";
 
 /** Reminders (PLAN §4.3.18 → 10): the shown profile's upcoming reminders, with remove. */
 export default function Reminders() {
@@ -13,6 +14,7 @@ export default function Reminders() {
     getReminders(profile).then((r) => { setRows(r); setError(null); }).catch((e: Error) => setError(e.message));
   }, [profile]);
   useEffect(load, [load]);
+  const table = useSorted(rows, { when: (r) => r.start, title: (r) => r.title, channel: (r) => r.channelName });
 
   return (
     <div className="page">
@@ -22,9 +24,9 @@ export default function Reminders() {
       {rows && rows.length === 0 && <p className="detail">No reminders.</p>}
       {rows && rows.length > 0 && (
         <table className="table">
-          <thead><tr><th>When</th><th>Program</th><th>Channel</th><th /></tr></thead>
+          <thead><tr>{table.header("when", "When")}{table.header("title", "Program")}{table.header("channel", "Channel")}<th /></tr></thead>
           <tbody>
-            {rows.map((r) => (
+            {table.rows.map((r) => (
               <tr key={r.id}>
                 <td>{new Date(r.start).toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" })} {clock(r.start)}–{clock(r.stop)}</td>
                 <td>{r.title}</td>

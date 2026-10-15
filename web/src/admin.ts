@@ -169,7 +169,20 @@ export const getLinks = (uc: string) => read(S.LinkView.array(), `/api/links/${e
 export const preferStream = (uc: string, streamId: string) => post(`/api/links/${enc(uc)}/preferred`, { streamId });
 
 // ---- Movies & Series (PLAN §4.3.12) ----
-export interface VodQuery { q?: string; kind?: "" | "MOVIE" | "SERIES"; status?: "" | "matched" | "manual" | "unmatched" | "pending"; offset?: number; limit?: number; profile?: string }
+/** The Catalog table's sortable columns (server/VodRoutes.kt VodColumn). */
+export type VodColumn = "title" | "kind" | "year" | "category" | "tmdb";
+export interface VodQuery {
+  q?: string;
+  kind?: "" | "MOVIE" | "SERIES";
+  /** A provider category name: covers that name in every source. */
+  category?: string;
+  status?: "" | "matched" | "manual" | "unmatched" | "pending";
+  sort?: VodColumn;
+  dir?: "asc" | "desc";
+  offset?: number;
+  limit?: number;
+  profile?: string;
+}
 export const getVodStatus = () => read(S.VodStatus, "/api/vod");
 export function getVodItems(f: VodQuery) {
   const p = new URLSearchParams();

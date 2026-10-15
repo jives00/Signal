@@ -3,6 +3,7 @@ import { copySections, getSettings, ownProfile } from "../admin";
 import { useProfiles, useToast } from "../context";
 import DeviceSettings from "./DeviceSettings";
 import VoiceSetup from "./VoiceSetup";
+import { useSorted } from "../sort";
 import {
   ago, approveDevice, cleanCode, createProfile, deleteProfile, forgetDevice, getDevices, getSync, renameDevice, renameProfile,
   setDeviceProfile, type Device, type ProfileSummary,
@@ -108,6 +109,10 @@ export default function Devices() {
   }
 
   const profileName = (id: string) => profiles.find((p) => p.id === id)?.name ?? id;
+  const deviceTable = useSorted(devices, {
+    name: (d) => d.name, profile: (d) => profileName(d.profileId), model: (d) => d.model, version: (d) => d.appVersion, seen: (d) => d.lastSeenAt, sync: (d) => d.lastSyncAt,
+  });
+  const profileTable = useSorted(profiles, { name: (p) => p.name, devices: (p) => p.devices.length, items: (p) => p.items });
 
   return (
     <div className="page">
@@ -154,10 +159,10 @@ export default function Devices() {
       {devices && devices.length > 0 && (
         <table className="table">
           <thead>
-            <tr><th>Name</th><th>Profile</th><th>Model</th><th>App version</th><th>Last seen</th><th>Last sync</th><th /></tr>
+            <tr>{deviceTable.header("name", "Name")}{deviceTable.header("profile", "Profile")}{deviceTable.header("model", "Model")}{deviceTable.header("version", "App version")}{deviceTable.header("seen", "Last seen")}{deviceTable.header("sync", "Last sync")}<th /></tr>
           </thead>
           <tbody>
-            {devices.map((d) => (
+            {deviceTable.rows.map((d) => (
               <tr key={d.id}>
                 <td>{d.name}</td>
                 <td>
@@ -191,10 +196,10 @@ export default function Devices() {
         <p className="detail">Devices on the same profile share favorites, hidden channels, playlists and the like. Sources and guide mappings are shared by every device.</p>
         <table className="table">
           <thead>
-            <tr><th>Profile</th><th>Devices</th><th>Settings</th><th /></tr>
+            <tr>{profileTable.header("name", "Profile")}{profileTable.header("devices", "Devices")}{profileTable.header("items", "Settings")}<th /></tr>
           </thead>
           <tbody>
-            {profiles.map((p) => (
+            {profileTable.rows.map((p) => (
               <tr key={p.id}>
                 <td>{p.name}</td>
                 <td>{p.devices.length ? p.devices.join(", ") : "None"}</td>

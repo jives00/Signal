@@ -79,7 +79,7 @@ class ContractTest {
         check("vod-status", VodStatus.serializer(), VodStatus(true, 1200, 1000, 3, 150, true, "Matching 12 of 47", job.copy(job = "vod_enrich"), 1_500_000_000))
         check(
             "vod-rows", VodRows.serializer(),
-            VodRows(listOf(VodRow("src:v:603", "src", "MOVIE", "The Matrix", "EN - The Matrix (1999)", 1999, "matched", 603, "The Matrix", 1999), VodRow("src:s:9", "src", "SERIES", "Home Video", "Home Video", null, "pending", null, null, null)), 2),
+            VodRows(listOf(VodRow("src:v:603", "src", "MOVIE", "The Matrix", "EN - The Matrix (1999)", 1999, "Action", "EN - ACTION", "matched", 603, "The Matrix", 1999), VodRow("src:s:9", "src", "SERIES", "Home Video", "Home Video", null, "", "", "pending", null, null, null)), 2),
         )
         check(
             "vod-categories", VodCategoriesView.serializer(),

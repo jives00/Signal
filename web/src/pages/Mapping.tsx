@@ -3,6 +3,7 @@ import { getManualMappings, nextUnmapped, resetMapping, searchGuide, setMapping 
 import { useProfiles, useToast } from "../context";
 import type { GuideChannelInfo, ManualMapping, QueueView } from "../schema";
 import { Program } from "./Channels";
+import { useSorted } from "../sort";
 
 /**
  * EPG mapping (PLAN §4.3.18 → 7): a work queue of visible channels with no guide data, favorites
@@ -120,6 +121,7 @@ function Manual() {
   const { save } = useToast();
   const [rows, setRows] = useState<ManualMapping[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const table = useSorted(rows, { channel: (m) => m.channelName, epg: (m) => m.epgSourceName, guide: (m) => m.guideChannelName ?? m.guideChannelId });
   const load = useCallback(() => { getManualMappings().then((r) => { setRows(r); setError(null); }).catch((e: Error) => setError(e.message)); }, []);
   useEffect(load, [load]);
 
@@ -128,9 +130,9 @@ function Manual() {
   if (rows.length === 0) return <p className="detail">No manual mappings or EPG source overrides yet.</p>;
   return (
     <table className="table">
-      <thead><tr><th>Channel</th><th>EPG source</th><th>Guide channel</th><th /></tr></thead>
+      <thead><tr>{table.header("channel", "Channel")}{table.header("epg", "EPG source")}{table.header("guide", "Guide channel")}<th /></tr></thead>
       <tbody>
-        {rows.map((m) => (
+        {table.rows.map((m) => (
           <tr key={m.userChannelId}>
             <td>{m.channelName}</td>
             <td>{m.epgSourceName}</td>

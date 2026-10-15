@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { getJobs } from "../admin";
 import { ago } from "../api";
 import type { JobRun } from "../schema";
+import { useSorted } from "../sort";
 
 const names: Record<string, string> = { guide_build: "Guide build", source_refresh: "Source refresh" };
 
@@ -15,6 +16,9 @@ export default function Jobs() {
     const timer = setInterval(load, 15_000);
     return () => clearInterval(timer);
   }, []);
+  const table = useSorted(jobs, {
+    job: (j) => names[j.job] ?? j.job, started: (j) => j.startedAt, took: (j) => (j.finishedAt ? j.finishedAt - j.startedAt : null), result: (j) => j.result, detail: (j) => j.detail,
+  });
 
   return (
     <div className="page">
@@ -23,9 +27,9 @@ export default function Jobs() {
       {jobs && jobs.length === 0 && <p className="detail">Nothing has run yet.</p>}
       {jobs && jobs.length > 0 && (
         <table className="table">
-          <thead><tr><th>Job</th><th>Started</th><th>Took</th><th>Result</th><th className="wide">Detail</th></tr></thead>
+          <thead><tr>{table.header("job", "Job")}{table.header("started", "Started")}{table.header("took", "Took")}{table.header("result", "Result")}{table.header("detail", "Detail", "wide")}</tr></thead>
           <tbody>
-            {jobs.map((j) => (
+            {table.rows.map((j) => (
               <tr key={j.id}>
                 <td>{names[j.job] ?? j.job}</td>
                 <td title={new Date(j.startedAt).toLocaleString()}>{ago(j.startedAt)}</td>

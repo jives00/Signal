@@ -43,6 +43,10 @@ data class VodRow(
     /** The provider's own name for it. */
     val name: String,
     val year: Int?,
+    /** The category as the TVs show it (renamed or cleaned up), empty if the provider gave none. */
+    val category: String,
+    /** The provider's category name, the value the category filter takes. */
+    val categoryName: String,
     /** matched, manual, unmatched, or pending (not tried yet). */
     val status: String,
     val tmdbId: Long?,
@@ -51,6 +55,24 @@ data class VodRow(
 )
 
 @Serializable data class VodRows(val rows: List<VodRow>, val total: Int)
+
+/** The Catalog table's sortable columns. Empty values sort last in either direction. */
+enum class VodColumn(val id: String, private val key: (VodRow) -> Comparable<*>?) {
+    TITLE("title", { it.title.lowercase().ifEmpty { null } }),
+    KIND("kind", { it.kind }),
+    YEAR("year", { it.year }),
+    CATEGORY("category", { it.category.lowercase().ifEmpty { null } }),
+    TMDB("tmdb", { it.tmdbTitle?.lowercase() }),
+    ;
+
+    fun comparator(desc: Boolean): Comparator<VodRow> {
+        @Suppress("UNCHECKED_CAST") val k = key as (VodRow) -> Comparable<Any>?
+        val values: Comparator<Comparable<Any>> = if (desc) reverseOrder() else naturalOrder()
+        // Ties fall back to the title, so a page boundary never splits them differently between requests.
+        val column = nullsLast(values)
+        return Comparator<VodRow> { a, b -> column.compare(k(a), k(b)) }.thenBy { it.title.lowercase() }.thenBy { it.itemId }
+    }
+}
 
 /** Fix match: a TMDB ID, or null for "no match". */
 @Serializable data class MatchRequest(val tmdbId: Long?)
@@ -120,29 +142,37 @@ fun Route.vodAdminRoutes(companion: Companion) {
         )
     }
 
-    // The catalog with each title's match: search, filter by kind and status, paged. Titles are cleaned
-    // with the rules of ?profile= (PLAN §4.3.6 → Categories).
+    // The catalog with each title's match: search, filter by kind, category and status, sort by a column,
+    // paged. Titles and categories are shown with the rules of ?profile= (PLAN §4.3.6 → Categories).
     get("/vod/items") {
         if (companion.tmdbStore == null) return@get call.respondText("The database isn't connected yet.", status = HttpStatusCode.ServiceUnavailable)
         val profile = call.request.queryParameters["profile"]?.takeIf { it.isNotBlank() } ?: SyncService.MAIN
-        val rules = NameCleanup.parse(AdminView(companion.sync.liveItems(), profile).profileSettings[Settings.Key.VOD_NAME_CLEANUP.id])
+        val view = AdminView(companion.sync.liveItems(), profile)
+        val rules = NameCleanup.parse(view.profileSettings[Settings.Key.VOD_NAME_CLEANUP.id])
+        val categories = vodCategoriesView(companion, view).categories.associateBy { Triple(it.sourceId, it.kind, it.categoryId) }
         val q = call.request.queryParameters["q"]?.trim()?.lowercase().orEmpty()
         val kind = call.request.queryParameters["kind"]
         val status = call.request.queryParameters["status"]
+        val category = call.request.queryParameters["category"]
+        val sort = VodColumn.entries.firstOrNull { it.id == call.request.queryParameters["sort"] }
+        val desc = call.request.queryParameters["dir"] == "desc"
         val offset = call.request.queryParameters["offset"]?.toIntOrNull()?.coerceAtLeast(0) ?: 0
         val limit = call.request.queryParameters["limit"]?.toIntOrNull()?.coerceIn(1, 500) ?: 100
         val matches = companion.tmdbStore!!.matches().associateBy { it.vodItemId }
         val rows = companion.vodItems().asSequence()
             .filter { kind == null || it.kind.name == kind }
-            .map { item -> item to VodRepository.displayNameOf(item.name, rules) }
-            .filter { (item, title) -> q.isEmpty() || title.lowercase().contains(q) || item.name.lowercase().contains(q) }
-            .map { (item, title) ->
+            .map { item -> item to categories[Triple(item.sourceId, item.kind.name, item.categoryId)] }
+            .filter { (_, c) -> category == null || c?.name == category }
+            .map { (item, c) -> Triple(item, VodRepository.displayNameOf(item.name, rules), c) }
+            .filter { (item, title, _) -> q.isEmpty() || title.lowercase().contains(q) || item.name.lowercase().contains(q) }
+            .map { (item, title, c) ->
                 val m = matches[item.id]
                 val t = m?.tmdbId?.let { companion.vod.entryTitle(item.kind.name, it) }
-                VodRow(item.id, item.sourceId, item.kind.name, title, item.name, item.year, m?.status ?: "pending", m?.tmdbId, t?.first, t?.second)
+                VodRow(item.id, item.sourceId, item.kind.name, title, item.name, item.year, c?.title.orEmpty(), c?.name.orEmpty(), m?.status ?: "pending", m?.tmdbId, t?.first, t?.second)
             }
             .filter { status == null || it.status == status }
             .toList()
+            .let { if (sort == null) it else it.sortedWith(sort.comparator(desc)) }
         call.respond(VodRows(rows.drop(offset).take(limit), rows.size))
     }
 

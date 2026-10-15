@@ -285,6 +285,10 @@ export const VodRow = z.object({
   /** The provider's own name. */
   name: z.string(),
   year: z.number().nullable(),
+  /** As the TVs show it (renamed or cleaned up); empty when the provider gave none. */
+  category: z.string(),
+  /** The provider's category name, what the category filter takes. */
+  categoryName: z.string(),
   status: z.enum(["matched", "manual", "unmatched", "pending"]),
   tmdbId: z.number().nullable(),
   tmdbTitle: z.string().nullable(),

@@ -3,6 +3,7 @@ import { acceptLinks, carryGroup, getChannels, getSources, getSwitch, rejectMatc
 import { useProfiles, useToast } from "../context";
 import type { ChannelRow, ProposalView, SourcesView, SwitchView } from "../schema";
 import { Program } from "./Channels";
+import { useSorted } from "../sort";
 
 /**
  * Provider switch (PLAN §4.3.18 → 8, §4.5): add the new source beside the old one, link your
@@ -30,6 +31,8 @@ export default function Switch() {
     getSwitch(profile, target).then((r) => { setReport(r); setError(null); }).catch((e: Error) => setError(e.message));
   }, [profile, target]);
   useEffect(load, [load]);
+  const confident = useSorted(report?.confident, { mine: (p) => p.name, theirs: (p) => p.matches[0]?.name, why: (p) => p.matches[0]?.reasons.join(", ") });
+  const groups = useSorted(report?.groups, { group: (g) => g.group, theirs: (g) => g.toGroup });
 
   if (sources && sources.sources.length < 2) {
     return (
@@ -66,9 +69,9 @@ export default function Switch() {
             <section className="section">
               <div className="row heading"><h2 className="section-title">Confident matches</h2><span className="spacer" /><button className="primary" onClick={acceptAll}>Accept all confident</button></div>
               <table className="table">
-                <thead><tr><th>Your channel</th><th>On {report.targetName}</th><th className="wide">Why</th></tr></thead>
+                <thead><tr>{confident.header("mine", "Your channel")}{confident.header("theirs", `On ${report.targetName}`)}{confident.header("why", "Why", "wide")}</tr></thead>
                 <tbody>
-                  {report.confident.map((p) => (
+                  {confident.rows.map((p) => (
                     <tr key={p.userChannelId}>
                       <td>{p.name}{p.favorite && <span className="tag">★</span>}<div className="detail small">{p.fromSource}: {p.fromName}</div></td>
                       <td>{p.matches[0].name}<div className="detail small">{p.matches[0].group}</div></td>
@@ -99,9 +102,9 @@ export default function Switch() {
             <section className="section">
               <h2 className="section-title">Groups with your settings</h2>
               <table className="table">
-                <thead><tr><th>Group</th><th>On {report.targetName}</th><th /></tr></thead>
+                <thead><tr>{groups.header("group", "Group")}{groups.header("theirs", `On ${report.targetName}`)}<th /></tr></thead>
                 <tbody>
-                  {report.groups.map((g) => (
+                  {groups.rows.map((g) => (
                     <tr key={`${g.sourceId}|${g.group}`}>
                       <td>{g.group}<div className="detail small">{g.sourceName}</div></td>
                       <td>{g.toGroup ?? <span className="detail">No match</span>}</td>

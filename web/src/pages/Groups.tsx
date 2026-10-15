@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { editGroup, getGroups, moved, moveGroup, putSetting } from "../admin";
 import { ApplyTo, profileNames, useProfiles, useToast } from "../context";
 import type { GroupView, GroupsView } from "../schema";
+import { useSorted } from "../sort";
 
 const groupSorts = [["PROVIDER", "Provider order"], ["A_Z", "A–Z"], ["Z_A", "Z–A"], ["MANUAL", "Manual"]] as const;
 const channelSorts = [["DEFAULT", "Profile default"], ["PROVIDER", "Provider order"], ["NUMBER", "Number"], ["A_Z", "A–Z"]] as const;
@@ -44,6 +45,7 @@ export default function Groups() {
     (!show || g.hidden === (show === "hidden")) &&
     (!filter || g.title.toLowerCase().includes(filter.toLowerCase()) || g.name.toLowerCase().includes(filter.toLowerCase()))) ?? [];
   const multiSource = new Set(data?.groups.map((g) => g.sourceId)).size > 1;
+  const table = useSorted(shown, { title: (g) => g.title, source: (g) => g.sourceName, count: (g) => g.count });
 
   return (
     <div className="page">
@@ -71,26 +73,26 @@ export default function Groups() {
           </div>
           <ApplyTo />
           <table className="table">
-            <thead><tr><th /><th>Group</th>{multiSource && <th>Source</th>}<th>Channels</th><th>Sort</th><th /></tr></thead>
+            <thead><tr>{!table.sorted && <th />}{table.header("title", "Group")}{multiSource && table.header("source", "Source")}{table.header("count", "Channels")}<th>Sort</th><th /></tr></thead>
             <tbody>
-              {shown.map((g) => {
+              {table.rows.map((g) => {
                 const i = visible.indexOf(g);
                 return (
                   <tr
                     key={`${g.sourceId}|${g.name}`}
                     className={g.hidden ? "dim" : ""}
-                    draggable={!g.hidden && !filter}
+                    draggable={!g.hidden && !filter && !table.sorted}
                     onDragStart={() => setDragging(i)}
                     onDragOver={(e) => e.preventDefault()}
                     onDrop={(e) => { e.preventDefault(); if (dragging !== null && dragging !== i && i >= 0) move(visible[dragging], i); setDragging(null); }}
                   >
-                    <td className="nowrap">
+                    {!table.sorted && <td className="nowrap">
                       {!g.hidden && <>
                         <span className="grip" aria-hidden>⋮⋮</span>
                         <button className="link" disabled={i === 0} onClick={() => move(g, i - 1)} aria-label={`Move ${g.title} up`}>↑</button>
                         <button className="link" disabled={i === visible.length - 1} onClick={() => move(g, i + 1)} aria-label={`Move ${g.title} down`}>↓</button>
                       </>}
-                    </td>
+                    </td>}
                     <td>{g.title}{g.customName && <span className="detail small"> ({g.name})</span>}{g.hidden && <span className="tag quiet">Hidden</span>}</td>
                     {multiSource && <td className="detail">{g.sourceName}</td>}
                     <td>{g.count}</td>
