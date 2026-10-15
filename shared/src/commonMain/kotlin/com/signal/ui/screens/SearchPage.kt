@@ -63,7 +63,6 @@ import com.signal.ui.components.requestFocusWhenReady
 import com.signal.ui.menus.VodMenus
 import com.signal.ui.theme.SignalSizes
 import com.signal.ui.components.labelOf
-import com.signal.ui.components.SignalIcons
 import com.signal.ui.theme.SignalTheme
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
@@ -181,14 +180,11 @@ fun SearchPage() {
 
     TopLevelPage(Route.Search, chrome) {
         Column(Modifier.fillMaxSize().padding(horizontal = SignalSizes.EDGE_MARGIN.dp)) {
-            Row(Modifier.fillMaxWidth().padding(top = 16.dp), verticalAlignment = Alignment.Bottom) {
-                Box(Modifier.weight(1f).onFocusChanged { fieldHasFocus = it.hasFocus }) {
-                    val hint = if (SearchType.MOVIES in types || SearchType.SERIES in types) "Search channels, programs, movies and series" else "Search channels and programs"
-                    SField(hint, query, { query = it }, focusRequester = field, down = chips)
-                }
-                app.platform.voiceInput?.let { voice ->
-                    SButton("Voice search", onSelect = { voice.listen { text -> query = text } }, modifier = Modifier.padding(start = 16.dp, bottom = 8.dp), icon = SignalIcons.mic)
-                }
+            // Voice is the on-screen keyboard's mic. The remote's mic button belongs to Assistant,
+            // which keeps the audio to itself (PLAN §4.3.14).
+            Box(Modifier.fillMaxWidth().padding(top = 16.dp).onFocusChanged { fieldHasFocus = it.hasFocus }) {
+                val hint = if (SearchType.MOVIES in types || SearchType.SERIES in types) "Search channels, programs, movies and series" else "Search channels and programs"
+                SField(hint, query, { query = it }, focusRequester = field, down = chips)
             }
             // The type chips. All is on by default; the others toggle (PLAN §4.3.14).
             Row(Modifier.padding(top = 16.dp).focusProperties { down = results }, horizontalArrangement = Arrangement.spacedBy(12.dp)) {

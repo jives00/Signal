@@ -16,8 +16,6 @@ interface Platform {
     val player: VideoPlayer
     /** Null where updates don't apply (the dev harness, debug builds). */
     val updater: Updater?
-    /** Speech to text for Search's mic button (PLAN §4.3.14), or null where there's none (the dev harness). */
-    val voiceInput: VoiceInput?
     val io: CoroutineDispatcher
     /** Saving and opening a settings file (PLAN §9.2 → Fallback), or null where there's no way to. */
     val settingsFiles: SettingsFiles? get() = null
@@ -47,11 +45,6 @@ interface SettingsFiles {
     suspend fun save(suggestedName: String, text: String): String?
     /** Lets the user pick a file and returns its text; null when cancelled. */
     suspend fun open(): String?
-}
-
-/** Listens once and hands back the recognized text; nothing when the user cancels. */
-fun interface VoiceInput {
-    fun listen(onText: (String) -> Unit)
 }
 
 data class AppInfo(

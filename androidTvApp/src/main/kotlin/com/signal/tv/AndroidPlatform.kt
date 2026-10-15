@@ -38,7 +38,6 @@ class AndroidPlatform(private val context: Context) : Platform {
     )
     override val secretBox: SecretBox = KeystoreSecretBox()
     override val player = ExoVideoPlayer(context)
-    override val voiceInput = com.signal.platform.VoiceInput { onText -> (activity?.get() as? MainActivity)?.listenForSpeech(onText) }
     override val io = Dispatchers.IO
     override val settingsFiles = AndroidSettingsFiles(context) { activity?.get() as? MainActivity }
     private val http by lazy { createHttpClient() }

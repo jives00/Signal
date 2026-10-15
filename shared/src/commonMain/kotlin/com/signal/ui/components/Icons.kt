@@ -25,11 +25,6 @@ object SignalIcons {
     /** A watched episode (PLAN §4.3.9: "a Lucide check icon"). */
     val check: ImageVector by lazy { lucide("check", "M20 6 9 17l-5-5") }
 
-    /** Search's voice input button (PLAN §4.3.14). */
-    val mic: ImageVector by lazy {
-        lucide("mic", "M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z", "M19 10v2a7 7 0 0 1-14 0v-2", "M12 19v3")
-    }
-
     private fun lucide(name: String, vararg paths: String): ImageVector =
         ImageVector.Builder(name, 24.dp, 24.dp, 24f, 24f).apply {
             for (d in paths) {

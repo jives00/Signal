@@ -2,7 +2,6 @@ package com.signal.tv
 
 import android.content.Intent
 import android.os.Bundle
-import android.speech.RecognizerIntent
 import androidx.activity.result.contract.ActivityResultContracts
 import android.view.KeyEvent
 import android.view.WindowManager
@@ -19,21 +18,6 @@ import java.lang.ref.WeakReference
 class MainActivity : ComponentActivity() {
     private val signal get() = application as SignalApplication
     private var started = false
-
-    // Search's mic (PLAN §4.3.14): the system recognizer, so Signal needs no microphone permission.
-    private var speechCallback: ((String) -> Unit)? = null
-    private val speech = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
-        val text = result.data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)?.firstOrNull()
-        if (result.resultCode == RESULT_OK && !text.isNullOrBlank()) speechCallback?.invoke(text)
-        speechCallback = null
-    }
-
-    fun listenForSpeech(onText: (String) -> Unit) {
-        speechCallback = onText
-        runCatching {
-            speech.launch(Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM))
-        }.onFailure { speechCallback = null }
-    }
 
     // Settings files (PLAN §9.2 → Fallback): the system picker. Throws ActivityNotFoundException where
     // Android TV has none, and AndroidSettingsFiles falls back to Downloads.
