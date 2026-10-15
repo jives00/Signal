@@ -115,6 +115,8 @@ data class ChannelRow(
     val customName: String?,
     val customLogo: String?,
     val customNumber: Int?,
+    /** Names to say it by in a voice command, comma-separated (PLAN §4.3.14 → Voice names). */
+    val voiceNames: String? = null,
     val guide: GuideStatusView?,
     val now: ProgramBrief? = null,
     val next: ProgramBrief? = null,
@@ -213,6 +215,7 @@ class AdminChannels(private val companion: Companion) {
             customName = customName,
             customLogo = cp?.str("custom_logo"),
             customNumber = customNumber,
+            voiceNames = cp?.str("voice_names"),
             guide = guide,
             now = programs.first,
             next = programs.second,
@@ -227,7 +230,7 @@ class AdminChannels(private val companion: Companion) {
             name = cp?.str("custom_name") ?: "Unavailable channel", number = cp?.long("custom_number")?.toInt() ?: 0, logo = cp?.str("custom_logo"),
             tvgId = null, userChannelId = uc, favorite = uc in view.favorites, playlists = view.playlistsOf(uc), hidden = cp?.bool("hidden") == true,
             groupHidden = false, customName = cp?.str("custom_name"), customLogo = cp?.str("custom_logo"), customNumber = cp?.long("custom_number")?.toInt(),
-            guide = null, unavailable = true,
+            voiceNames = cp?.str("voice_names"), guide = null, unavailable = true,
         )
     }
 
@@ -272,13 +275,13 @@ class AdminChannels(private val companion: Companion) {
                     "visible" -> cp?.bool("hidden") != true && view.groupOverrides[view.groupKey(s.sourceId, s.groupName)]?.bool("hidden") != true
                     else -> true
                 } &&
-                (!filter.customized || cp?.str("custom_name") != null || cp?.str("custom_logo") != null || cp?.long("custom_number") != null) &&
+                (!filter.customized || cp?.str("custom_name") != null || cp?.str("custom_logo") != null || cp?.long("custom_number") != null || cp?.str("voice_names") != null) &&
                 when (filter.guide) {
                     "mapped" -> refs[s.id] != null
                     "unmapped" -> refs[s.id] == null
                     else -> true
                 } &&
-                (words.isEmpty() || SearchText.fold("${cp?.str("custom_name").orEmpty()} ${s.displayName} ${s.rawName} ${s.tvgId.orEmpty()}").let { text ->
+                (words.isEmpty() || SearchText.fold("${cp?.str("custom_name").orEmpty()} ${cp?.str("voice_names").orEmpty()} ${s.displayName} ${s.rawName} ${s.tvgId.orEmpty()}").let { text ->
                     val tokens = text.split(' ')
                     words.all { w -> tokens.any { it.startsWith(w) } }
                 })

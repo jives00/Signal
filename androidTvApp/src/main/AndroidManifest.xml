@@ -8,6 +8,8 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <!-- The auto-updater hands downloaded release APKs to the package installer (PLAN §4.3.15). -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <!-- Voice commands when Signal is the device's assistant (PLAN §4.3.14 → Voice commands). -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
 
     <!-- Settings files (PLAN §9.2): to see whether a real file picker exists, or only Android TV's stub. -->
     <queries>
@@ -47,6 +49,28 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!-- Signal as the device's assistant: only active once made so (see voice/VoiceAssistant.kt). -->
+        <service
+            android:name=".voice.SignalAssistantService"
+            android:exported="true"
+            android:permission="android.permission.BIND_VOICE_INTERACTION">
+            <meta-data android:name="android.voice_interaction" android:resource="@xml/voice_assistant" />
+            <intent-filter>
+                <action android:name="android.service.voice.VoiceInteractionService" />
+            </intent-filter>
+        </service>
+        <service
+            android:name=".voice.SignalAssistantSessionService"
+            android:exported="true"
+            android:permission="android.permission.BIND_VOICE_INTERACTION" />
+        <service
+            android:name=".voice.SignalRecognitionService"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.speech.RecognitionService" />
+            </intent-filter>
+        </service>
 
         <provider
             android:name="androidx.core.content.FileProvider"

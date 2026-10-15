@@ -550,14 +550,74 @@ class AppController(val platform: Platform, val log: Log) {
     /** The prompt's Watch: the channel full screen, in its own group. */
     fun watchReminder(active: ActiveReminder) {
         activeReminder = null
-        // During a movie, OK = Watch saves the position first (PLAN §4.3.10).
+        watch(active.channel)
+    }
+
+    /** A channel full screen, in its own group, from wherever the app is. */
+    private fun watch(ch: com.signal.model.Channel) {
+        // During a movie, this saves the position first (PLAN §4.3.10).
         if (navigator.current == Route.VodPlayer) vodPlayback.stop()
-        val ch = active.channel
         val group = if (ch.isFavorite) ChannelGroup.Favorites else ChannelGroup.Provider(ch.stream.sourceId, ch.stream.groupName, ch.stream.groupName)
         panel.close()
         playback.tune(ch, fullScreen = true, group = group)
-        navigator.go(Route.FullScreen(group))
+        if (navigator.current !is Route.FullScreen) navigator.go(Route.FullScreen(group))
     }
+
+    /**
+     * Acts on what the assistant heard (PLAN §4.3.14 → Voice commands): the recognizer's guesses,
+     * best first. The first that names a channel wins, so a top guess of "a b d" loses to a
+     * second of "a b c". Returns what it did, for the log and the listening overlay.
+     */
+    suspend fun voice(guesses: List<String>): VoiceResult {
+        val best = guesses.firstOrNull { it.isNotBlank() }.orEmpty()
+        val commands = guesses.mapNotNull { heard -> (com.signal.voice.VoiceCommand.parse(heard) as? com.signal.voice.VoiceCommand.Tune)?.let { heard to it.channel } }
+        val tried = commands.firstOrNull()?.second
+        suspend fun act(heard: String, ch: com.signal.model.Channel, how: String): VoiceResult {
+            withContext(Dispatchers.Main) {
+                // After startup's own start page, and after a return from the background, which
+                // would otherwise reset to it or resume the old channel.
+                androidx.compose.runtime.snapshotFlow { ready }.first { it }
+                if (inBackground) voiceChannel = ch else watch(ch)
+            }
+            return VoiceResult(true, heard, best, "Voice: \"$heard\" → ${ch.displayName}$how (guesses: ${guesses.joinToString(" | ")})", ch.displayName)
+                .also { log.info(it.message) }
+        }
+        // A guess that names a channel as heard.
+        for ((heard, name) in commands) {
+            search.channels(name, limit = 1).firstOrNull()?.let { return act(heard, it, "") }
+        }
+        // Else initials that sound like a guess's letters ("e a b t" → ABC).
+        val initials = if (commands.isEmpty()) emptySet() else search.voiceNames().second
+        for ((heard, name) in commands) {
+            for (like in com.signal.voice.VoiceCommand.soundsLike(name, initials)) {
+                search.channels(like, limit = 1).firstOrNull()?.let { return act(heard, it, " by sound (\"$like\")") }
+            }
+        }
+        return when (tried) {
+            null -> VoiceResult(false, best, best, "Voice: nothing heard", "Didn't catch that")
+            else -> VoiceResult(false, best, best, "Voice: no channel in ${guesses.joinToString(" | ")}", "No channel matches \"$tried\"")
+        }.also { log.info(it.message) }
+    }
+
+    /** [heard] is the guess acted on (or the best), [best] the recognizer's first guess, and [shown] the outcome for the listening overlay. */
+    data class VoiceResult(val acted: Boolean, val heard: String, val best: String, val message: String, val shown: String)
+
+    /**
+     * The phrases a voice command can be made of: the commands' own and the channels' names. Kept
+     * until the channels change, since building them from a large list takes seconds.
+     */
+    suspend fun voicePhrases(): Set<String> {
+        val version = search.version
+        voicePhrasesCache?.takeIf { it.first == version }?.let { return it.second }
+        val (names, initials) = search.voiceNames()
+        return com.signal.voice.VoiceCommand.phrases(names, initials).also { voicePhrasesCache = version to it }
+    }
+
+    @kotlin.concurrent.Volatile private var voicePhrasesCache: Pair<Int, Set<String>>? = null
+
+    private var inBackground = false
+    /** A channel a voice command asked for while the app was in the background: watched on return. */
+    private var voiceChannel: com.signal.model.Channel? = null
 
     fun dismissReminder() {
         activeReminder = null
@@ -583,14 +643,20 @@ class AppController(val platform: Platform, val log: Log) {
         if (navigator.current == Route.VodPlayer) vodPlayback.release()
         playback.release()
         settings.put(Settings.Key.BACKGROUNDED_AT, Clock.System.now().toEpochMilliseconds().toString())
+        inBackground = true
     }
 
     fun onForeground() {
         val away = settings.raw(Settings.Key.BACKGROUNDED_AT)?.toLongOrNull()?.let { Clock.System.now().toEpochMilliseconds() - it }
         settings.put(Settings.Key.BACKGROUNDED_AT, null)
+        inBackground = false
         scope.launch { catchUpReminders() }
         scope.launch { refreshFollowedSeries() }
-        if (away != null && away > AWAY_RESETS_TO_HOME_MS && navigator.current != Route.Setup) {
+        val voice = voiceChannel
+        voiceChannel = null
+        if (voice != null) {
+            watch(voice)
+        } else if (away != null && away > AWAY_RESETS_TO_HOME_MS && navigator.current != Route.Setup) {
             scope.launch { openStartPage() }
         } else if (away != null && navigator.current == Route.VodPlayer) {
             scope.launch { vodPlayback.resume() }

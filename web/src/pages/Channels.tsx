@@ -197,7 +197,7 @@ export default function Channels() {
   );
 }
 
-/** The row detail drawer (PLAN §4.3.18 → Channels): rename, logo, number, guide mapping, the raw name. */
+/** The row detail drawer (PLAN §4.3.18 → Channels): rename, logo, number, voice names, guide mapping, the raw name. */
 function ChannelDrawer({ streamId, onClose, onChanged, sources }: { streamId: string; onClose: () => void; onChanged: () => void; sources: SourcesView | null }) {
   const { profile, applyTo, profiles } = useProfiles();
   const { save } = useToast();
@@ -205,6 +205,7 @@ function ChannelDrawer({ streamId, onClose, onChanged, sources }: { streamId: st
   const [name, setName] = useState("");
   const [logo, setLogo] = useState("");
   const [number, setNumber] = useState("");
+  const [voiceNames, setVoiceNames] = useState("");
   const [search, setSearch] = useState("");
   const [results, setResults] = useState<GuideChannelInfo[]>([]);
   const [epgOverride, setEpgOverride] = useState("");
@@ -215,6 +216,7 @@ function ChannelDrawer({ streamId, onClose, onChanged, sources }: { streamId: st
       setName(r.customName ?? "");
       setLogo(r.customLogo ?? "");
       setNumber(r.customNumber?.toString() ?? "");
+      setVoiceNames(r.voiceNames ?? "");
       setEpgOverride(r.guide?.override ? r.guide.epgSourceId : "");
     }).catch(() => setRow(null));
   }, [profile, streamId]);
@@ -241,11 +243,12 @@ function ChannelDrawer({ streamId, onClose, onChanged, sources }: { streamId: st
 
       <form className="form" onSubmit={(e) => {
         e.preventDefault();
-        save(applied, () => editChannels([row.streamId], applyTo, "set", { values: { customName: name || null, customLogo: logo || null, customNumber: number ? Number(number) : null } }), after);
+        save(applied, () => editChannels([row.streamId], applyTo, "set", { values: { customName: name || null, customLogo: logo || null, customNumber: number ? Number(number) : null, voiceNames: voiceNames || null } }), after);
       }}>
         <label>Name<input value={name} placeholder={row.rawName} onChange={(e) => setName(e.target.value)} /></label>
         <label>Logo URL<input value={logo} placeholder={row.customLogo ? "" : "The provider's logo"} onChange={(e) => setLogo(e.target.value)} /></label>
         <label>Number<input type="number" min={1} value={number} placeholder={String(row.number)} onChange={(e) => setNumber(e.target.value)} /></label>
+        <label>Voice names<input value={voiceNames} placeholder="Other names to say it by, e.g. fox, fox chicago" onChange={(e) => setVoiceNames(e.target.value)} /></label>
         <div className="row">
           <button className="primary" type="submit">Save</button>
           <button type="button" onClick={() => save(applied, () => editChannels([row.streamId], applyTo, row.favorite ? "unfavorite" : "favorite"), after)}>{row.favorite ? "Unfavorite" : "Favorite"}</button>

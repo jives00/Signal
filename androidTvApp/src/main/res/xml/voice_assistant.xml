@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Signal as the device's assistant (PLAN §4.3.14 → Voice commands). -->
+<voice-interaction-service xmlns:android="http://schemas.android.com/apk/res/android"
+    android:sessionService="com.signal.tv.voice.SignalAssistantSessionService"
+    android:recognitionService="com.signal.tv.voice.SignalRecognitionService"
+    android:supportsAssist="true" />

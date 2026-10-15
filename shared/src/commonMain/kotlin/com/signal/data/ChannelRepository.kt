@@ -193,12 +193,17 @@ class ChannelRepository(
                 db.userChannelQueries.insertUserChannel(id, Clock.System.now().toEpochMilliseconds())
                 db.userChannelQueries.insertLink(id, channel.stream.id, "manual", 1)
             }
-            db.userChannelQueries.ensureProfileRow(id, profile)
+            ensureProfileRow(id)
             id
         }
     }
 
-    private fun ensureProfileRow(id: String) = db.userChannelQueries.ensureProfileRow(id, profile)
+    // Looks first: even an INSERT OR IGNORE that inserts nothing tells every query on channel_profile
+    // it changed, and each full-screen tune comes through here. That threw away Search's index on
+    // every tune, so the next search (and voice command) rebuilt it: 8 s on the real list.
+    private fun ensureProfileRow(id: String) {
+        if (db.userChannelQueries.profileRow(id, profile).executeAsOneOrNull() == null) db.userChannelQueries.ensureProfileRow(id, profile)
+    }
 
     // ---- Favorites --------------------------------------------------------------------------
 
@@ -266,6 +271,17 @@ class ChannelRepository(
     suspend fun rename(channel: Channel, name: String?) {
         val id = ensureUserChannel(channel)
         withContext(io) { db.userChannelQueries.setCustomName(name?.trim()?.ifEmpty { null }, id, profile) }
+    }
+
+    /** Names to say the channel by in a voice command (PLAN §4.3.14 → Voice names). */
+    suspend fun voiceNames(channel: Channel): List<String> = withContext(io) {
+        val id = channel.userChannelId ?: db.userChannelQueries.userChannelForStream(channel.stream.id).executeAsOneOrNull() ?: return@withContext emptyList()
+        VoiceNames.parse(db.userChannelQueries.profileRow(id, profile).executeAsOneOrNull()?.voice_names)
+    }
+
+    suspend fun setVoiceNames(channel: Channel, names: List<String>) {
+        val id = ensureUserChannel(channel)
+        withContext(io) { db.userChannelQueries.setVoiceNames(VoiceNames.format(names), id, profile) }
     }
 
     suspend fun setNumber(channel: Channel, number: Int?) {

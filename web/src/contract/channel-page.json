@@ -22,6 +22,7 @@
             "customName": null,
             "customLogo": null,
             "customNumber": null,
+            "voiceNames": null,
             "guide": {
                 "epgSourceId": "epg:src",
                 "epgSourceName": "Provider guide",

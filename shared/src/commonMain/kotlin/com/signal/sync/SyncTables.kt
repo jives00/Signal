@@ -58,7 +58,7 @@ class SyncTables(private val db: UserDatabase, private val settings: Settings, p
                 SyncType.CHANNEL_PROFILE, p, c.user_channel_id,
                 fields(
                     "custom_name" to c.custom_name, "custom_logo" to c.custom_logo, "custom_number" to c.custom_number, "hidden" to (c.hidden == 1L),
-                    "audio_language" to c.audio_language, "subtitle" to c.subtitle, "aspect" to c.aspect,
+                    "audio_language" to c.audio_language, "subtitle" to c.subtitle, "aspect" to c.aspect, "voice_names" to c.voice_names,
                 ),
             )
         }
@@ -171,7 +171,7 @@ class SyncTables(private val db: UserDatabase, private val settings: Settings, p
                 com.signal.db.user.Channel_profile(
                     user_channel_id = id, profile_id = profile, custom_name = f.str("custom_name"), custom_logo = f.str("custom_logo"),
                     custom_number = f.long("custom_number"), hidden = if (f.bool("hidden") == true) 1 else 0,
-                    audio_language = f.str("audio_language"), subtitle = f.str("subtitle"), aspect = f.str("aspect"),
+                    audio_language = f.str("audio_language"), subtitle = f.str("subtitle"), aspect = f.str("aspect"), voice_names = f.str("voice_names"),
                 ),
             )
             SyncType.FAVORITE -> db.syncQueries.upsertFavorite(profile, id, f.str("sort_key").orEmpty())

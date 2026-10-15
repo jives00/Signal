@@ -42,7 +42,7 @@ data class ChannelEdit(
     /** favorite, unfavorite, hide, unhide, reset, addToPlaylist, removeFromPlaylist, set */
     val action: String,
     val playlistId: String? = null,
-    /** For "set": customName, customLogo, customNumber; a JSON null clears one. */
+    /** For "set": customName, customLogo, customNumber, voiceNames; a JSON null clears one. */
     val values: Map<String, JsonElement> = emptyMap(),
 )
 
@@ -251,8 +251,14 @@ fun Route.adminPageRoutes(companion: Companion) {
                 "addToPlaylist" -> edits.addToPlaylist(e.playlistId ?: throw SyncRefused(400, "Choose a playlist."), e.streamIds, profiles.first())
                 "removeFromPlaylist" -> edits.removeStreamsFromPlaylist(e.playlistId ?: throw SyncRefused(400, "Choose a playlist."), e.streamIds, profiles.first())
                 "set" -> {
-                    val names = mapOf("customName" to "custom_name", "customLogo" to "custom_logo", "customNumber" to "custom_number")
-                    val f = e.values.mapNotNull { (k, v) -> names[k]?.let { it to cleanValue(v) } }.toMap()
+                    val names = mapOf("customName" to "custom_name", "customLogo" to "custom_logo", "customNumber" to "custom_number", "voiceNames" to "voice_names")
+                    val f = e.values.mapNotNull { (k, v) ->
+                        names[k]?.let { field ->
+                            // Voice names in the app's own format: trimmed, deduplicated, comma-separated.
+                            field to if (field == "voice_names") (cleanValue(v) as? JsonPrimitive)?.content?.let { com.signal.data.VoiceNames.format(com.signal.data.VoiceNames.parse(it)) }?.let(::JsonPrimitive) ?: JsonNull
+                            else cleanValue(v)
+                        }
+                    }.toMap()
                     if (f.isEmpty()) throw SyncRefused(400, "Nothing to change.")
                     edits.channelFields(e.streamIds, profiles, JsonObject(f))
                 }

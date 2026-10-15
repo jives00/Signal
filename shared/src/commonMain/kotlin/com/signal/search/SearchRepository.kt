@@ -6,8 +6,11 @@ import com.signal.data.Settings
 import com.signal.db.user.UserDatabase
 import com.signal.guide.GuideRepository
 import com.signal.match.SearchText
+import com.signal.data.VoiceNames
+import com.signal.voice.VoiceCommand
 import com.signal.model.Channel
 import com.signal.model.Program
+import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
@@ -40,6 +43,10 @@ class SearchRepository(
         val names: List<String>,
         val favorite: Boolean,
         val order: Int,
+        /** Words the names write in capitals and say as letters ("NBC" → "nbc"), which voice commands spell out. */
+        val initials: List<String>,
+        /** The voice names the user gave it, folded (PLAN §4.3.14 → Voice names). */
+        val voiceNames: List<String>,
     )
 
     private val lock = Mutex()
@@ -48,41 +55,84 @@ class SearchRepository(
     private var byGuideChannel: Map<String, List<Entry>>? = null
     private var byGuideState: Any? = null
 
+    private val rebuild = kotlinx.coroutines.flow.MutableSharedFlow<Unit>(extraBufferCapacity = 1, onBufferOverflow = kotlinx.coroutines.channels.BufferOverflow.DROP_OLDEST)
+
+    /** Goes up with every change to the visible channels, so a cache built from them knows it's stale. */
+    val versions: kotlinx.coroutines.flow.StateFlow<Int> get() = _versions
+    val version: Int get() = _versions.value
+    private val _versions = kotlinx.coroutines.flow.MutableStateFlow(0)
+
     init {
-        // Any change to channels, favorites or hidden flags: rebuild on the next search.
+        // Any change to channels, favorites or hidden flags: rebuild. Straight away once something
+        // has searched (after a pause, for bursts like a sync), so the next search or voice command
+        // doesn't wait seconds for it on a large list.
         scope.launch {
-            db.streamQueries.searchIndex(settings.profileId).asFlow().collect { lock.withLock { entries = null; byGuideChannel = null } }
+            db.streamQueries.searchIndex(settings.profileId).asFlow().collect {
+                val wasBuilt = lock.withLock { (entries != null).also { entries = null; byGuideChannel = null; _versions.value++ } }
+                if (wasBuilt) rebuild.tryEmit(Unit)
+            }
+        }
+        scope.launch {
+            @OptIn(kotlinx.coroutines.FlowPreview::class)
+            rebuild.debounce(2_000).collect { lock.withLock { index() } }
         }
     }
 
     private suspend fun index(): List<Entry> = entries ?: withContext(io) {
         db.streamQueries.searchIndex(settings.profileId).executeAsList().mapIndexedNotNull { i, r ->
             if (r.hidden == 1L || r.group_hidden == 1L) return@mapIndexedNotNull null
-            val names = listOfNotNull(r.custom_name, r.display_name, r.raw_name).map(SearchText::fold).distinct()
-            Entry(r.id, r.user_channel_id, r.tvg_id, r.raw_name, names, r.is_favorite, i)
+            val raw = listOfNotNull(r.custom_name, r.display_name, r.raw_name)
+            val names = raw.map(SearchText::fold).distinct()
+            val voice = VoiceNames.parse(r.voice_names)
+            // Initials: capitals in the names, and any letters-only word in a voice name ("fs1" → "fs").
+            val initials = (raw.flatMap { n -> capitals.findAll(n).map { it.value } } + voice.flatMap { v -> letterRuns.findAll(v).map { it.value } })
+                .map { it.lowercase() }.filter(VoiceCommand::isInitials).distinct()
+            Entry(r.id, r.user_channel_id, r.tvg_id, r.raw_name, names, r.is_favorite, i, initials, voice.map(SearchText::fold).filter { it.isNotEmpty() })
         }
     }.also { entries = it }
 
-    /** Channels matching every word as a word prefix: favorites first, then exact, prefix, contains (PLAN §4.3.14). */
+    /**
+     * Channels matching every word as a word prefix: favorites first, then exact, prefix, contains
+     * (PLAN §4.3.14). A channel with the query as one of its voice names comes before all of them.
+     */
     suspend fun channels(query: String, limit: Int = 60): List<Channel> {
         val words = SearchText.words(query)
         if (words.isEmpty()) return emptyList()
         val folded = words.joinToString(" ")
+        // Spaces don't count for voice names: "fs1" is heard as "f s one", which parses to "fs 1".
+        val compact = words.joinToString("")
         val hits = lock.withLock {
             withContext(io) {
                 index().mapNotNull { e ->
-                    if (!words.all { w -> e.names.any { n -> hasWordPrefix(n, w) } }) return@mapNotNull null
+                    val voice = e.voiceNames.any { it.replace(" ", "") == compact }
+                    if (!voice && !words.all { w -> e.names.any { n -> hasWordPrefix(n, w) } }) return@mapNotNull null
                     val rank = when {
+                        voice -> -1
                         e.names.any { it == folded } -> 0
                         e.names.any { it.startsWith(folded) } -> 1
                         else -> 2
                     }
                     Triple(e, rank, e.order)
-                }.sortedWith(compareBy({ !it.first.favorite }, { it.second }, { it.third })).take(limit).map { it.first.streamId }
+                }.sortedWith(compareBy({ it.second != -1 }, { !it.first.favorite }, { it.second }, { it.third })).take(limit).map { it.first.streamId }
             }
         }
         return hits.mapNotNull { channels.channelByStream(it) }
     }
+
+    /**
+     * What a voice command can name (PLAN §4.3.14): the visible channels' names, folded, and the
+     * initials they're written with ("NBC" → "nbc"), which people spell out when they say them.
+     * From the search index, so building the voice vocabulary also readies the search it ends in.
+     */
+    suspend fun voiceNames(): Pair<Set<String>, Set<String>> = lock.withLock {
+        withContext(io) {
+            val all = index()
+            all.flatMapTo(HashSet()) { it.names + it.voiceNames } to all.flatMapTo(HashSet()) { it.initials }
+        }
+    }
+
+    private val capitals = Regex("""\b\p{Lu}{2,5}\b""")
+    private val letterRuns = Regex("""\p{L}{2,5}""")
 
     data class ProgramHit(val program: Program, val channel: Channel)
 

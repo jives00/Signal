@@ -1,0 +1,3 @@
+-- Voice commands (PLAN §4.3.14): names to say a channel by, comma-separated ("fox, fox chicago").
+-- Per profile, like custom names.
+ALTER TABLE channel_profile ADD COLUMN voice_names TEXT;

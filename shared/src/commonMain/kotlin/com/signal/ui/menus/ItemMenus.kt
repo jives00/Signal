@@ -70,6 +70,13 @@ class ItemMenus(private val app: AppController) {
             add(PanelAction("Rename") {
                 PanelPage.TextInput("Rename ${channel.displayName}", channel.displayName) { name -> launch { app.channels.rename(channel, name) } }
             })
+            add(PanelAction("Voice names") {
+                PanelPage.TextInput(
+                    "Voice names for ${channel.displayName}", "",
+                    hint = "Other names to say it by in a voice command, separated by commas. For example: fox, fox chicago",
+                    load = { app.channels.voiceNames(channel).joinToString(", ") },
+                ) { names -> launch { app.channels.setVoiceNames(channel, names.split(',')) } }
+            })
             add(PanelAction("Set channel number", detail = channel.number.toString()) {
                 PanelPage.TextInput("Channel number", channel.number.toString(), digitsOnly = true) { n ->
                     launch { app.channels.setNumber(channel, n.toIntOrNull()) }

@@ -64,7 +64,7 @@ WHERE s.id = :streamId;
 -- Every channel Search can find (PLAN §4.3.14): enabled sources, with the hidden flags so hidden
 -- channels and groups can be left out.
 searchIndex:
-SELECT s.id, s.raw_name, s.display_name, s.tvg_id, cl.user_channel_id, cp.custom_name,
+SELECT s.id, s.raw_name, s.display_name, s.tvg_id, cl.user_channel_id, cp.custom_name, cp.voice_names,
        coalesce(cp.hidden, 0) AS hidden, coalesce(go.hidden, 0) AS group_hidden,
        (f.user_channel_id IS NOT NULL) AS is_favorite
 FROM stream s

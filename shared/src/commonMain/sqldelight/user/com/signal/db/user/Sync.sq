@@ -109,7 +109,7 @@ deleteLink:
 DELETE FROM channel_link WHERE user_channel_id = ? AND stream_id = ?;
 
 upsertChannelProfile:
-INSERT OR REPLACE INTO channel_profile(user_channel_id, profile_id, custom_name, custom_logo, custom_number, hidden, audio_language, subtitle, aspect)
+INSERT OR REPLACE INTO channel_profile(user_channel_id, profile_id, custom_name, custom_logo, custom_number, hidden, audio_language, subtitle, aspect, voice_names)
 VALUES ?;
 
 deleteChannelProfile:

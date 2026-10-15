@@ -26,6 +26,7 @@ CREATE TABLE channel_profile (
     audio_language TEXT,
     subtitle TEXT,
     aspect TEXT,
+    voice_names TEXT,
     PRIMARY KEY (user_channel_id, profile_id)
 );
 
@@ -73,6 +74,9 @@ UPDATE channel_profile SET subtitle = ? WHERE user_channel_id = ? AND profile_id
 
 setAspect:
 UPDATE channel_profile SET aspect = ? WHERE user_channel_id = ? AND profile_id = ?;
+
+setVoiceNames:
+UPDATE channel_profile SET voice_names = ? WHERE user_channel_id = ? AND profile_id = ?;
 
 resetToProviderDefaults:
 UPDATE channel_profile SET custom_name = NULL, custom_logo = NULL, custom_number = NULL WHERE user_channel_id = ? AND profile_id = ?;

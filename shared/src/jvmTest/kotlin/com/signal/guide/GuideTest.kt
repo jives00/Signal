@@ -284,6 +284,7 @@ class UserDatabaseMigrationTest {
             UserDatabase.Schema.create(d)
             listOf("guide_mapping", "reminder", "epg_source", "sync_base", "sync_state", "alias", "match_reject", "vod_item", "vod_category", "library_item", "resume_position", "watched", "continue_hidden", "vod_info", "vod_tmdb", "vod_shelf", "vod_item_staging", "vod_fts").forEach { d.execute(null, "DROP TABLE $it", 0) }
             d.execute(null, "DROP INDEX IF EXISTS reminder_start", 0)
+            d.execute(null, "ALTER TABLE channel_profile DROP COLUMN voice_names", 0)
             d.execute(null, "INSERT INTO source(id, name, kind, url, created_at) VALUES ('s', 'Kept', 'M3U', 'http://x', 1)", 0)
             d.execute(null, "PRAGMA user_version = 1", 0)
         }
@@ -302,6 +303,7 @@ class UserDatabaseMigrationTest {
         JdbcSqliteDriver(url).use { d ->
             UserDatabase.Schema.create(d)
             listOf("sync_base", "sync_state", "alias", "match_reject", "vod_item", "vod_category", "library_item", "resume_position", "watched", "continue_hidden", "vod_info", "vod_tmdb", "vod_shelf", "vod_item_staging", "vod_fts").forEach { d.execute(null, "DROP TABLE $it", 0) }
+            d.execute(null, "ALTER TABLE channel_profile DROP COLUMN voice_names", 0)
             d.execute(null, "INSERT INTO favorite(profile_id, user_channel_id, sort_key) VALUES ('main', 'uc', 'a0')", 0)
             d.execute(null, "PRAGMA user_version = 2", 0)
         }
@@ -310,6 +312,25 @@ class UserDatabaseMigrationTest {
             assertEquals(listOf("uc"), db.syncQueries.allFavorites("main").executeAsList().map { it.user_channel_id })
             assertTrue(db.syncQueries.allBase().executeAsList().isEmpty())
             assertNull(db.syncQueries.state("rev").executeAsOneOrNull())
+        }
+    }
+
+    /** A 0.2.15 user.db (schema version 8) gains voice names and keeps its channels' custom names. */
+    @Test fun version8GainsVoiceNames() {
+        val file = java.io.File.createTempFile("user-v8", ".db").apply { delete(); deleteOnExit() }
+        val url = "jdbc:sqlite:${file.absolutePath}"
+        JdbcSqliteDriver(url).use { d ->
+            UserDatabase.Schema.create(d)
+            d.execute(null, "ALTER TABLE channel_profile DROP COLUMN voice_names", 0)
+            d.execute(null, "INSERT INTO channel_profile(user_channel_id, profile_id, custom_name) VALUES ('uc', 'main', 'Local FOX')", 0)
+            d.execute(null, "PRAGMA user_version = 8", 0)
+        }
+        JdbcSqliteDriver(url, java.util.Properties(), UserDatabase.Schema).use { d ->
+            val db = UserDatabase(d)
+            db.userChannelQueries.setVoiceNames("fox", "uc", "main")
+            val row = db.userChannelQueries.profileRow("uc", "main").executeAsOne()
+            assertEquals("Local FOX", row.custom_name)
+            assertEquals("fox", row.voice_names)
         }
     }
 }

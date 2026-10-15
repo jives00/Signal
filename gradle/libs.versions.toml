@@ -23,9 +23,14 @@ flyway = "13.10.0"
 hikari = "7.1.0"
 mariadb = "3.5.10"
 logback = "1.6.5"
+# Speech to text for voice commands (PLAN §4.3.14). Vosk: Apache 2.0. JNA: Apache 2.0 or LGPL 2.1, used under Apache 2.0.
+vosk = "0.3.47"
+jna = "5.13.0"
 
 [libraries]
 kotlin-test = { module = "org.jetbrains.kotlin:kotlin-test", version.ref = "kotlin" }
+vosk-android = { module = "com.alphacephei:vosk-android", version.ref = "vosk" }
+jna = { module = "net.java.dev.jna:jna", version.ref = "jna" }
 junit = { module = "junit:junit", version.ref = "junit" }
 androidx-activity-compose = { module = "androidx.activity:activity-compose", version.ref = "androidx-activity" }
 androidx-media3-exoplayer = { module = "androidx.media3:media3-exoplayer", version.ref = "androidx-media3" }

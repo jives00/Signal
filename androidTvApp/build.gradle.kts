@@ -107,4 +107,7 @@ dependencies {
     implementation(libs.sqldelight.android.driver)
     implementation(libs.ktor.client.okhttp)
     implementation(libs.kotlinx.coroutines.android)
+    // The AARs only: their POMs pull JNA as a jar, which has no Android native libraries.
+    implementation(libs.vosk.android) { artifact { type = "aar" }; isTransitive = false }
+    implementation(libs.jna) { artifact { type = "aar" } }
 }

@@ -67,6 +67,8 @@ export const ChannelRow = z.object({
   customName: z.string().nullable(),
   customLogo: z.string().nullable(),
   customNumber: z.number().nullable(),
+  /** Names to say it by in a voice command, comma-separated (PLAN §4.3.14 → Voice names). */
+  voiceNames: z.string().nullable().optional(),
   guide: GuideStatusView.nullable(),
   now: ProgramBrief.nullable().optional(),
   next: ProgramBrief.nullable().optional(),

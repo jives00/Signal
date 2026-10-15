@@ -67,6 +67,10 @@ sealed interface PanelPage {
         val initial: String,
         val digitsOnly: Boolean = false,
         val confirmLabel: String = "Save",
+        /** A line under the field, for how to fill it in. */
+        val hint: String? = null,
+        /** Fills the field from storage when [initial] isn't known up front; typing first wins. */
+        val load: (suspend () -> String)? = null,
         val onDone: (String) -> Unit,
     ) : PanelPage
 
@@ -236,6 +240,7 @@ private fun TextInputPage(state: SidePanelState, page: PanelPage.TextInput) {
                     .remoteItem(onSelect = { if (editing) keyboard?.show() else editing = true }, isTextInput = true),
             )
         }
+        page.hint?.let { SText(it, 22, Modifier.padding(top = 16.dp), color = c.secondaryText, maxLines = 3) }
         Row(Modifier.padding(top = 32.dp)) {
             SButton(page.confirmLabel, onSelect = {
                 keyboard?.hide()
@@ -245,6 +250,10 @@ private fun TextInputPage(state: SidePanelState, page: PanelPage.TextInput) {
         }
     }
     LaunchedEffect(page) { field.requestFocusWhenReady() }
+    LaunchedEffect(page) {
+        val loaded = page.load?.invoke() ?: return@LaunchedEffect
+        if (value == page.initial) value = loaded
+    }
 }
 
 @Composable
