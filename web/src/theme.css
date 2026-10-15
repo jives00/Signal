@@ -61,7 +61,7 @@ a { color: inherit; text-decoration: none; }
 }
 .nav a:hover { color: var(--text); background: var(--surface); }
 .nav a.active { color: var(--on-accent); background: var(--accent); }
-.nav .soon { color: var(--neutral-300); padding: 10px 24px; font-weight: 600; cursor: default; }
+.nav .soon { display: block; color: var(--muted); padding: 10px 24px; font-weight: 400; font-style: italic; cursor: default; }
 
 .main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 

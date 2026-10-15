@@ -16,14 +16,13 @@ import Sources from "./pages/Sources";
 import Switch from "./pages/Switch";
 import Vod from "./pages/Vod";
 
-/** The sidebar (PLAN §4.3.18). Name cleanup arrives with cleanup rules on the TV. */
+/** The sidebar (PLAN §4.3.18). Name cleanup is a section of Settings. */
 const pages: { path: string; title: string; ready: boolean; soon?: string }[] = [
   { path: "/", title: "Dashboard", ready: true },
   { path: "/sources", title: "Sources", ready: true },
   { path: "/channels", title: "Channels", ready: true },
   { path: "/favorites", title: "Favorites & playlists", ready: true },
   { path: "/groups", title: "Groups", ready: true },
-  { path: "/cleanup", title: "Name cleanup", ready: false, soon: "Arrives with name cleanup rules on the TV" },
   { path: "/mapping", title: "Guide mapping", ready: true },
   { path: "/switch", title: "Provider switch", ready: true },
   { path: "/vod", title: "Movies & Series", ready: true },
