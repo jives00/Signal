@@ -84,7 +84,7 @@ class TestPlayer : VideoPlayer {
 /** An update already found, so the banner shows from launch. */
 class TestUpdater(initial: com.signal.update.UpdateState) : com.signal.update.Updater {
     override val state = MutableStateFlow(initial)
-    override suspend fun check() = Unit
+    override suspend fun check(manual: Boolean) = true
     override fun install() = Unit
     override fun later() { state.value = com.signal.update.UpdateState.None }
 }

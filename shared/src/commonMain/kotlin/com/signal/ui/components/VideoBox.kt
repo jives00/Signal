@@ -25,6 +25,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
@@ -85,11 +86,15 @@ private fun DelayedSpinner(size: Int) {
         delay(1000)
         visible = true
     }
-    if (!visible) return
-    val accent = SignalTheme.colors.accent
+    if (visible) Spinner(size)
+}
+
+/** A spinning arc: buffering, and work in progress like Settings' update check. */
+@Composable
+fun Spinner(size: Int, color: Color = SignalTheme.colors.accent, modifier: Modifier = Modifier) {
     val angle by rememberInfiniteTransition().animateFloat(0f, 360f, infiniteRepeatable(tween(900, easing = LinearEasing), RepeatMode.Restart))
-    Canvas(Modifier.size(size.dp)) {
+    Canvas(modifier.size(size.dp)) {
         val stroke = this.size.width / 10f
-        drawArc(accent, angle, 270f, useCenter = false, topLeft = Offset(stroke / 2, stroke / 2), size = Size(this.size.width - stroke, this.size.height - stroke), style = Stroke(stroke))
+        drawArc(color, angle, 270f, useCenter = false, topLeft = Offset(stroke / 2, stroke / 2), size = Size(this.size.width - stroke, this.size.height - stroke), style = Stroke(stroke))
     }
 }

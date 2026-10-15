@@ -10,8 +10,11 @@ import kotlinx.coroutines.flow.StateFlow
 interface Updater {
     val state: StateFlow<UpdateState>
 
-    /** Quietly does nothing on failure: a check must never get in the way. */
-    suspend fun check()
+    /**
+     * Quietly does nothing on failure: a check must never get in the way. Returns whether GitHub
+     * answered, so Settings can say so. A [manual] check also offers a version put off with Later.
+     */
+    suspend fun check(manual: Boolean = false): Boolean
     fun install()
     /** Hides the banner until the next release. */
     fun later()

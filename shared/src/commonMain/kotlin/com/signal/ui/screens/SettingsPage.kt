@@ -44,6 +44,7 @@ import com.signal.ui.components.ListRow
 import com.signal.ui.components.PageChrome
 import com.signal.ui.components.SText
 import com.signal.ui.components.SectionTitle
+import com.signal.ui.components.Spinner
 import com.signal.ui.components.TopLevelPage
 import com.signal.ui.components.VDivider
 import com.signal.ui.components.formatTime
@@ -370,6 +371,9 @@ private fun AboutSection(app: AppController) {
     val info = app.platform.appInfo
     val updater = app.platform.updater
     val state = updater?.state?.collectAsState()?.value
+    // A manual check's progress and outcome; null until OK is pressed.
+    var checking by remember { mutableStateOf(false) }
+    var reached by remember { mutableStateOf<Boolean?>(null) }
     Column(Modifier.width(1100.dp)) {
         SectionTitle("Signal")
         SText("Version ${info.versionName} (${info.buildTag})", 26, Modifier.padding(horizontal = 40.dp))
@@ -378,16 +382,32 @@ private fun AboutSection(app: AppController) {
         if (updater == null) {
             SText(if (info.isDebug) "Debug builds don't update themselves." else "Updates aren't available here.", 24, Modifier.padding(horizontal = 40.dp), color = c.muted)
         } else {
-            val status = when (state) {
-                is UpdateState.Available -> "Version ${state.tag.removePrefix("apk-")} is available"
-                is UpdateState.Downloading -> "Downloading… ${(state.progress * 100).toInt()}%"
-                is UpdateState.Failed -> "Failed: ${state.message}"
+            val status = when {
+                checking -> "Checking…"
+                state is UpdateState.Available -> "Version ${state.tag.removePrefix("apk-")} is available"
+                state is UpdateState.Downloading -> "Downloading… ${(state.progress * 100).toInt()}%"
+                state is UpdateState.Failed -> "Failed: ${state.message}"
+                reached == false -> "Couldn't reach GitHub"
                 else -> "Up to date"
             }
-            ListRow("Check for updates", detail = status, onSelect = {
-                if (state is UpdateState.Available) app.panel.open(updatePanel(app, state), null)
-                else app.scope.launch { updater.check() }
-            })
+            ListRow(
+                "Check for updates", detail = status,
+                onSelect = {
+                    if (state is UpdateState.Available) app.panel.open(updatePanel(app, state), null)
+                    else if (!checking) app.scope.launch {
+                        checking = true
+                        // Held briefly so a fast answer still shows the check happened.
+                        val started = kotlin.time.TimeSource.Monotonic.markNow()
+                        val ok = updater.check(manual = true)
+                        kotlinx.coroutines.delay((800 - started.elapsedNow().inWholeMilliseconds).coerceAtLeast(0))
+                        reached = ok
+                        checking = false
+                    }
+                },
+                trailing = { focused ->
+                    if (checking) Spinner(28, if (focused) c.onAccent else c.accent, Modifier.padding(start = 16.dp))
+                },
+            )
         }
         SectionTitle("Credits")
         SText("Uses the Archivo typeface (SIL Open Font License).", 22, Modifier.padding(horizontal = 40.dp), color = c.muted)

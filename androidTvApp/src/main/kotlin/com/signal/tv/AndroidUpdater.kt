@@ -42,21 +42,22 @@ class AndroidUpdater(
     private var release: GitHubReleases.Release? = null
     private val prefs = context.getSharedPreferences("updater", Context.MODE_PRIVATE)
 
-    override suspend fun check() {
-        if (_state.value is UpdateState.Downloading) return
-        runCatching {
+    override suspend fun check(manual: Boolean): Boolean {
+        if (_state.value is UpdateState.Downloading) return true
+        return runCatching {
             val response = withContext(Dispatchers.IO) { http.get(GitHubReleases.LATEST_URL) }
-            if (!response.status.isSuccess()) { android.util.Log.w("Signal", "Update check: HTTP ${response.status.value}"); return }
-            val latest = GitHubReleases.parseLatest(response.bodyAsText()) ?: return
+            if (!response.status.isSuccess()) { android.util.Log.w("Signal", "Update check: HTTP ${response.status.value}"); return false }
+            val latest = GitHubReleases.parseLatest(response.bodyAsText()) ?: return false
             android.util.Log.i("Signal", "Update check: running $currentTag, latest ${latest.tag}")
             release = latest
-            val dismissed = prefs.getString(KEY_DISMISSED, null)
+            val dismissed = if (manual) null else prefs.getString(KEY_DISMISSED, null)
             _state.value = if (GitHubReleases.isNewer(currentTag, latest.tag) && latest.tag != dismissed) {
                 UpdateState.Available(latest.tag, latest.body)
             } else {
                 UpdateState.None
             }
-        }
+            true
+        }.getOrElse { e -> android.util.Log.w("Signal", "Update check failed: ${e.message}"); false }
     }
 
     override fun install() {

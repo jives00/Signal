@@ -172,6 +172,7 @@ fun ListRow(
     onFocused: (() -> Unit)? = null,
     size: Int = 26,
     leading: (@Composable (focused: Boolean) -> Unit)? = null,
+    trailing: (@Composable (focused: Boolean) -> Unit)? = null,
 ) {
     val c = SignalTheme.colors
     // Disabled rows are shown but never take focus, so D-pad skips them.
@@ -198,6 +199,7 @@ fun ListRow(
             if (detail != null) {
                 SText(detail, 22, Modifier.padding(start = 24.dp), color = if (focused) c.onAccent else c.muted)
             }
+            trailing?.invoke(focused)
         }
     }
 }
