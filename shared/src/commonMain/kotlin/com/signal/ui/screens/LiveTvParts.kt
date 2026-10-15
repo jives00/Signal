@@ -164,6 +164,10 @@ internal fun GroupColumn(
                 val requester = remember { FocusRequester() }
                 LaunchedEffect(focus.tick) { if (focus.targetKey == entry.group.key) requester.requestFocusWhenReady() }
                 val moving = move.movingKey == entry.group.key
+                // Separates Favorites and playlists from the provider's groups.
+                if (i > 0 && entry.group is ChannelGroup.Provider && shown[i - 1].group !is ChannelGroup.Provider) {
+                    HDivider(Modifier.padding(horizontal = 40.dp, vertical = 8.dp))
+                }
                 Focusable(
                     Modifier.fillMaxWidth(),
                     focusRequester = requester,
