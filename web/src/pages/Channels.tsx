@@ -62,7 +62,7 @@ export default function Channels() {
   const [sources, setSources] = useState<SourcesView | null>(null);
   const [playlists, setPlaylists] = useState<{ id: string; name: string }[]>([]);
   const [groups, setGroups] = useState<GroupView[]>([]);
-  const [open, setOpen] = useState<string | null>(null);
+  const [open, setOpen] = useState<ChannelRow | null>(null);
 
   // Search waits for a pause in typing.
   useEffect(() => {
@@ -168,7 +168,7 @@ export default function Channels() {
               </thead>
               <tbody>
                 {rows.map((r) => (
-                  <tr key={r.streamId} className={r.hidden || r.groupHidden ? "dim" : ""} onClick={() => setOpen(r.streamId)}>
+                  <tr key={r.streamId} className={r.hidden || r.groupHidden ? "dim" : ""} onClick={() => setOpen(r)}>
                     <td onClick={(e) => e.stopPropagation()}>
                       <input type="checkbox" checked={selected.has(r.streamId)} onChange={() => setSelected((s) => { const n = new Set(s); if (n.has(r.streamId)) n.delete(r.streamId); else n.add(r.streamId); return n; })} aria-label={`Select ${r.name}`} />
                     </td>
@@ -192,35 +192,45 @@ export default function Channels() {
           )}
         </>
       )}
-      {open && <ChannelDrawer streamId={open} onClose={() => setOpen(null)} onChanged={load} sources={sources} />}
+      {open && <ChannelDrawer key={open.streamId} initial={open} onClose={() => setOpen(null)} onChanged={load} sources={sources} />}
     </div>
   );
 }
 
-/** The row detail drawer (PLAN §4.3.18 → Channels): rename, logo, number, voice names, guide mapping, the raw name. */
-function ChannelDrawer({ streamId, onClose, onChanged, sources }: { streamId: string; onClose: () => void; onChanged: () => void; sources: SourcesView | null }) {
+/**
+ * The row detail drawer (PLAN §4.3.18 → Channels): rename, logo, number, voice names, guide mapping, the raw name.
+ * Opens at once on the list's row, then fills in what only the detail call has (the guide channel's name). Keyed by stream,
+ * so another row remounts it instead of showing the old channel until the fetch lands.
+ */
+function ChannelDrawer({ initial, onClose, onChanged, sources }: { initial: ChannelRow; onClose: () => void; onChanged: () => void; sources: SourcesView | null }) {
   const { profile, applyTo, profiles } = useProfiles();
   const { save } = useToast();
-  const [row, setRow] = useState<ChannelRow | null>(null);
-  const [name, setName] = useState("");
-  const [logo, setLogo] = useState("");
-  const [number, setNumber] = useState("");
-  const [voiceNames, setVoiceNames] = useState("");
+  const streamId = initial.streamId;
+  const [row, setRow] = useState<ChannelRow>(initial);
+  const [name, setName] = useState(initial.customName ?? "");
+  const [logo, setLogo] = useState(initial.customLogo ?? "");
+  const [number, setNumber] = useState(initial.customNumber?.toString() ?? "");
+  const [voiceNames, setVoiceNames] = useState(initial.voiceNames ?? "");
   const [search, setSearch] = useState("");
   const [results, setResults] = useState<GuideChannelInfo[]>([]);
-  const [epgOverride, setEpgOverride] = useState("");
+  const [epgOverride, setEpgOverride] = useState(initial.guide?.override ? initial.guide.epgSourceId : "");
 
-  const load = useCallback(() => {
+  // Refreshes the row; after a save, the form too (on open it already holds the list's values, and may hold typing).
+  const load = useCallback((fields: boolean) => {
+    let live = true;
     getChannel(profile, streamId).then((r) => {
+      if (!live) return;
       setRow(r);
+      if (!fields) return;
       setName(r.customName ?? "");
       setLogo(r.customLogo ?? "");
       setNumber(r.customNumber?.toString() ?? "");
       setVoiceNames(r.voiceNames ?? "");
       setEpgOverride(r.guide?.override ? r.guide.epgSourceId : "");
-    }).catch(() => setRow(null));
+    }).catch(() => undefined);
+    return () => { live = false; };
   }, [profile, streamId]);
-  useEffect(load, [load]);
+  useEffect(() => load(false), [load]);
 
   useEffect(() => {
     if (search.trim().length < 2) { setResults([]); return; }
@@ -228,11 +238,9 @@ function ChannelDrawer({ streamId, onClose, onChanged, sources }: { streamId: st
     return () => clearTimeout(t);
   }, [search]);
 
-  const after = () => { load(); onChanged(); };
+  const after = () => { load(true); onChanged(); };
   const applied = `Saved · applied to ${profileNames(applyTo, profiles)}`;
   const epgSources = useMemo(() => sources?.epgSources.filter((e) => e.enabled) ?? [], [sources]);
-
-  if (!row) return <aside className="drawer"><button className="link close" onClick={onClose}>Close</button><p className="detail">Loading…</p></aside>;
 
   return (
     <aside className="drawer" aria-label={`${row.name} details`}>

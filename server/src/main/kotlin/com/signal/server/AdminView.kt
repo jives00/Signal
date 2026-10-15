@@ -164,7 +164,7 @@ enum class ChannelColumn { NUMBER, NAME, SOURCE, GUIDE, LISTS }
 
 /** Channel rows: the catalog's streams joined with a profile's view and the guide. */
 class AdminChannels(private val companion: Companion) {
-    private var guideCache: Triple<Any?, Map<String, GuideRef?>, Int>? = null
+    @Volatile private var guideCache: Triple<Any?, Map<String, GuideRef?>, Int>? = null
 
     fun view(profileId: String) = AdminView(companion.sync.liveItems(), profileId)
 
@@ -178,6 +178,14 @@ class AdminChannels(private val companion: Companion) {
         }
         guideCache = Triple(key, refs, 0)
         return refs
+    }
+
+    /** One stream's guide: from the cache when it's current, else resolved alone instead of rebuilding every stream's. */
+    private fun guideRefFor(view: AdminView, s: CatalogStream): Map<String, GuideRef?> {
+        val key = listOf(companion.catalog.version, companion.guideReader.version(), companion.sync.currentRev())
+        guideCache?.takeIf { it.first == key }?.let { return it.second }
+        val uc = view.userChannelByStream[s.id]
+        return mapOf(s.id to companion.guideReader.resolve(uc?.let { view.mappings[it] }, s.tvgId, s.rawName, view.epgSources, view.defaultEpgId))
     }
 
     fun row(view: AdminView, s: CatalogStream, refs: Map<String, GuideRef?>, withPrograms: Boolean, now: Long): ChannelRow {
@@ -330,7 +338,7 @@ class AdminChannels(private val companion: Companion) {
     fun channel(profileId: String, streamId: String, now: Long): ChannelRow? {
         val view = view(profileId)
         val s = companion.catalog.streams.firstOrNull { it.id == streamId } ?: return null
-        return row(view, s, guideRefs(view), withPrograms = true, now = now).let { r ->
+        return row(view, s, guideRefFor(view, s), withPrograms = true, now = now).let { r ->
             r.copy(guide = r.guide?.copy(guideChannelName = companion.guideReader.displayName(r.guide.epgSourceId, r.guide.guideChannelId)))
         }
     }
