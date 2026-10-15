@@ -19,6 +19,7 @@
   --tag-text: #bcd4ff;
   --on-accent: #ffffff;
   --neutral-300: #474c55;
+  --neutral-400: #575d67;
   --muted: #aeb4bd;
   --secondary-text: #d3d7dd;
   --ok: #4caf7a;
@@ -194,8 +195,13 @@ label.check { display: inline-flex; gap: 6px; align-items: center; margin-right:
 .table.channels tbody tr { cursor: pointer; }
 .table.channels tbody tr:hover, .table tr.selected { background: var(--surface); }
 .table td { vertical-align: top; }
-img.logo, span.logo { width: 40px; height: 24px; object-fit: contain; display: inline-block; flex-shrink: 0; }
-img.logo.big { width: 96px; height: 56px; }
+/* The TV's logo tile (LogoTile): a box behind every logo so dark ones stay visible. */
+img.logo, span.logo { box-sizing: border-box; width: 40px; height: 24px; padding: 2px; object-fit: contain; display: inline-block; flex-shrink: 0; background: var(--neutral-400); vertical-align: middle; }
+img.logo.big { width: 96px; height: 56px; padding: 4px; }
+.table th button.sort { font: inherit; color: inherit; text-transform: inherit; letter-spacing: inherit; background: none; padding: 0; white-space: nowrap; }
+.table th button.sort:hover { outline: none; background: none; color: var(--text); }
+.table th[aria-sort="ascending"], .table th[aria-sort="descending"] { color: var(--text); }
+.table th button.sort .arrow { display: inline-block; width: 1.2em; font-size: 10px; text-align: right; }
 .pager { margin-top: 12px; }
 
 .drawer {

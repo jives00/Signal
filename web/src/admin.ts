@@ -21,6 +21,9 @@ export const getOverview = (profile: string) => read(S.Overview, `/api/overview?
 export const getJobs = () => read(S.JobRun.array(), "/api/jobs");
 
 // ---- Channels ----
+/** The Channels table's sortable columns (server/AdminView.kt ChannelColumn). */
+export type ChannelColumn = "number" | "name" | "source" | "guide" | "lists";
+
 export interface ChannelQuery {
   q?: string;
   source?: string;
@@ -30,6 +33,8 @@ export interface ChannelQuery {
   hidden?: "" | "hidden" | "visible";
   customized?: boolean;
   guide?: "" | "mapped" | "unmapped";
+  sort?: ChannelColumn;
+  dir?: "asc" | "desc";
   offset?: number;
   limit?: number;
 }

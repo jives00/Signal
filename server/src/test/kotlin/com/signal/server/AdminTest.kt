@@ -19,6 +19,7 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.int
 import java.nio.file.Files
 import kotlin.test.Test
@@ -102,6 +103,44 @@ class AdminTest {
         client.send("POST", "/api/edits/undo", """{"ops":${result["undo"]}}""")
         assertEquals(0, obj(client.send("GET", "/api/lists?profile=${kids.id}"))["favorites"]!!.jsonArray.size)
         assertEquals(0, syncStore.all().count { it.type == SyncType.USER_CHANNEL && !it.deleted })
+    }
+
+    @Test fun favoritesFollowTheProfileSortAndAMoveSwitchesToManual() = testApplication {
+        application { signalModule(companion) }
+        client.demo()
+        val streams = client.channels("limit=5").rows()
+        client.send("POST", "/api/channels/edit", """{"streamIds":${Json.encodeToString(streams.map { it.s("streamId")!! })},"profiles":["main"],"action":"favorite"}""")
+        fun names(l: JsonObject) = l["favorites"]!!.jsonArray.map { it.jsonObject.s("name")!! }
+        val manual = names(obj(client.send("GET", "/api/lists?profile=main")))
+
+        client.send("PUT", "/api/settings", """{"scope":"profile","key":"favorites_sort","value":"A_Z","profiles":["main"]}""")
+        val sorted = obj(client.send("GET", "/api/lists?profile=main"))
+        assertEquals("A_Z", sorted.s("favoritesSort"))
+        assertEquals(manual.sortedBy { it.lowercase() }, names(sorted))
+
+        // Moving the last to the top keeps the A–Z order underneath it and clears the sort.
+        val last = sorted["favorites"]!!.jsonArray.last().jsonObject
+        val result = obj(client.send("POST", "/api/favorites/${last.s("userChannelId")}/move", """{"profile":"main","toIndex":0}"""))
+        val after = obj(client.send("GET", "/api/lists?profile=main"))
+        assertEquals(null, after["favoritesSort"]?.jsonPrimitive?.contentOrNull)
+        val az = names(sorted)
+        assertEquals(listOf(az.last()) + az.dropLast(1), names(after))
+
+        // Undo brings the sort back.
+        client.send("POST", "/api/edits/undo", """{"ops":${result["undo"]}}""")
+        assertEquals("A_Z", obj(client.send("GET", "/api/lists?profile=main")).s("favoritesSort"))
+    }
+
+    @Test fun channelsSortByAColumn() = testApplication {
+        application { signalModule(companion) }
+        client.demo()
+        val byName = client.channels("sort=name&limit=50").rows().map { it.s("name")!! }
+        assertEquals(byName.sortedWith(String.CASE_INSENSITIVE_ORDER), byName)
+        val desc = client.channels("sort=number&dir=desc&limit=50").rows().map { it.s("number")!!.toInt() }
+        assertEquals(desc.sortedDescending(), desc)
+        val fav = client.channels("limit=1&offset=40").rows().single().s("streamId")!!
+        client.send("POST", "/api/channels/edit", """{"streamIds":["$fav"],"profiles":["main"],"action":"favorite"}""")
+        assertEquals(fav, client.channels("sort=lists&limit=1").rows().single().s("streamId"))
     }
 
     @Test fun renameHideResetAndFilters() = testApplication {

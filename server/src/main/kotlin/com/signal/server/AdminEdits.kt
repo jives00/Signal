@@ -85,10 +85,23 @@ class AdminEdits(private val companion: Companion) {
         return run(batch)
     }
 
-    /** Drag to reorder: only the moved item's key changes (PLAN §5.4). */
-    suspend fun moveFavorite(userChannelId: String, toIndex: Int, profile: String): EditResult {
+    /**
+     * Drag to reorder: only the moved item's key changes (PLAN §5.4). With [sortedOrder] (the list as
+     * a sorted profile shows it), that order plus the move becomes the manual order and the sort is
+     * cleared, in one edit, so Undo brings both back.
+     */
+    suspend fun moveFavorite(userChannelId: String, toIndex: Int, profile: String, sortedOrder: List<String>? = null): EditResult {
         val v = view(profile)
         val batch = Batch(v)
+        if (sortedOrder != null) {
+            val order = sortedOrder.filter { it != userChannelId }.toMutableList()
+            if (userChannelId in sortedOrder) order.add(toIndex.coerceIn(0, order.size), userChannelId)
+            order.zip(FractionalIndex.sequence(order.size)).forEach { (uc, key) ->
+                if (v.favorites[uc] != key) batch.ops += AdminOp(SyncType.FAVORITE, uc, SyncScope.PROFILE, profile, fields("sort_key" to key))
+            }
+            batch.ops += AdminOp(SyncType.SETTING, Settings.Key.FAVORITES_SORT.id, SyncScope.PROFILE, profile, deleted = true)
+            return run(batch)
+        }
         val keys = v.favorites.entries.sortedBy { it.value }.map { it.key to it.value }
         ChannelRepository.newKeyForMove(keys, userChannelId, toIndex)?.let {
             batch.ops += AdminOp(SyncType.FAVORITE, userChannelId, SyncScope.PROFILE, profile, fields("sort_key" to it))

@@ -76,6 +76,8 @@ class AdminView(items: List<SyncItem>, val profileId: String) {
 
     val groupSort: GroupSort get() = profileSettings[Settings.Key.GROUP_SORT.id]?.let { runCatching { GroupSort.valueOf(it) }.getOrNull() } ?: GroupSort.PROVIDER
     val channelSort: ChannelSort get() = profileSettings[Settings.Key.CHANNEL_SORT.id]?.let { runCatching { ChannelSort.valueOf(it) }.getOrNull() } ?: ChannelSort.PROVIDER
+    /** Null is the manual order, as `Settings.favoritesSort()` reads it on the TV. */
+    val favoritesSort: ChannelSort? get() = profileSettings[Settings.Key.FAVORITES_SORT.id]?.let { runCatching { ChannelSort.valueOf(it) }.getOrNull() }?.takeIf { it != ChannelSort.PROVIDER }
 
     fun groupKey(sourceId: String, group: String) = "$sourceId|$group"
 }
@@ -153,6 +155,9 @@ data class ChannelFilter(
     /** "mapped" or "unmapped". */
     val guide: String? = null,
 )
+
+/** The Channels table's column sorts; ties keep the app's order. */
+enum class ChannelColumn { NUMBER, NAME, SOURCE, GUIDE, LISTS }
 
 /** Channel rows: the catalog's streams joined with a profile's view and the guide. */
 class AdminChannels(private val companion: Companion) {
@@ -249,7 +254,7 @@ class AdminChannels(private val companion: Companion) {
         )
     }
 
-    fun page(profileId: String, filter: ChannelFilter, offset: Int, limit: Int, now: Long): ChannelPage {
+    fun page(profileId: String, filter: ChannelFilter, offset: Int, limit: Int, now: Long, sort: ChannelColumn? = null, descending: Boolean = false): ChannelPage {
         val view = view(profileId)
         val refs = guideRefs(view)
         val words = filter.query?.let { SearchText.words(it) }.orEmpty()
@@ -276,9 +281,45 @@ class AdminChannels(private val companion: Companion) {
                     val tokens = text.split(' ')
                     words.all { w -> tokens.any { it.startsWith(w) } }
                 })
-        }.toList()
+        }.toList().let { if (sort == null) it else sorted(view, it, refs, sort, descending) }
         val rows = matching.drop(offset).take(limit).map { row(view, it, refs, withPrograms = true, now = now) }
         return ChannelPage(matching.size, offset, rows)
+    }
+
+    private fun sorted(view: AdminView, streams: List<CatalogStream>, refs: Map<String, GuideRef?>, sort: ChannelColumn, descending: Boolean): List<CatalogStream> {
+        fun profile(s: CatalogStream) = view.userChannelByStream[s.id]?.let { view.channelProfiles[it] }
+        val epgNames = view.epgSources.associate { it.id to it.name }
+        val comparator: Comparator<CatalogStream> = when (sort) {
+            ChannelColumn.NUMBER -> compareBy { profile(it)?.long("custom_number")?.toInt() ?: it.providerNumber ?: (it.position + 1) }
+            ChannelColumn.NAME -> compareBy(String.CASE_INSENSITIVE_ORDER) { profile(it)?.str("custom_name") ?: view.nameCleanup.apply(it.displayName) }
+            ChannelColumn.SOURCE -> compareBy<CatalogStream> { view.sourceOrder[it.sourceId] }.thenBy(String.CASE_INSENSITIVE_ORDER) { it.groupName }
+            // Mapped by hand, then automatic, then none; within each, by EPG source.
+            ChannelColumn.GUIDE -> compareBy<CatalogStream> { s ->
+                val ref = refs[s.id]
+                val mapping = view.userChannelByStream[s.id]?.let { view.mappings[it] }
+                when {
+                    ref == null -> 2
+                    mapping?.guideChannelId != null && mapping.epgSourceId == ref.epgSourceId && mapping.guideChannelId == ref.guideChannelId -> 0
+                    else -> 1
+                }
+            }.thenBy(String.CASE_INSENSITIVE_ORDER) { refs[it.id]?.let { r -> epgNames[r.epgSourceId] ?: r.epgSourceId }.orEmpty() }
+            // Favorites, then channels in the most playlists, then the rest.
+            ChannelColumn.LISTS -> compareBy<CatalogStream> { s ->
+                val uc = view.userChannelByStream[s.id]
+                if (uc != null && uc in view.favorites) 0 else 1
+            }.thenBy { -view.playlistsOf(view.userChannelByStream[it.id]).size }
+        }
+        return streams.sortedWith(if (descending) comparator.reversed() else comparator)
+    }
+
+    /** Favorites in the order the TV shows them: the manual order, or A–Z or by number when the profile sorts them. */
+    fun favoriteRows(view: AdminView, now: Long): List<ChannelRow> {
+        val rows = rowsFor(view, view.favorites.entries.sortedBy { it.value }.map { it.key }, now)
+        return when (view.favoritesSort) {
+            null -> rows
+            ChannelSort.NUMBER -> rows.sortedBy { it.number }
+            else -> rows.sortedBy { it.name.lowercase() }
+        }
     }
 
     /** One channel by stream ID, with programs. */

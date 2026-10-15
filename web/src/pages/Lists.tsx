@@ -1,14 +1,17 @@
 import { useCallback, useEffect, useState } from "react";
 import {
   addToPlaylist, createPlaylist, deletePlaylist, editChannels, getChannels, getLists, moveFavorite, moved, movePlaylist,
-  movePlaylistItem, removeFavorite, removeFromPlaylist, renamePlaylist,
+  movePlaylistItem, putSetting, removeFavorite, removeFromPlaylist, renamePlaylist,
 } from "../admin";
 import { ApplyTo, profileNames, useProfiles, useToast } from "../context";
 import type { ChannelRow, ListsView } from "../schema";
 
+const favoriteSorts = [["", "Manual"], ["A_Z", "A–Z"], ["NUMBER", "Number"]] as const;
+
 /**
  * Favorites & playlists (PLAN §4.3.18 → 4): ordered lists with drag to reorder, add by search, and
  * remove. Favorites edits go to every profile in Apply to; a playlist belongs to the shown profile.
+ * Favorites show in the profile's sort, as on the TV; a move there switches it to Manual.
  */
 export default function Lists() {
   const { profile, applyTo, profiles } = useProfiles();
@@ -32,11 +35,18 @@ export default function Lists() {
       <OrderedList
         title="Favorites"
         rows={lists.favorites}
+        actions={
+          <label className="detail">Sort{" "}
+            <select value={lists.favoritesSort ?? ""} onChange={(e) => save(applied, () => putSetting("profile", "favorites_sort", e.target.value || null, applyTo), load)} aria-label="Sort Favorites">
+              {favoriteSorts.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+            </select>
+          </label>
+        }
         onAdd={(streamIds) => save(applied, () => editChannels(streamIds, applyTo, "favorite"), load)}
         onRemove={(r) => save(applied, () => removeFavorite(r.userChannelId!, applyTo), load)}
         onMove={(r, to) => {
-          setLists({ ...lists, favorites: moved(lists.favorites, lists.favorites.indexOf(r), to) });
-          save("Moved", () => moveFavorite(r.userChannelId!, profile, to), load);
+          setLists({ ...lists, favoritesSort: null, favorites: moved(lists.favorites, lists.favorites.indexOf(r), to) });
+          save(lists.favoritesSort ? "Moved · Favorites are now in manual order" : "Moved", () => moveFavorite(r.userChannelId!, profile, to), load);
         }}
       />
 

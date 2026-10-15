@@ -106,7 +106,12 @@ data class GroupView(
 @Serializable data class GroupsView(val groupSort: String, val channelSort: String, val groups: List<GroupView>)
 
 @Serializable data class PlaylistView(val id: String, val name: String, val channels: List<ChannelRow>)
-@Serializable data class ListsView(val favorites: List<ChannelRow>, val playlists: List<PlaylistView>)
+@Serializable data class ListsView(
+    val favorites: List<ChannelRow>,
+    val playlists: List<PlaylistView>,
+    /** The profile's Favorites sort: "A_Z", "NUMBER", or null for the manual order. */
+    val favoritesSort: String? = null,
+)
 
 @Serializable data class QueueView(val remaining: Int, val channel: ChannelRow?, val suggestions: List<GuideChannelInfo>)
 
@@ -200,6 +205,8 @@ fun Route.adminPageRoutes(companion: Companion) {
                 offset = q["offset"]?.toIntOrNull()?.coerceAtLeast(0) ?: 0,
                 limit = q["limit"]?.toIntOrNull()?.coerceIn(1, 500) ?: 100,
                 now = now(),
+                sort = q["sort"]?.let { runCatching { ChannelColumn.valueOf(it.uppercase()) }.getOrNull() },
+                descending = q["dir"] == "desc",
             )
         }
     }
@@ -237,12 +244,19 @@ fun Route.adminPageRoutes(companion: Companion) {
         call.answer {
             val view = channels.view(call.profile())
             ListsView(
-                favorites = channels.rowsFor(view, view.favorites.entries.sortedBy { it.value }.map { it.key }, now()),
+                favorites = channels.favoriteRows(view, now()),
                 playlists = view.playlists.map { p -> PlaylistView(p.id, p.name, channels.rowsFor(view, view.playlistItems[p.id].orEmpty().map { it.first }, now())) },
+                favoritesSort = view.favoritesSort?.name,
             )
         }
     }
-    post("/favorites/{uc}/move") { val m = call.receive<MoveRequest>(); call.edit { edits.moveFavorite(call.parameters["uc"]!!, m.toIndex, m.profile) } }
+    post("/favorites/{uc}/move") {
+        val m = call.receive<MoveRequest>()
+        // A move in a sorted list keeps what's on screen as the new manual order.
+        val view = channels.view(m.profile)
+        val shown = view.favoritesSort?.let { channels.favoriteRows(view, now()).mapNotNull { it.userChannelId } }
+        call.edit { edits.moveFavorite(call.parameters["uc"]!!, m.toIndex, m.profile, shown) }
+    }
     post("/favorites/{uc}/remove") { val t = call.receive<ProfileTargets>(); call.edit { edits.removeFavorite(call.parameters["uc"]!!, targets(t.profiles)) } }
     post("/playlists") {
         val r = call.receive<NameRequest>()

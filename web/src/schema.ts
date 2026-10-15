@@ -122,6 +122,7 @@ export const GroupsView = z.object({ groupSort: z.string(), channelSort: z.strin
 export const ListsView = z.object({
   favorites: z.array(ChannelRow),
   playlists: z.array(z.object({ id: z.string(), name: z.string(), channels: z.array(ChannelRow) })),
+  favoritesSort: z.enum(["A_Z", "NUMBER"]).nullable().optional(),
 });
 
 export const GuideChannelInfo = z.object({
