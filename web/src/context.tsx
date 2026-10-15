@@ -19,10 +19,10 @@ interface ProfileState {
 
 const ProfileContext = createContext<ProfileState | null>(null);
 
-function stored(key: string): string | null {
+export function stored(key: string): string | null {
   try { return localStorage.getItem(key); } catch { return null; }
 }
-function store(key: string, value: string) {
+export function store(key: string, value: string) {
   try { localStorage.setItem(key, value); } catch { /* private window: per-visit only */ }
 }
 

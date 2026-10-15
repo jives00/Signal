@@ -3,10 +3,19 @@ import {
   clock, editChannels, getChannel, getChannels, getGroups, getLinks, getLists, getSources, preferStream, resetMapping, revealHidden, searchGuide, setMapping,
   type ChannelAction, type ChannelColumn, type ChannelQuery,
 } from "../admin";
-import { ApplyTo, profileNames, useProfiles, useToast } from "../context";
+import { ApplyTo, profileNames, store, stored, useProfiles, useToast } from "../context";
 import type { ChannelPage, ChannelRow, GroupView, GuideChannelInfo, LinkView, ProgramBrief, SourcesView } from "../schema";
 
 const PAGE = 100;
+const SORT_KEY = "signal.channels.sort";
+const COLUMNS: readonly ChannelColumn[] = ["number", "name", "source", "guide", "lists"];
+
+/** The sort last picked on this browser, as `column:dir`. */
+function storedSort(): Pick<ChannelQuery, "sort" | "dir"> {
+  const [sort, dir] = (stored(SORT_KEY) ?? "").split(":");
+  if (!COLUMNS.includes(sort as ChannelColumn)) return {};
+  return { sort: sort as ChannelColumn, dir: dir === "desc" ? "desc" : "asc" };
+}
 
 export function Program({ p, label }: { p: ProgramBrief | null | undefined; label?: string }) {
   if (!p) return <span className="detail">—</span>;
@@ -44,7 +53,7 @@ function SortHeader({ column, label, filter, onSort, className }: {
 export default function Channels() {
   const { profile, applyTo, profiles } = useProfiles();
   const { save } = useToast();
-  const [filter, setFilter] = useState<ChannelQuery>({ hidden: "" , guide: "" });
+  const [filter, setFilter] = useState<ChannelQuery>(() => ({ hidden: "", guide: "", favorites: true, ...storedSort() }));
   const [text, setText] = useState("");
   const [offset, setOffset] = useState(0);
   const [page, setPage] = useState<ChannelPage | null>(null);
@@ -71,6 +80,7 @@ export default function Channels() {
     getGroups(profile).then((g) => setGroups(g.groups)).catch(() => undefined);
   }, [profile]);
   useEffect(() => setSelected(new Set()), [profile, filter]);
+  useEffect(() => store(SORT_KEY, filter.sort ? `${filter.sort}:${filter.dir ?? "asc"}` : ""), [filter.sort, filter.dir]);
 
   const applied = `Saved · applied to ${profileNames(applyTo, profiles)}`;
   const bulk = (action: ChannelAction, playlistId?: string) =>

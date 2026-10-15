@@ -18,6 +18,7 @@ export default function Groups() {
   const [error, setError] = useState<string | null>(null);
   const [dragging, setDragging] = useState<number | null>(null);
   const [filter, setFilter] = useState("");
+  const [show, setShow] = useState<"visible" | "hidden" | "">("visible");
 
   const load = useCallback(() => {
     getGroups(profile).then((d) => { setData(d); setError(null); }).catch((e: Error) => setError(e.message));
@@ -39,7 +40,9 @@ export default function Groups() {
     save(data.groupSort === "MANUAL" ? "Moved" : "Moved · group sort is now Manual", () => moveGroup(g.sourceId, g.name, profile, to), load);
   }
 
-  const shown = data?.groups.filter((g) => !filter || g.title.toLowerCase().includes(filter.toLowerCase()) || g.name.toLowerCase().includes(filter.toLowerCase())) ?? [];
+  const shown = data?.groups.filter((g) =>
+    (!show || g.hidden === (show === "hidden")) &&
+    (!filter || g.title.toLowerCase().includes(filter.toLowerCase()) || g.name.toLowerCase().includes(filter.toLowerCase()))) ?? [];
   const multiSource = new Set(data?.groups.map((g) => g.sourceId)).size > 1;
 
   return (
@@ -60,6 +63,11 @@ export default function Groups() {
               </select>
             </label>
             <input type="search" placeholder="Filter groups" value={filter} onChange={(e) => setFilter(e.target.value)} aria-label="Filter groups" />
+            <select value={show} onChange={(e) => setShow(e.target.value as typeof show)} aria-label="Hidden">
+              <option value="visible">Visible only</option>
+              <option value="hidden">Hidden only</option>
+              <option value="">Hidden and visible</option>
+            </select>
           </div>
           <ApplyTo />
           <table className="table">
