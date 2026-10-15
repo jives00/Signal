@@ -12,6 +12,10 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.viewinterop.AndroidView
@@ -240,6 +244,19 @@ class ExoVideoPlayer(context: Context) : VideoPlayer {
         _state.update { it.copy(paused = paused) }
     }
 
+    /** Bumped by [rebuildView]; the video view is keyed on it. */
+    private var viewGeneration by mutableIntStateOf(0)
+
+    /**
+     * Replaces the video view with a new one. The screensaver stopped the activity while the view sat
+     * collapsed on a page without video, and on the Shield its surface never showed again: frames
+     * decoded and audio played, but SurfaceFlinger dropped every buffer ("No local sync point found")
+     * until the app was reopened (user, 2026-10-15). A fresh view gets a fresh surface.
+     */
+    fun rebuildView() {
+        viewGeneration++
+    }
+
     /** Stop frees the decoders and the provider connection; the instance stays usable (PLAN §4.2). */
     override fun release() = stop()
 
@@ -249,7 +266,7 @@ class ExoVideoPlayer(context: Context) : VideoPlayer {
     override fun Surface(modifier: Modifier, aspect: AspectMode) {
         Box(modifier, contentAlignment = Alignment.Center) {
             val ratio = aspect.forcedRatio
-            AndroidView(
+            key(viewGeneration) { AndroidView(
                 factory = { ctx ->
                     PlayerView(ctx).apply {
                         useController = false
@@ -283,7 +300,7 @@ class ExoVideoPlayer(context: Context) : VideoPlayer {
                 },
                 onRelease = { view -> view.player = null },
                 modifier = if (ratio != null) Modifier.aspectRatio(ratio) else Modifier.fillMaxSize(),
-            )
+            ) }
         }
     }
 

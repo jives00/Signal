@@ -11,6 +11,7 @@ import androidx.activity.OnBackPressedCallback
 import androidx.activity.compose.setContent
 import androidx.lifecycle.lifecycleScope
 import com.signal.player.PlaybackState
+import com.signal.tv.player.ExoVideoPlayer
 import com.signal.ui.SignalApp
 import kotlinx.coroutines.launch
 import java.lang.ref.WeakReference
@@ -128,7 +129,10 @@ class MainActivity : ComponentActivity() {
 
     override fun onStart() {
         super.onStart()
-        if (started) signal.controller.onForeground()
+        if (started) {
+            (signal.platform.player as? ExoVideoPlayer)?.rebuildView()
+            signal.controller.onForeground()
+        }
         started = true
     }
 
