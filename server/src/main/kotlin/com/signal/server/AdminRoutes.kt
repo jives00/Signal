@@ -53,6 +53,9 @@ data class ChannelEdit(
 @Serializable data class GroupEdit(val sourceId: String, val group: String, val profiles: List<String>, val hidden: Boolean? = null, val name: String? = null, val clearName: Boolean = false, val sort: String? = null)
 /** Movies & Series → Categories: hide, show or rename a category, by name, for the household. */
 @Serializable data class VodCategoryEdit(val name: String, val hidden: Boolean? = null, val customName: String? = null, val clearName: Boolean = false)
+/** Movies & Series → Categories: move a category in its kind's column, which switches the order to Manual. */
+@Serializable data class VodCategoryMove(val kind: String, val name: String, val toIndex: Int, val profile: String = SyncService.MAIN)
+@Serializable data class VodCategorySort(val sort: String)
 @Serializable data class GroupMove(val sourceId: String, val group: String, val profile: String, val toIndex: Int)
 @Serializable data class MappingRequest(val streamId: String, val epgSourceId: String, val guideChannelId: String? = null)
 @Serializable data class QueueRequest(val profile: String, val skip: List<String> = emptyList())
@@ -120,6 +123,9 @@ data class VodCategoryView(
     val sourceId: String, val sourceName: String, val kind: String, val categoryId: String,
     val name: String, val title: String, val count: Int, val hidden: Boolean, val customName: String?,
 )
+
+/** Every category, movies then series, each in the column's order ([sort], a GroupSort name), hidden ones included. */
+@Serializable data class VodCategoriesView(val sort: String, val categories: List<VodCategoryView>)
 
 @Serializable data class PlaylistView(val id: String, val name: String, val channels: List<ChannelRow>)
 @Serializable data class ListsView(
@@ -322,6 +328,28 @@ fun Route.adminPageRoutes(companion: Companion) {
             var f = old
             r.hidden?.let { f = f.withHidden(r.name, it) }
             if (r.clearName) f = f.withName(r.name, null) else r.customName?.let { f = f.withName(r.name, it.take(100)) }
+            if (f == old) throw SyncRefused(400, "Nothing to change.")
+            edits.putSetting(SyncScope.HOUSEHOLD, Settings.Key.VOD_CATEGORIES.id, f.toJson(), listOf(SyncService.MAIN))
+        }
+    }
+    post("/vod/categories/sort") {
+        val r = call.receive<VodCategorySort>()
+        val sort = GroupSort.entries.firstOrNull { it.name == r.sort } ?: throw SyncRefused(400, "Unknown order.")
+        call.edit {
+            val old = VodCategoryFilter.parse(channels.view(SyncService.MAIN).householdSettings[Settings.Key.VOD_CATEGORIES.id])
+            val f = old.withSort(sort)
+            if (f == old) throw SyncRefused(400, "Nothing to change.")
+            edits.putSetting(SyncScope.HOUSEHOLD, Settings.Key.VOD_CATEGORIES.id, f.toJson(), listOf(SyncService.MAIN))
+        }
+    }
+    post("/vod/categories/move") {
+        val m = call.receive<VodCategoryMove>()
+        call.edit {
+            val view = channels.view(m.profile)
+            val old = VodCategoryFilter.parse(view.householdSettings[Settings.Key.VOD_CATEGORIES.id])
+            // Positions count among the kind's visible categories, as the TVs show them.
+            val shown = vodCategoriesView(companion, view).categories.filter { it.kind == m.kind && !it.hidden }.map { it.name }
+            val f = old.withMove(m.kind, shown, m.name, m.toIndex)
             if (f == old) throw SyncRefused(400, "Nothing to change.")
             edits.putSetting(SyncScope.HOUSEHOLD, Settings.Key.VOD_CATEGORIES.id, f.toJson(), listOf(SyncService.MAIN))
         }
@@ -590,17 +618,19 @@ private suspend fun sourceViews(companion: Companion, view: AdminView): List<Sou
     }
 }
 
-private suspend fun vodCategoriesView(companion: Companion, view: AdminView): List<VodCategoryView> {
+private suspend fun vodCategoriesView(companion: Companion, view: AdminView): VodCategoriesView {
     val filter = VodCategoryFilter.parse(view.householdSettings[Settings.Key.VOD_CATEGORIES.id])
     val cleanup = NameCleanup.parse(view.profileSettings[Settings.Key.VOD_NAME_CLEANUP.id])
     val sourceNames = view.sources.associate { it.first.id to it.first.name }
-    return companion.catalog.vodCategories().map { c ->
+    val rows = companion.catalog.vodCategories().map { c ->
         val custom = filter.renamed(c.name)
         VodCategoryView(
             c.source_id, sourceNames[c.source_id] ?: c.source_id, c.kind, c.category_id, c.name,
             custom ?: if (cleanup.groups) cleanup.apply(c.name) else c.name, c.item_count.toInt(), filter.hides(c.name), custom,
         )
     }
+    val ordered = listOf("MOVIE", "SERIES").flatMap { kind -> filter.sorted(kind, rows.filter { it.kind == kind }, { it.name }, { it.title }) }
+    return VodCategoriesView(filter.categorySort.name, ordered)
 }
 
 /** Provider groups in the order the profile shows them (PLAN §4.3.2 → Groups), hidden ones included. */

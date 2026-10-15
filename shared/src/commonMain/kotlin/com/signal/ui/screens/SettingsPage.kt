@@ -293,15 +293,28 @@ private fun channelSortLabel(s: ChannelSort) = when (s) {
 }
 
 /**
- * Settings → Movies & Series (PLAN §4.3.15, section 4): playback and title cleanup. Which categories
- * show is a household setting with no screen yet (VodCategoryFilter). Default sorts come later.
+ * Settings → Movies & Series (PLAN §4.3.15, section 4): category order, playback and title cleanup.
+ * Which categories show, their names and the manual order are set in the web admin
+ * (VodCategoryFilter); the order chosen here is the household's too.
  */
 @Composable
 private fun MoviesSection(app: AppController, returnTo: FocusRequester) {
     var tick by remember { mutableStateOf(0) }
     val autoplay = remember(tick) { app.settings.bool(Settings.Key.AUTOPLAY_NEXT, true) }
     val cleanup = remember(tick) { app.settings.vodNameCleanup() }
+    val categories = remember(tick) { app.settings.vodCategoryFilter() }
     LazyColumn(Modifier.width(1100.dp)) {
+        item { SectionTitle("Order") }
+        item {
+            val sort = categories.categorySort
+            ListRow("Category order", detail = groupSortLabel(sort), onSelect = {
+                app.panel.open(PanelPage.Actions("Category order", GroupSort.entries.map { g ->
+                    PanelAction(groupSortLabel(g), selected = g == sort) {
+                        app.settings.put(Settings.Key.VOD_CATEGORIES, app.settings.vodCategoryFilter().withSort(g).toJson()); tick++; null
+                    }
+                }, subtitle = "For every profile. Arrange the manual order in the web admin: Movies & Series → Categories."), returnTo)
+            })
+        }
         item { SectionTitle("Playback") }
         item {
             ListRow("Autoplay next episode", detail = if (autoplay) "On · asks \"Still watching?\" after 3 in a row" else "Off", onSelect = {

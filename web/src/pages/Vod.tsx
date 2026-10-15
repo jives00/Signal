@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { Link } from "react-router-dom";
-import { addToLibrary, clearVodMatch, editVodCategory, getLibrary, getVodCategories, getVodItems, removeFromLibrary, getVodStatus, runVod, searchTmdb, setVodMatch, tmdbImage, type VodQuery } from "../admin";
+import { addToLibrary, clearVodMatch, editVodCategory, getLibrary, getVodCategories, getVodItems, moved, moveVodCategory, removeFromLibrary, getVodStatus, runVod, searchTmdb, setVodMatch, sortVodCategories, tmdbImage, type VodQuery } from "../admin";
 import { ago, size } from "../api";
 import { ApplyTo, profileNames, useProfiles, useToast } from "../context";
-import type { LibraryRow, TmdbCandidate, VodCategoryView, VodRow, VodRows, VodStatus } from "../schema";
+import type { LibraryRow, TmdbCandidate, VodCategoriesView, VodCategoryView, VodRow, VodRows, VodStatus } from "../schema";
+
+const categorySorts = [["PROVIDER", "Provider order"], ["A_Z", "A–Z"], ["Z_A", "Z–A"], ["MANUAL", "Manual"]] as const;
 
 const PAGE = 100;
 const statusLabel: Record<VodRow["status"], string> = { matched: "Matched", manual: "Fixed by hand", unmatched: "No match", pending: "Not tried yet" };
@@ -206,12 +208,15 @@ function FixMatch({ row, onDone, onCancel }: { row: VodRow; onDone: () => void; 
  * The provider's movie and series categories (PLAN §4.3.6 → Categories), like Groups for live TV:
  * hide or show, rename, and filters. These are household-wide: a hidden category's titles are
  * dropped from every TV's catalog, so they're out of browsing, Search and TMDB matching too. Titles
- * show as the shown profile's cleanup makes them.
+ * show as the shown profile's cleanup makes them. The column's order is household-wide too: with
+ * Movies or Series picked, drag or ↑↓ to reorder, which switches the order to Manual, as for groups.
  */
 function Categories() {
   const { profile } = useProfiles();
   const { save } = useToast();
-  const [rows, setRows] = useState<VodCategoryView[] | null>(null);
+  const [data, setData] = useState<VodCategoriesView | null>(null);
+  const rows = data?.categories ?? null;
+  const [dragging, setDragging] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState("");
   const [kind, setKind] = useState<"" | "MOVIE" | "SERIES">("");
@@ -220,9 +225,23 @@ function Categories() {
   const [renamed, setRenamed] = useState(false);
 
   const load = useCallback(() => {
-    getVodCategories(profile).then((r) => { setRows(r); setError(null); }).catch((e: Error) => setError(e.message));
+    getVodCategories(profile).then((r) => { setData(r); setError(null); }).catch((e: Error) => setError(e.message));
   }, [profile]);
   useEffect(load, [load]);
+
+  // Moves go by name among the kind's visible categories, the column the TVs show.
+  const order = kind ? [...new Set((rows ?? []).filter((c) => c.kind === kind && !c.hidden).map((c) => c.name))] : [];
+  function move(name: string, to: number) {
+    if (!data || !kind) return;
+    const from = order.indexOf(name);
+    if (from < 0 || to < 0 || to >= order.length || from === to) return;
+    const next = moved(order, from, to);
+    const rank = (c: VodCategoryView) => (c.kind === kind && !c.hidden ? next.indexOf(c.name) : -1);
+    const mine = data.categories.filter((c) => rank(c) >= 0).sort((a, b) => rank(a) - rank(b));
+    let i = 0;
+    setData({ sort: "MANUAL", categories: data.categories.map((c) => (rank(c) >= 0 ? mine[i++] : c)) });
+    save(data.sort === "MANUAL" ? "Moved on every TV" : "Moved · category order is now Manual", () => moveVodCategory(kind, name, to, profile), load);
+  }
 
   const edit = (c: VodCategoryView, patch: { hidden?: boolean; customName?: string; clearName?: boolean }, message: string) =>
     save(message, () => editVodCategory({ name: c.name, ...patch }), load);
@@ -250,9 +269,14 @@ function Categories() {
         movie and series categories of every source with that name.
       </p>
       {error && <p className="error-text">{error}</p>}
-      {rows && (
+      {data && rows && (
         <>
           <div className="filters">
+            <label>Category order
+              <select value={data.sort} onChange={(e) => save("Saved for every TV", () => sortVodCategories(e.target.value), load)}>
+                {categorySorts.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+              </select>
+            </label>
             <input type="search" placeholder="Filter categories" value={filter} onChange={(e) => setFilter(e.target.value)} aria-label="Filter categories" />
             <select value={kind} onChange={(e) => setKind(e.target.value as typeof kind)} aria-label="Kind">
               <option value="">Movies and series</option>
@@ -272,13 +296,35 @@ function Categories() {
             )}
             <label className="check"><input type="checkbox" checked={renamed} onChange={(e) => setRenamed(e.target.checked)} /> Renamed only</label>
           </div>
-          <p className="detail">{shown.length.toLocaleString()} of {rows.length.toLocaleString()} categories · {hiddenCount.toLocaleString()} hidden</p>
+          <p className="detail">
+            {shown.length.toLocaleString()} of {rows.length.toLocaleString()} categories · {hiddenCount.toLocaleString()} hidden
+            {!kind && " · pick Movies or Series to reorder"}
+          </p>
           <div className="table-wrap">
             <table className="table">
-              <thead><tr><th>Category</th><th>Kind</th>{sources.length > 1 && <th>Source</th>}<th>Titles</th><th /></tr></thead>
+              <thead><tr>{kind && <th />}<th>Category</th><th>Kind</th>{sources.length > 1 && <th>Source</th>}<th>Titles</th><th /></tr></thead>
               <tbody>
-                {shown.map((c) => (
-                  <tr key={`${c.sourceId}|${c.kind}|${c.categoryId}`} className={c.hidden ? "dim" : ""}>
+                {shown.map((c) => {
+                  const i = order.indexOf(c.name);
+                  const movable = !!kind && !c.hidden;
+                  return (
+                  <tr
+                    key={`${c.sourceId}|${c.kind}|${c.categoryId}`}
+                    className={c.hidden ? "dim" : ""}
+                    draggable={movable && !filter}
+                    onDragStart={() => setDragging(c.name)}
+                    onDragOver={(e) => e.preventDefault()}
+                    onDrop={(e) => { e.preventDefault(); if (dragging !== null && movable) move(dragging, i); setDragging(null); }}
+                  >
+                    {kind && (
+                      <td className="nowrap">
+                        {movable && <>
+                          <span className="grip" aria-hidden>⋮⋮</span>
+                          <button className="link" disabled={i === 0} onClick={() => move(c.name, i - 1)} aria-label={`Move ${c.title} up`}>↑</button>
+                          <button className="link" disabled={i === order.length - 1} onClick={() => move(c.name, i + 1)} aria-label={`Move ${c.title} down`}>↓</button>
+                        </>}
+                      </td>
+                    )}
                     <td>
                       {c.title}{c.hidden && <span className="tag quiet">Hidden</span>}{c.customName && <span className="tag quiet">Renamed</span>}
                       {c.name !== c.title && <div className="detail small">{c.name}</div>}
@@ -291,7 +337,8 @@ function Categories() {
                       <button onClick={() => rename(c)}>Rename</button>
                     </td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
           </div>

@@ -36,7 +36,7 @@ const cases: [string, ZodTypeAny, unknown][] = [
   ["links", S.LinkView.array(), links],
   ["vod-status", S.VodStatus, vodStatus],
   ["vod-rows", S.VodRows, vodRows],
-  ["vod-categories", S.VodCategoryView.array(), vodCategories],
+  ["vod-categories", S.VodCategoriesView, vodCategories],
   ["tmdb-candidates", S.TmdbCandidate.array(), tmdbCandidates],
   ["library", S.LibraryRow.array(), library],
 ];

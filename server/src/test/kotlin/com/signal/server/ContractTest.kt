@@ -82,8 +82,8 @@ class ContractTest {
             VodRows(listOf(VodRow("src:v:603", "src", "MOVIE", "The Matrix", "EN - The Matrix (1999)", 1999, "matched", 603, "The Matrix", 1999), VodRow("src:s:9", "src", "SERIES", "Home Video", "Home Video", null, "pending", null, null, null)), 2),
         )
         check(
-            "vod-categories", kotlinx.serialization.builtins.ListSerializer(VodCategoryView.serializer()),
-            listOf(VodCategoryView("src", "Provider", "MOVIE", "3", "EN - ACTION", "Action", 120, false, "Action"), VodCategoryView("src", "Provider", "SERIES", "9", "ES - SERIES", "ES - SERIES", 0, true, null)),
+            "vod-categories", VodCategoriesView.serializer(),
+            VodCategoriesView("MANUAL", listOf(VodCategoryView("src", "Provider", "MOVIE", "3", "EN - ACTION", "Action", 120, false, "Action"), VodCategoryView("src", "Provider", "SERIES", "9", "ES - SERIES", "ES - SERIES", 0, true, null))),
         )
         check("tmdb-candidates", kotlinx.serialization.builtins.ListSerializer(TmdbCandidate.serializer()), listOf(TmdbCandidate(603, "The Matrix", null, 1999, "/matrix.jpg", "A hacker learns the truth.")))
         check("links", kotlinx.serialization.builtins.ListSerializer(LinkView.serializer()), listOf(LinkView("src:x:42", "FOX Sports 1", "US Sports", "Provider", true, true)))

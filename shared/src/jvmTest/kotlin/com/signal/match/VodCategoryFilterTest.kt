@@ -1,5 +1,6 @@
 package com.signal.match
 
+import com.signal.model.GroupSort
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -60,5 +61,30 @@ class VodCategoryFilterTest {
         assertEquals(filter, f.visibility)
         assertEquals(emptyMap(), f.withName("EN - ACTION", null).names)
         assertEquals(f, VodCategoryFilter.parse(f.toJson()))
+    }
+
+    @Test fun theColumnSortsByTitleOrByTheManualOrder() {
+        val names = listOf("EN - DRAMA", "EN - ACTION", "SKY", "EN - COMEDY")
+        val titles = mapOf("EN - DRAMA" to "Drama", "EN - ACTION" to "Action", "SKY" to "Sky", "EN - COMEDY" to "Comedy")
+        fun VodCategoryFilter.column(kind: String = "MOVIE") = sorted(kind, names, { it }, { titles.getValue(it) })
+        assertEquals(names, filter.column(), "provider order by default")
+        assertEquals(listOf("EN - ACTION", "EN - COMEDY", "EN - DRAMA", "SKY"), filter.withSort(GroupSort.A_Z).column(), "A–Z goes by the name shown")
+        assertEquals(listOf("SKY", "EN - DRAMA", "EN - COMEDY", "EN - ACTION"), filter.withSort(GroupSort.Z_A).column())
+
+        val moved = filter.withSort(GroupSort.A_Z).withMove("MOVIE", filter.withSort(GroupSort.A_Z).column(), "sky", 0)
+        assertEquals(GroupSort.MANUAL, moved.categorySort)
+        assertEquals(listOf("SKY", "EN - ACTION", "EN - COMEDY", "EN - DRAMA"), moved.column(), "seeded from what was shown")
+        assertEquals(names, moved.column("SERIES"), "each kind has its own order")
+        assertEquals(
+            listOf("SKY", "EN - NEW", "EN - LATER"),
+            moved.copy(order = mapOf("MOVIE" to listOf("sky"))).sorted("MOVIE", listOf("EN - NEW", "SKY", "EN - LATER"), { it }, { it }),
+            "unordered ones (a new provider category) go after, in provider order",
+        )
+
+        val provider = moved.withSort(GroupSort.PROVIDER)
+        assertEquals(null, provider.sort)
+        assertEquals(moved.order, provider.order, "the manual order is kept for later")
+        assertEquals(filter, moved.visibility, "an order alone doesn't change which titles are kept")
+        assertEquals(moved, VodCategoryFilter.parse(moved.toJson()))
     }
 }

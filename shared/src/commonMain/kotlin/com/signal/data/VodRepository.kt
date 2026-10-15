@@ -31,10 +31,10 @@ class VodRepository(
     private val io: CoroutineDispatcher,
     /** The profile's title cleanup rules (PLAN §4.3.6 → Categories): applied to every title and, opted in, category names. */
     private val cleanup: () -> NameCleanup = { NameCleanup.NONE },
-    /** Emits when [cleanup] or [categoryName] changes, so category names follow it. */
+    /** Emits when [cleanup] or [categoryFilter] changes, so the category column follows it. */
     private val cleanupChanges: Flow<Any?> = flowOf(Unit),
-    /** A category's name from the web admin's rename (VodCategoryFilter.names), or null. */
-    private val categoryName: (String) -> String? = { null },
+    /** The household's category settings: the web admin's renames and the column's order. */
+    private val categoryFilter: () -> VodCategoryFilter = { VodCategoryFilter.NONE },
     /** A provider poster through the companion's cache, for titles TMDB has none for; null when it's out of reach. */
     private val providerPoster: (String) -> String? = { null },
     /** A TMDB poster path as a URL: the companion's cached copy, or TMDB's CDN when it's out of reach. */
@@ -56,7 +56,9 @@ class VodRepository(
 
     fun categories(kind: VodKind): Flow<List<CategoryEntry>> = combine(db.vodQueries.categories(kind.name).asFlow().mapToList(io), cleanupChanges) { rows, _ ->
         val rules = cleanup()
-        rows.map { CategoryEntry(it.source_id, it.category_id, categoryName(it.name) ?: if (rules.groups) rules.apply(it.name) else it.name, it.item_count.toInt()) }
+        val filter = categoryFilter()
+        val named = rows.map { it.name to CategoryEntry(it.source_id, it.category_id, filter.renamed(it.name) ?: if (rules.groups) rules.apply(it.name) else it.name, it.item_count.toInt()) }
+        filter.sorted(kind.name, named, { it.first }, { it.second.name }).map { it.second }
     }
 
     /** How many titles of [kind] the enabled sources have: Movies and Series hide at 0 (PLAN §4.1). */

@@ -301,6 +301,11 @@ export const VodCategoryView = z.object({
   hidden: z.boolean(),
   customName: z.string().nullable(),
 });
+/** server/AdminRoutes.kt → VodCategoriesView: movies then series, each in the column's order. */
+export const VodCategoriesView = z.object({
+  sort: z.enum(["PROVIDER", "A_Z", "Z_A", "MANUAL"]),
+  categories: z.array(VodCategoryView),
+});
 export const LibraryRow = z.object({
   key: z.string(),
   kind: z.enum(["MOVIE", "SERIES"]),
@@ -321,5 +326,6 @@ export type VodStatus = z.infer<typeof VodStatus>;
 export type VodRow = z.infer<typeof VodRow>;
 export type VodRows = z.infer<typeof VodRows>;
 export type VodCategoryView = z.infer<typeof VodCategoryView>;
+export type VodCategoriesView = z.infer<typeof VodCategoriesView>;
 export type TmdbCandidate = z.infer<typeof TmdbCandidate>;
 export type LibraryRow = z.infer<typeof LibraryRow>;

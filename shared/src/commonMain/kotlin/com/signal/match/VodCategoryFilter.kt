@@ -1,5 +1,6 @@
 package com.signal.match
 
+import com.signal.model.GroupSort
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
@@ -17,6 +18,10 @@ import kotlinx.serialization.json.Json
  * The web admin's Movies & Series → Categories tab hides and shows single categories ([hidden] and
  * [shown], exact names that win over the patterns) and renames them ([names]). The patterns were set
  * once by hand (2026-10-14, "hide the non-English groups").
+ *
+ * [sort] orders the category column: provider order, A–Z, Z–A or manual. The manual order is
+ * [order], category names per kind ("MOVIE", "SERIES"), by name like the rest. A category not in it
+ * goes after the ordered ones, in provider order.
  */
 @Serializable
 data class VodCategoryFilter(
@@ -28,11 +33,18 @@ data class VodCategoryFilter(
     val shown: List<String> = emptyList(),
     /** Category name → the name the TVs show instead. */
     val names: Map<String, String> = emptyMap(),
+    /** How the category column is ordered: a [GroupSort] name; unset is provider order. */
+    val sort: String? = null,
+    /** The manual order: kind → category names, first to last. */
+    val order: Map<String, List<String>> = emptyMap(),
 ) {
     val isEmpty: Boolean get() = showOnly.isEmpty() && hide.isEmpty() && hidden.isEmpty()
 
-    /** Only what decides which titles are kept: a rename alone doesn't drop or refresh anything. */
-    val visibility: VodCategoryFilter get() = if (names.isEmpty()) this else copy(names = emptyMap())
+    /** Only what decides which titles are kept: a rename or a new order alone doesn't drop or refresh anything. */
+    val visibility: VodCategoryFilter get() = copy(names = emptyMap(), sort = null, order = emptyMap())
+
+    /** The column's order; an unknown value is provider order. */
+    val categorySort: GroupSort get() = sort?.let { s -> GroupSort.entries.firstOrNull { it.name == s } } ?: GroupSort.PROVIDER
 
     private val showRegexes by lazy { showOnly.mapNotNull(::compile) }
     private val hideRegexes by lazy { hide.mapNotNull(::compile) }
@@ -70,6 +82,35 @@ data class VodCategoryFilter(
         val rest = names.filterKeys { key(it) != k }
         val n = newName?.trim()?.takeIf { it.isNotEmpty() && it != name.trim() }
         return copy(names = if (n == null) rest else rest + (name.trim() to n))
+    }
+
+    /**
+     * [items], given in provider order, in the column's order. [name] is a category's own name, which
+     * the manual order goes by; [title] is the name shown, which A–Z goes by.
+     */
+    fun <T> sorted(kind: String, items: List<T>, name: (T) -> String, title: (T) -> String): List<T> = when (categorySort) {
+        GroupSort.PROVIDER -> items
+        GroupSort.A_Z -> items.sortedBy { title(it).lowercase() }
+        GroupSort.Z_A -> items.sortedByDescending { title(it).lowercase() }
+        GroupSort.MANUAL -> {
+            val at = order[kind].orEmpty().withIndex().associate { (i, n) -> key(n) to i }
+            items.sortedBy { at[key(name(it))] ?: Int.MAX_VALUE }
+        }
+    }
+
+    /** Sets the column's order; provider order clears it. The manual order is kept for later. */
+    fun withSort(sort: GroupSort): VodCategoryFilter = copy(sort = sort.name.takeIf { sort != GroupSort.PROVIDER })
+
+    /**
+     * Moves the category named [name] to [toIndex] among [shown], the [kind]'s category names as the
+     * column shows them now, and switches to the manual order seeded from [shown], so nothing else jumps.
+     */
+    fun withMove(kind: String, shown: List<String>, name: String, toIndex: Int): VodCategoryFilter {
+        val list = shown.map { it.trim() }.distinctBy(::key).toMutableList()
+        val from = list.indexOfFirst { key(it) == key(name) }
+        if (from < 0) return this
+        list.add(toIndex.coerceIn(0, list.size - 1), list.removeAt(from))
+        return copy(sort = GroupSort.MANUAL.name, order = order + (kind to list))
     }
 
     fun toJson(): String = json.encodeToString(serializer(), this)

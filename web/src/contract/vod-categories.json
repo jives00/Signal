@@ -1,24 +1,27 @@
-[
-    {
-        "sourceId": "src",
-        "sourceName": "Provider",
-        "kind": "MOVIE",
-        "categoryId": "3",
-        "name": "EN - ACTION",
-        "title": "Action",
-        "count": 120,
-        "hidden": false,
-        "customName": "Action"
-    },
-    {
-        "sourceId": "src",
-        "sourceName": "Provider",
-        "kind": "SERIES",
-        "categoryId": "9",
-        "name": "ES - SERIES",
-        "title": "ES - SERIES",
-        "count": 0,
-        "hidden": true,
-        "customName": null
-    }
-]
+{
+    "sort": "MANUAL",
+    "categories": [
+        {
+            "sourceId": "src",
+            "sourceName": "Provider",
+            "kind": "MOVIE",
+            "categoryId": "3",
+            "name": "EN - ACTION",
+            "title": "Action",
+            "count": 120,
+            "hidden": false,
+            "customName": "Action"
+        },
+        {
+            "sourceId": "src",
+            "sourceName": "Provider",
+            "kind": "SERIES",
+            "categoryId": "9",
+            "name": "ES - SERIES",
+            "title": "ES - SERIES",
+            "count": 0,
+            "hidden": true,
+            "customName": null
+        }
+    ]
+}

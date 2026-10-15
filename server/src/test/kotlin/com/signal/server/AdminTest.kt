@@ -197,7 +197,7 @@ class AdminTest {
     @Test fun vodCategoriesHideShowAndRenameForTheHousehold() = testApplication {
         application { signalModule(companion) }
         client.demo()
-        suspend fun categories() = json.parseToJsonElement(client.send("GET", "/api/vod/categories?profile=main")).jsonArray.map { it.jsonObject }
+        suspend fun categories() = obj(client.send("GET", "/api/vod/categories?profile=main"))["categories"]!!.jsonArray.map { it.jsonObject }
         for (i in 0 until 100) { if (categories().isNotEmpty()) break; delay(50) }
         val comedy = categories().first { it.s("name") == "Comedy" && it.s("kind") == "MOVIE" }
         assertEquals("false", comedy.s("hidden"))
@@ -220,6 +220,30 @@ class AdminTest {
         assertEquals("Action", back.first { it.s("name") == "Action" }.s("title"))
         val refused = client.post("/api/vod/categories/edit") { contentType(ContentType.Application.Json); setBody("""{"name":"Comedy","hidden":false}""") }
         assertEquals(400, refused.status.value, "nothing to change")
+    }
+
+    @Test fun vodCategoryOrder() = testApplication {
+        application { signalModule(companion) }
+        client.demo()
+        suspend fun view() = obj(client.send("GET", "/api/vod/categories?profile=main"))
+        suspend fun movies() = view()["categories"]!!.jsonArray.map { it.jsonObject }.filter { it.s("kind") == "MOVIE" }.map { it.s("name") }
+        for (i in 0 until 100) { if (movies().isNotEmpty()) break; delay(50) }
+        assertEquals("PROVIDER", view().s("sort"))
+        assertEquals(listOf("Action", "Comedy", "Drama", "Documentary", "Family", "Sci-Fi", "EN | Thriller", "4K Movies"), movies())
+
+        client.send("POST", "/api/vod/categories/sort", """{"sort":"A_Z"}""")
+        assertEquals(listOf("4K Movies", "Action", "Comedy", "Documentary", "Drama", "EN | Thriller", "Family", "Sci-Fi"), movies())
+
+        // A move seeds the manual order from what's shown, so only the moved one changes place.
+        client.send("POST", "/api/vod/categories/move", """{"kind":"MOVIE","name":"Sci-Fi","toIndex":0}""")
+        assertEquals("MANUAL", view().s("sort"))
+        assertEquals(listOf("Sci-Fi", "4K Movies", "Action", "Comedy", "Documentary", "Drama", "EN | Thriller", "Family"), movies())
+
+        // Provider order keeps the manual order underneath for Manual to bring back.
+        client.send("POST", "/api/vod/categories/sort", """{"sort":"PROVIDER"}""")
+        assertEquals("Action", movies().first())
+        client.send("POST", "/api/vod/categories/sort", """{"sort":"MANUAL"}""")
+        assertEquals("Sci-Fi", movies().first())
     }
 
     @Test fun mappingQueueAndManualMappings() = testApplication {

@@ -62,8 +62,8 @@ class AppController(val platform: Platform, val log: Log) {
         providerPoster = { id -> nas.providerImageUrl(id) },
         tmdbPoster = { path -> nas.imageUrl(com.signal.nas.TmdbImages.POSTER, path) },
         cleanup = { settings.vodNameCleanup() },
-        cleanupChanges = settings.changes().map { settings.raw(Settings.Key.VOD_NAME_CLEANUP) to settings.vodCategoryFilter().names }.distinctUntilChanged(),
-        categoryName = { settings.vodCategoryFilter().renamed(it) },
+        cleanupChanges = settings.changes().map { settings.raw(Settings.Key.VOD_NAME_CLEANUP) to settings.vodCategoryFilter().let { Triple(it.names, it.sort, it.order) } }.distinctUntilChanged(),
+        categoryFilter = { settings.vodCategoryFilter() },
     )
     val vodDetails = com.signal.data.VodDetailRepository(db, sources, platform.io, log)
     val watch = com.signal.data.WatchRepository(db, settings, platform.io)
