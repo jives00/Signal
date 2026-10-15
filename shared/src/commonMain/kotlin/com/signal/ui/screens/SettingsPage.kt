@@ -65,6 +65,7 @@ private enum class Section(val title: String) {
     APPEARANCE("Appearance"),
     NAS("NAS & sync"),
     GUIDE_DATA("Guide data"),
+    VOICE("Voice commands"),
     ABOUT("About & updates"),
 }
 
@@ -96,7 +97,8 @@ fun SettingsPage() {
         Row(Modifier.fillMaxSize()) {
             Column(Modifier.width(400.dp).fillMaxHeight().onFocusChanged { sectionsHaveFocus = it.hasFocus }.focusRequester(chrome.contentFocus).focusRestorer(firstSection)) {
                 Box(Modifier.padding(top = 24.dp))
-                Section.entries.forEach { s ->
+                // Voice commands only where Signal can be the assistant (not the dev harness).
+                Section.entries.filter { it != Section.VOICE || app.platform.voice != null }.forEach { s ->
                     ListRow(s.title, selected = s == section, onSelect = { section = s; adding = false; editing = null; nasForm = null; focusSection() }, onFocused = { section = s; adding = false; editing = null; nasForm = null }, focusRequester = if (s == Section.entries.first()) firstSection else null)
                 }
             }
@@ -112,6 +114,7 @@ fun SettingsPage() {
                     section == Section.APPEARANCE -> AppearanceSection(app, contentFocus)
                     section == Section.NAS -> NasSection(app, onForm = { nasForm = it }, returnTo = contentFocus)
                     section == Section.GUIDE_DATA -> GuideDataSection(app)
+                    section == Section.VOICE -> app.platform.voice?.let { VoiceSection(it) }
                     section == Section.ABOUT -> AboutSection(app)
                 }
             }
@@ -402,6 +405,57 @@ fun updatePanel(app: AppController, state: UpdateState.Available): PanelPage {
         ),
         notes = state.changelog.ifEmpty { "No changelog for this release." },
     )
+}
+
+/**
+ * Voice commands (PLAN §4.3.14 → Voice commands): whether they're on, and how to turn them on and
+ * off. Android TV has no setting for the assistant, so that part is an adb command, shown here.
+ */
+@Composable
+private fun VoiceSection(voice: com.signal.platform.VoiceSetup) {
+    val c = SignalTheme.colors
+    var status by remember { mutableStateOf(voice.status()) }
+    // The assistant and the permission change outside the app (adb, the system prompt).
+    LaunchedEffect(Unit) {
+        while (true) {
+            status = voice.status()
+            kotlinx.coroutines.delay(1_500)
+        }
+    }
+    val model = when (status.model) {
+        com.signal.platform.VoiceStatus.Model.READY -> "Ready"
+        com.signal.platform.VoiceStatus.Model.DOWNLOADING -> "Downloading (130 MB, once)…"
+        com.signal.platform.VoiceStatus.Model.LOADING -> "Loading…"
+        com.signal.platform.VoiceStatus.Model.FAILED -> "Download failed · tries again on the next mic press"
+        com.signal.platform.VoiceStatus.Model.NOT_DOWNLOADED -> "Downloads once Signal is the assistant"
+    }
+    val summary = when {
+        status.ready -> "On. Press the remote's mic button anywhere and say a channel, like \"switch to NBC\"."
+        !status.isAssistant -> "Off. The remote's mic button opens Google Assistant. Make Signal the assistant to use it here."
+        !status.hasMicrophone -> "Signal is the assistant, but it can't use the microphone yet."
+        else -> "Signal is the assistant. Voice commands start once the speech model is ready."
+    }
+    @Composable fun text(s: String) = SText(s, 22, Modifier.padding(horizontal = 40.dp, vertical = 4.dp), color = c.secondaryText, maxLines = 2)
+    Column(Modifier.width(1100.dp)) {
+        SectionTitle("Status")
+        SText(summary, 24, Modifier.padding(horizontal = 40.dp).padding(bottom = 16.dp), color = c.secondaryText, maxLines = 2)
+        ListRow("Signal is the assistant", detail = if (status.isAssistant) "Yes" else "No · set from a computer, below", onSelect = null)
+        ListRow(
+            "Microphone",
+            detail = if (status.hasMicrophone) "Allowed" else "Not allowed · OK to allow",
+            onSelect = if (status.hasMicrophone) null else ({ voice.requestMicrophone() }),
+        )
+        ListRow("Speech model", detail = model, onSelect = null)
+        SectionTitle("Turning it on")
+        text("Android TV has no setting for this, so it's done once from a computer with adb. Turn on network debugging in the TV's Developer options, then run:")
+        text("adb connect <the TV's address>:5555")
+        text("adb shell cmd role add-role-holder android.app.role.ASSISTANT ${voice.packageName}")
+        text("The mic button then talks to Signal everywhere, instead of Google Assistant.")
+        SectionTitle("Turning it off")
+        text("adb shell cmd role add-role-holder android.app.role.ASSISTANT com.google.android.katniss")
+        SectionTitle("Voice names")
+        text("Give a channel other names to say it by: long-press OK on it, then Voice names.")
+    }
 }
 
 /** NAS & sync (PLAN §4.3.15 → 7): the connection, sync, pairing, the addresses and the settings file. */

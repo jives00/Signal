@@ -19,6 +19,8 @@ interface Platform {
     val io: CoroutineDispatcher
     /** Saving and opening a settings file (PLAN §9.2 → Fallback), or null where there's no way to. */
     val settingsFiles: SettingsFiles? get() = null
+    /** Voice commands, when Signal can be the device's assistant (PLAN §4.3.14), or null (the dev harness). */
+    val voice: VoiceSetup? get() = null
 
     fun createUserDatabaseDriver(): SqlDriver
 
@@ -37,6 +39,24 @@ interface Platform {
 
     /** Back on the nav bar of Home exits the app straight away (PLAN §4.3.1). */
     fun exitApp()
+}
+
+/**
+ * What voice commands need (PLAN §4.3.14 → Voice commands): Signal as the device's assistant, which
+ * only adb can set on Android TV, the microphone permission, and the speech model.
+ */
+interface VoiceSetup {
+    /** Read fresh each time: the assistant and the permission change outside the app. */
+    fun status(): VoiceStatus
+    /** Shows the system's microphone prompt. */
+    fun requestMicrophone()
+    /** The package to name in the adb commands. */
+    val packageName: String
+}
+
+data class VoiceStatus(val isAssistant: Boolean, val hasMicrophone: Boolean, val model: Model) {
+    enum class Model { NOT_DOWNLOADED, DOWNLOADING, LOADING, READY, FAILED }
+    val ready: Boolean get() = isAssistant && hasMicrophone && model == Model.READY
 }
 
 /** A settings file on a USB stick or in Downloads. */

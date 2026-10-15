@@ -40,6 +40,7 @@ class AndroidPlatform(private val context: Context) : Platform {
     override val player = ExoVideoPlayer(context)
     override val io = Dispatchers.IO
     override val settingsFiles = AndroidSettingsFiles(context) { activity?.get() as? MainActivity }
+    override val voice = com.signal.tv.voice.AndroidVoiceSetup(context) { activity?.get() as? MainActivity }
     private val http by lazy { createHttpClient() }
 
     // Release builds from an apk-* tag only; debug and local builds never offer updates.

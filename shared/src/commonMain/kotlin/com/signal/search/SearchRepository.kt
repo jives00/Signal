@@ -33,6 +33,8 @@ class SearchRepository(
     private val guide: GuideRepository,
     private val io: CoroutineDispatcher,
     scope: CoroutineScope,
+    /** For timings. */
+    private val log: ((String) -> Unit)? = null,
 ) {
     private class Entry(
         val streamId: String,
@@ -78,17 +80,31 @@ class SearchRepository(
         }
     }
 
+    /** A name's folded form and initials, kept between rebuilds: folding every name took 8–11 s on the Shield. */
+    private class Folded(val folded: String, val initials: List<String>)
+    private var foldedNames = HashMap<String, Folded>()
+
+    private fun fold(name: String, cache: HashMap<String, Folded>, previous: Map<String, Folded>): Folded = cache.getOrPut(name) {
+        previous[name] ?: Folded(SearchText.fold(name), capitals.findAll(name).map { it.value.lowercase() }.filter(VoiceCommand::isInitials).toList())
+    }
+
     private suspend fun index(): List<Entry> = entries ?: withContext(io) {
-        db.streamQueries.searchIndex(settings.profileId).executeAsList().mapIndexedNotNull { i, r ->
+        val started = kotlin.time.TimeSource.Monotonic.markNow()
+        val previous = foldedNames
+        val cache = HashMap<String, Folded>(previous.size)
+        val built = db.streamQueries.searchIndex(settings.profileId).executeAsList().mapIndexedNotNull { i, r ->
             if (r.hidden == 1L || r.group_hidden == 1L) return@mapIndexedNotNull null
-            val raw = listOfNotNull(r.custom_name, r.display_name, r.raw_name)
-            val names = raw.map(SearchText::fold).distinct()
+            val raw = listOfNotNull(r.custom_name, r.display_name, r.raw_name).map { fold(it, cache, previous) }
+            val names = raw.map { it.folded }.distinct()
             val voice = VoiceNames.parse(r.voice_names)
             // Initials: capitals in the names, and any letters-only word in a voice name ("fs1" → "fs").
-            val initials = (raw.flatMap { n -> capitals.findAll(n).map { it.value } } + voice.flatMap { v -> letterRuns.findAll(v).map { it.value } })
-                .map { it.lowercase() }.filter(VoiceCommand::isInitials).distinct()
+            val initials = (raw.flatMap { it.initials } + voice.flatMap { v -> letterRuns.findAll(v).map { it.value.lowercase() } }.filter(VoiceCommand::isInitials)).distinct()
             Entry(r.id, r.user_channel_id, r.tvg_id, r.raw_name, names, r.is_favorite, i, initials, voice.map(SearchText::fold).filter { it.isNotEmpty() })
         }
+        // Only names still in use, so renamed and removed channels don't pile up.
+        foldedNames = cache
+        log?.invoke("Search index: ${built.size} channels in ${started.elapsedNow().inWholeMilliseconds} ms (${cache.size - cache.keys.count { it in previous }} names new)")
+        built
     }.also { entries = it }
 
     /**

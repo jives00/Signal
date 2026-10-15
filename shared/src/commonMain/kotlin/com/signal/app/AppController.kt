@@ -86,7 +86,7 @@ class AppController(val platform: Platform, val log: Log) {
     val guide = GuideRepository(guideStore, epg, settings, guideIo, scope)
     private val guideBuilder = GuideBuilder(http, { sources.byId(it) }, guideIo, log)
     val reminders = ReminderRepository(db, settings, channels, platform.io)
-    val search = SearchRepository(db, settings, channels, guide, platform.io, scope)
+    val search = SearchRepository(db, settings, channels, guide, platform.io, scope) { log.info(it) }
     val reminderList: StateFlow<List<Reminder>> = reminders.reminders().stateIn(scope, SharingStarted.Eagerly, emptyList())
     val dispatcher = RemoteDispatcher()
     val navigator = Navigator(Route.Home)

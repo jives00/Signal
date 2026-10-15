@@ -61,8 +61,9 @@ LEFT JOIN channel_profile cp ON cp.user_channel_id = cl.user_channel_id AND cp.p
 LEFT JOIN favorite f ON f.user_channel_id = cl.user_channel_id AND f.profile_id = :profileId
 WHERE s.id = :streamId;
 
--- Every channel Search can find (PLAN §4.3.14): enabled sources, with the hidden flags so hidden
--- channels and groups can be left out.
+-- Every channel Search can find (PLAN §4.3.14): enabled sources, without hidden channels and groups.
+-- Filtered here, not after: a real list is 57k streams with 2.4k visible, and reading them all took
+-- the Shield 6.5 s.
 searchIndex:
 SELECT s.id, s.raw_name, s.display_name, s.tvg_id, cl.user_channel_id, cp.custom_name, cp.voice_names,
        coalesce(cp.hidden, 0) AS hidden, coalesce(go.hidden, 0) AS group_hidden,
@@ -73,6 +74,7 @@ LEFT JOIN channel_link cl ON cl.stream_id = s.id
 LEFT JOIN channel_profile cp ON cp.user_channel_id = cl.user_channel_id AND cp.profile_id = :profileId
 LEFT JOIN favorite f ON f.user_channel_id = cl.user_channel_id AND f.profile_id = :profileId
 LEFT JOIN group_override go ON go.profile_id = :profileId AND go.source_id = s.source_id AND go.group_name = s.group_name
+WHERE coalesce(cp.hidden, 0) = 0 AND coalesce(go.hidden, 0) = 0
 ORDER BY src.created_at, s.position;
 
 -- Every cached stream, in source order: the companion's catalog for the web admin (PLAN §4.3.18 → Channels).

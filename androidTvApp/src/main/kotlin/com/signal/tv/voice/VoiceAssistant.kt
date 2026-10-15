@@ -77,7 +77,9 @@ private class ListenSession(context: Context) : VoiceInteractionSession(context)
         closing?.cancel()
         if (context.checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
             Log.w(TAG, "Voice: no microphone permission")
-            closeAfter(2500) { overlay?.message("Signal needs microphone permission") }
+            // Signal asks for it as it opens.
+            context.startActivity(Intent(context, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK).putExtra(MainActivity.ASK_MICROPHONE, true))
+            closeAfter(2500) { overlay?.message("Allow the microphone to use voice commands") }
             return
         }
         val model = VoskModel.get(context)

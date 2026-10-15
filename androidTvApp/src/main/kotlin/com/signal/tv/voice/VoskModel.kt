@@ -2,6 +2,7 @@ package com.signal.tv.voice
 
 import android.content.Context
 import android.util.Log
+import com.signal.platform.VoiceStatus
 import org.vosk.Model
 import java.io.File
 import java.net.URL
@@ -20,6 +21,18 @@ internal object VoskModel {
 
     @Volatile private var model: Model? = null
     @Volatile private var preparing = false
+    @Volatile private var failed = false
+    @Volatile private var downloading = false
+
+    /** For Settings → Voice commands. */
+    fun state(context: Context): VoiceStatus.Model = when {
+        model != null -> VoiceStatus.Model.READY
+        downloading -> VoiceStatus.Model.DOWNLOADING
+        preparing -> VoiceStatus.Model.LOADING
+        failed -> VoiceStatus.Model.FAILED
+        File(context.filesDir, "vosk/$NAME.ready").exists() -> VoiceStatus.Model.LOADING
+        else -> VoiceStatus.Model.NOT_DOWNLOADED
+    }
 
     /** The loaded model, or null while it downloads or loads (which [prepare] starts). */
     fun get(context: Context): Model? = model ?: run { prepare(context); null }
@@ -27,23 +40,27 @@ internal object VoskModel {
     /** The model if it's loaded; never starts loading. */
     fun loaded(): Model? = model
 
-    /** Downloads and loads the model in the background, once. */
+    /** Downloads and loads the model in the background, once (again after a failure). */
     fun prepare(context: Context) {
         if (model != null || preparing) return
         preparing = true
+        failed = false
         thread(name = "vosk-model") {
             runCatching {
                 val dir = File(context.filesDir, "vosk")
                 val modelDir = File(dir, NAME)
                 val ready = File(dir, "$NAME.ready")
-                if (!ready.exists()) download(dir, modelDir, ready)
+                if (!ready.exists()) {
+                    downloading = true
+                    try { download(dir, modelDir, ready) } finally { downloading = false }
+                }
                 val started = System.currentTimeMillis()
                 model = Model(modelDir.absolutePath)
                 Log.i(TAG, "Voice: speech model loaded in ${System.currentTimeMillis() - started} ms")
                 val app = context.applicationContext as com.signal.tv.SignalApplication
                 ReadyRecognizer.warm(app)
                 ReadyRecognizer.follow(app)
-            }.onFailure { Log.e(TAG, "Voice: speech model failed", it) }
+            }.onFailure { failed = true; Log.e(TAG, "Voice: speech model failed", it) }
             preparing = false
         }
     }

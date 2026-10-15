@@ -118,10 +118,35 @@ class MainActivity : ComponentActivity() {
             signal.controller.onForeground()
         }
         started = true
+        askForMicrophone()
     }
 
-    private companion object {
-        val REMOTE_KEYS = setOf(
+    // Voice commands (PLAN §4.3.14): once Signal is the assistant (by adb), it needs the microphone.
+    // Asked once per launch; Android stops showing the prompt after it's been declined twice, and
+    // Settings → Voice commands can ask again.
+    private var askedForMicrophone = false
+
+    // The assistant opens Signal with this when a press found no permission: ask even if already asked.
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        if (intent.getBooleanExtra(ASK_MICROPHONE, false)) { askedForMicrophone = false; askForMicrophone() }
+    }
+
+    private fun askForMicrophone() {
+        if (askedForMicrophone) return
+        val voice = signal.platform.voice
+        val status = voice.status()
+        if (status.isAssistant && !status.hasMicrophone) {
+            askedForMicrophone = true
+            voice.requestMicrophone()
+        }
+    }
+
+    companion object {
+        /** An extra: ask for the microphone even if this launch already asked (see onNewIntent). */
+        const val ASK_MICROPHONE = "ask_microphone"
+
+        private val REMOTE_KEYS = setOf(
             KeyEvent.KEYCODE_DPAD_UP, KeyEvent.KEYCODE_DPAD_DOWN, KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_DPAD_RIGHT,
             KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE,
             KeyEvent.KEYCODE_CHANNEL_UP, KeyEvent.KEYCODE_CHANNEL_DOWN,
