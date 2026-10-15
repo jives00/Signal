@@ -100,8 +100,8 @@ class VodEnrichmentTest {
                 genres = mapOf("MOVIE" to mapOf("Action" to listOf(a.id, b.id))),
             ),
         )
-        assertEquals(listOf("genre:Action" to 2, "list:trending" to 3), vod.shelves(VodKind.MOVIE).first().map { it.shelf to it.count }.sortedBy { it.first })
-        // c is the same TMDB title as a, from the list's later position: shown once.
+        assertEquals(listOf("genre:Action" to 2, "list:trending" to 2), vod.shelves(VodKind.MOVIE).first().map { it.shelf to it.count }.sortedBy { it.first })
+        // c is the same TMDB title as a, from the list's later position: shown once, and counted once.
         assertEquals(listOf(b.id, a.id), vod.shelfItems(VodKind.MOVIE, "list:trending").map { it.id })
         val enriched = vod.item(a.id)!!
         assertEquals(603L, enriched.tmdbId)

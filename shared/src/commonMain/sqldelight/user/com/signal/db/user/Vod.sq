@@ -225,11 +225,13 @@ insertShelf:
 INSERT OR REPLACE INTO vod_shelf(kind, shelf, position, item_id) VALUES (?, ?, ?, ?);
 
 -- The Lists and Genres entries: shelves with at least one title of an enabled source.
+-- Counted per title, as itemsInShelf shows them: a 4K and a plain copy of one show are one card.
 shelves:
-SELECT sh.shelf, count(DISTINCT sh.item_id) AS item_count
+SELECT sh.shelf, count(DISTINCT coalesce(t.tmdb_id, i.tmdb_id, i.id)) AS item_count
 FROM vod_shelf sh
 JOIN vod_item i ON i.id = sh.item_id
 JOIN source src ON src.id = i.source_id AND src.enabled = 1
+LEFT JOIN vod_tmdb t ON t.item_id = i.id
 WHERE sh.kind = ?
 GROUP BY sh.shelf;
 
