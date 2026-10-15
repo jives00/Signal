@@ -68,7 +68,8 @@ UPDATE favorite SET sort_key = ? WHERE profile_id = ? AND user_channel_id = ?;
 -- Playlists --------------------------------------------------------------------------------
 
 playlists:
-SELECT * FROM playlist WHERE profile_id = ? ORDER BY sort_key;
+SELECT p.*, (SELECT count(*) FROM playlist_item pi WHERE pi.playlist_id = p.id) AS channel_count
+FROM playlist p WHERE p.profile_id = ? ORDER BY p.sort_key;
 
 insertPlaylist:
 INSERT INTO playlist(id, profile_id, name, sort_key) VALUES (?, ?, ?, ?);

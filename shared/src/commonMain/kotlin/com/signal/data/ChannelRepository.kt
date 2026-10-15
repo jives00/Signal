@@ -83,7 +83,7 @@ class ChannelRepository(
 
         buildList {
             add(GroupEntry(ChannelGroup.Favorites, favoriteCount(), null, false))
-            playlists.forEach { add(GroupEntry(ChannelGroup.Playlist(it.id, it.name), 0, null, false)) }
+            playlists.forEach { add(GroupEntry(ChannelGroup.Playlist(it.id, it.name), it.channel_count.toInt(), null, false)) }
             addAll(sorted)
         }
     }

@@ -33,7 +33,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -63,6 +67,7 @@ import com.signal.ui.components.formatTime
 import com.signal.ui.components.requestFocusWhenReady
 import com.signal.ui.components.labelOf
 import com.signal.ui.components.showNumbers
+import com.signal.ui.theme.SignalSizes
 import com.signal.ui.theme.SignalTheme
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
@@ -355,6 +360,8 @@ fun LiveTvPage() {
 
     val focusedChannel = channelAt(focusRow)
     val focused = focusedProgram()
+    val nowX = nowX(now, windowStart)
+    val dividerNowX = nowX?.plus(GuideGeometry.CHANNEL_COLUMN + SignalSizes.DIVIDER)
     TopLevelPage(Route.LiveTv, chrome, hideNav = true) {
         Column(Modifier.fillMaxSize()) {
             Row(Modifier.fillMaxWidth().height(GuideGeometry.STRIP_HEIGHT.dp)) {
@@ -383,8 +390,8 @@ fun LiveTvPage() {
                             }
                         },
                 ) {
-                    TimeHeader(app, group, windowStart)
-                    HDivider()
+                    TimeHeader(app, group, windowStart, nowX)
+                    HDivider(Modifier.nowLineOver(dividerNowX))
                     LazyColumn(Modifier.fillMaxSize(), state = list, userScrollEnabled = false) {
                         itemsIndexed(channels, key = { _, ch -> ch.key }) { i, ch ->
                             LaunchedEffect(ch.stream.id, rows) { rows.request(ch, halfHourBefore(now)) }
@@ -393,6 +400,7 @@ fun LiveTvPage() {
                                 programs = rows.get(ch),
                                 windowStart = windowStart,
                                 now = now,
+                                nowX = nowX,
                                 rowFocused = gridHasFocus && i == focusRow,
                                 channelFocused = gridHasFocus && i == focusRow && onChannelColumn,
                                 // Only the focused row uses it: the others then skip recomposing on Left/Right.
@@ -401,11 +409,10 @@ fun LiveTvPage() {
                                 moving = move.movingKey == ch.key,
                                 hasReminder = { p -> ch.userChannelId != null && "${ch.userChannelId}|${p.title}|${p.start}" in reminderKeys },
                             )
-                            HDivider()
+                            HDivider(Modifier.nowLineOver(dividerNowX))
                         }
                     }
                 }
-                NowLine(now, windowStart)
                 if (loaded != null && loaded.isEmpty()) {
                     SText(
                         if (group == ChannelGroup.Favorites) "No favorites yet. Long-press OK on a channel to add one." else "No channels in this group.",
@@ -480,7 +487,7 @@ internal fun programTime(app: AppController, p: Program, now: Long): String {
 }
 
 @Composable
-private fun TimeHeader(app: AppController, group: ChannelGroup?, windowStart: Long) {
+private fun TimeHeader(app: AppController, group: ChannelGroup?, windowStart: Long, nowX: Float?) {
     val c = SignalTheme.colors
     val h24 = use24(app)
     Row(Modifier.fillMaxWidth().height(GuideGeometry.HEADER_HEIGHT.dp)) {
@@ -489,7 +496,8 @@ private fun TimeHeader(app: AppController, group: ChannelGroup?, windowStart: Lo
             22, Modifier.width(GuideGeometry.CHANNEL_COLUMN.dp).padding(start = 24.dp, top = 18.dp, end = 16.dp),
             weight = FontWeight.SemiBold, color = c.muted,
         )
-        Box(Modifier.fillMaxSize()) {
+        // The header has no channel-column divider, so the line sits a divider's width in to meet the grid's.
+        Box(Modifier.fillMaxSize().nowLine(nowX?.plus(SignalSizes.DIVIDER))) {
             // Half-hour labels, each with a 2-unit left rule, from the first boundary in the window.
             var t = windowStart - windowStart % HALF_HOUR + if (windowStart % HALF_HOUR == 0L) 0 else HALF_HOUR
             while (t < windowStart + GuideGeometry.windowMs) {
@@ -508,6 +516,7 @@ private fun GuideRow(
     programs: List<Program>?,
     windowStart: Long,
     now: Long,
+    nowX: Float?,
     rowFocused: Boolean,
     channelFocused: Boolean,
     focusTime: Long,
@@ -534,27 +543,29 @@ private fun GuideRow(
             if (playing) Box(Modifier.width(8.dp).height(8.dp).background(if (channelFocused) c.onAccent else c.accent))
         }
         VDivider()
-        Box(Modifier.fillMaxSize()) {
+        // The now line behind the cells shows through gaps in the guide; live cells draw it again over their fill.
+        Box(Modifier.fillMaxSize().nowLine(nowX)) {
             val visible = programs?.filter { it.stop > windowStart && it.start < windowEnd }
             if (visible.isNullOrEmpty()) {
                 // No guide data: one cell across the window, counting as on now (PLAN §4.3.2).
                 val focused = rowFocused && !channelFocused
                 Box(
                     Modifier.fillMaxSize().background(if (focused) c.accent else if (programs != null) c.surface else Color.Transparent)
+                        .nowLine(nowX)
                         .padding(horizontal = 16.dp),
                     contentAlignment = Alignment.CenterStart,
                 ) {
                     if (programs != null) SText("No information", 24, weight = FontWeight.SemiBold, color = if (focused) c.onAccent else c.muted)
                 }
             } else {
-                for (p in visible) ProgramCell(p, windowStart, windowEnd, now, focused = rowFocused && !channelFocused && focusTime in p.start until p.stop, reminder = hasReminder(p))
+                for (p in visible) ProgramCell(p, windowStart, windowEnd, now, nowX, focused = rowFocused && !channelFocused && focusTime in p.start until p.stop, reminder = hasReminder(p))
             }
         }
     }
 }
 
 @Composable
-private fun ProgramCell(p: Program, windowStart: Long, windowEnd: Long, now: Long, focused: Boolean, reminder: Boolean) {
+private fun ProgramCell(p: Program, windowStart: Long, windowEnd: Long, now: Long, nowX: Float?, focused: Boolean, reminder: Boolean) {
     val c = SignalTheme.colors
     val app = LocalApp.current
     val from = maxOf(p.start, windowStart)
@@ -568,6 +579,8 @@ private fun ProgramCell(p: Program, windowStart: Long, windowEnd: Long, now: Lon
                 .weight(1f)
                 .fillMaxHeight()
                 .background(if (focused) c.accent else if (p.isOn(now)) c.surface else Color.Transparent)
+                // Between the fill and the text, so the line never covers a title.
+                .nowLine(if (p.isOn(now)) nowX?.minus(left) else null)
                 .padding(horizontal = 16.dp, vertical = 14.dp),
         ) {
             // A sliver at the window's edge has no room for text, only for "…".
@@ -590,12 +603,31 @@ private fun ProgramCell(p: Program, windowStart: Long, windowEnd: Long, now: Lon
     }
 }
 
-/** A 4-unit accent bar at now, through the header and every row. */
+/** Where now falls, in units from the program area's left edge; null when it's outside the window. */
+private fun nowX(now: Long, windowStart: Long): Float? =
+    if (now < windowStart || now >= windowStart + GuideGeometry.windowMs) null
+    else (now - windowStart) / MINUTE.toFloat() * GuideGeometry.UNITS_PER_MINUTE
+
+/**
+ * The now line: a 4-unit accent bar [x] units from this node's left, drawn behind the node's content
+ * so it runs under titles and time labels, never over them.
+ */
 @Composable
-private fun NowLine(now: Long, windowStart: Long) {
-    if (now < windowStart || now >= windowStart + GuideGeometry.windowMs) return
-    val x = GuideGeometry.CHANNEL_COLUMN + 2 + (now - windowStart) / MINUTE.toFloat() * GuideGeometry.UNITS_PER_MINUTE
-    Box(Modifier.offset(x = x.dp).width(GuideGeometry.NOW_LINE.dp).fillMaxHeight().background(SignalTheme.colors.accent))
+private fun Modifier.nowLine(x: Float?): Modifier {
+    if (x == null) return this
+    val color = SignalTheme.colors.accent
+    return drawBehind { drawRect(color, Offset(x.dp.toPx(), 0f), Size(GuideGeometry.NOW_LINE.dp.toPx(), size.height)) }
+}
+
+/** The now line over a divider, which has no text: keeps the line unbroken between rows. */
+@Composable
+private fun Modifier.nowLineOver(x: Float?): Modifier {
+    if (x == null) return this
+    val color = SignalTheme.colors.accent
+    return drawWithContent {
+        drawContent()
+        drawRect(color, Offset(x.dp.toPx(), 0f), Size(GuideGeometry.NOW_LINE.dp.toPx(), size.height))
+    }
 }
 
 /** The focused program's details, above the grid (PLAN §4.3.2: the preview doesn't follow focus; this does). */
