@@ -13,6 +13,11 @@ import com.signal.platform.SecretBox
 import com.signal.sync.BUNDLE_SCHEMA
 import com.signal.sync.PullResult
 import com.signal.sync.PushRequest
+import com.signal.sync.SyncItem
+import com.signal.sync.SyncScope
+import com.signal.sync.SyncType
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import com.signal.sync.PushResult
 import com.signal.sync.SyncEngine
 import com.signal.sync.SyncPaths
@@ -173,6 +178,35 @@ class SyncTest {
             assertEquals("Renamed on A", tv.channelRow(uc)?.custom_name, tv.name)
             assertEquals(1L, tv.channelRow(uc)?.hidden, tv.name)
         }
+    }
+
+    /**
+     * A field from a newer app version (voice names did this, 2026-10-15) is left alone by a TV
+     * that doesn't know it. 0.2.16 and earlier sent it back as a null, which wiped it everywhere.
+     */
+    @Test fun aFieldThisVersionDoesntKnowSurvivesItsSync() = testApplication {
+        application { signalModule(companion) }
+        val a = paired(Tv("a"))
+        val b = paired(Tv("b"))
+        val uc = a.addChannel("s:x:1")
+        a.db.userChannelQueries.ensureProfileRow(uc, "main")
+        a.sync()
+
+        // A newer app version (A, say) sets a field this version has no column for.
+        a.transport.push(PushRequest(BUNDLE_SCHEMA, listOf(SyncItem(SyncType.CHANNEL_PROFILE, uc, SyncScope.PROFILE, "main", JsonObject(mapOf("from_a_newer_app" to JsonPrimitive("kept")))))))
+        // B receives it, then changes something else on that channel and syncs.
+        b.sync()
+        b.db.userChannelQueries.setHidden(1, uc, "main")
+        b.sync()
+        a.db.userChannelQueries.setCustomName("Renamed", uc, "main")
+        a.sync()
+
+        val c = paired(Tv("c"))
+        c.sync()
+        val fields = json.decodeFromString<JsonObject>(c.db.syncQueries.allBase().executeAsList().first { it.type == SyncType.CHANNEL_PROFILE && it.id == uc }.fields)
+        assertEquals(JsonPrimitive("kept"), fields["from_a_newer_app"])
+        assertEquals("Renamed", c.channelRow(uc)?.custom_name)
+        assertEquals(1L, c.channelRow(uc)?.hidden)
     }
 
     @Test fun anEditNotYetSentWinsOverOneThatArrivedEarlier() = testApplication {

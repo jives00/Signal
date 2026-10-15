@@ -216,8 +216,10 @@ class SyncEngine(
         for ((key, item) in current) {
             val agreed = base[key]
             if (agreed == null) { add(item); continue }
-            val changed = item.fields.filter { (name, value) -> value != (agreed.fields[name] ?: JsonNull) } +
-                agreed.fields.keys.filter { it !in item.fields }.associateWith { JsonNull }
+            // Only fields this version reads: a field in the agreed copy but not in the rows came
+            // from a newer version, and is left alone. Sending it back as a null (0.2.16 and
+            // earlier) wiped the newer version's voice names everywhere (2026-10-15).
+            val changed = item.fields.filter { (name, value) -> value != (agreed.fields[name] ?: JsonNull) }
             if (changed.isNotEmpty()) add(item.copy(fields = JsonObject(changed)))
         }
         for ((key, agreed) in base) if (key !in current) add(agreed.copy(fields = JsonObject(emptyMap()), deleted = true))

@@ -571,6 +571,8 @@ class AppController(val platform: Platform, val log: Log) {
     suspend fun voice(guesses: List<String>): VoiceResult {
         val best = guesses.firstOrNull { it.isNotBlank() }.orEmpty()
         val commands = guesses.mapNotNull { heard -> (com.signal.voice.VoiceCommand.parse(heard) as? com.signal.voice.VoiceCommand.Tune)?.let { heard to it.channel } }
+            // One letter is never enough to name a channel ("v" found VH1).
+            .filter { (_, name) -> name.replace(" ", "").length >= 2 }
         val tried = commands.firstOrNull()?.second
         suspend fun act(heard: String, ch: com.signal.model.Channel, how: String): VoiceResult {
             withContext(Dispatchers.Main) {
