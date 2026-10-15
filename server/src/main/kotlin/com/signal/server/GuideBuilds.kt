@@ -26,7 +26,12 @@ import java.util.zip.GZIPOutputStream
  * passes, and stays on disk (unpacked) so a failing source can carry over its programs, as on the
  * device. Files, in [dir]: guide-<builtAt>.db, guide-<builtAt>.db.gz and guide.json (the meta).
  */
-class GuideBuilds(private val dir: File, private val http: HttpClient) {
+class GuideBuilds(
+    private val dir: File,
+    private val http: HttpClient,
+    // Team names for games (PLAN §6 → Game titles); null turns the lookup off.
+    private val games: GameLookup? = GameLookup(http),
+) {
     private val log = LoggerFactory.getLogger("Guide")
     private val json = Json { ignoreUnknownKeys = true }
     private val metaFile = File(dir, "guide.json")
@@ -77,6 +82,10 @@ class GuideBuilds(private val dir: File, private val http: HttpClient) {
             try {
                 val outcomes = builder.build(inputs.epgSources, GuideDatabase(driver), previous?.let { GuideDatabase(it) }, now, reuse)
                 if (outcomes.values.none { it.programs > 0 }) error(outcomes.values.firstNotNullOfOrNull { it.error }?.let { "No programs: $it" } ?: "No programs")
+                games?.let { lookup ->
+                    val shifts = inputs.epgSources.associate { it.id to it.timeShiftMs }
+                    runCatching { lookup.apply(GuideDatabase(driver), shifts, now) }.onFailure { log.warn("Game lookup skipped: ${it.message}") }
+                }
                 GuideDatabase(driver).guideQueries.run {
                     putMeta(GuideStore.META_BUILT_AT, now.toString())
                     putMeta(GuideStore.META_SCHEMA, GuideStore.SCHEMA.toString())

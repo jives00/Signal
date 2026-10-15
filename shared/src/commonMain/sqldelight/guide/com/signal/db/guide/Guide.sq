@@ -115,3 +115,20 @@ SELECT * FROM guide_channel WHERE epg_source_id = ?;
 guideChannelByIdAnyCase:
 SELECT g.epg_source_id, g.id, (SELECT count(*) FROM program p WHERE p.epg_source_id = g.epg_source_id AND p.guide_channel_id = g.id) AS programs
 FROM guide_channel g WHERE lower(g.id) = lower(?) LIMIT 1;
+
+-- Game titles (the NAS's GameLookup): programs in [from, to), guide time, whose title names a sport
+-- or league it can look up. GameTitles.isGame narrows them further.
+gameCandidates:
+SELECT id, epg_source_id, guide_channel_id, start, title, sub_title, description, categories FROM program
+WHERE stop > ? AND start < ? AND (
+    title LIKE '%football%' OR title LIKE '%basketball%' OR title LIKE '%baseball%' OR title LIKE '%hockey%'
+    OR title LIKE '%soccer%' OR title LIKE '%volleyball%' OR title LIKE '%NFL%' OR title LIKE '%NBA%' OR title LIKE '%MLB%'
+    OR title LIKE '%NHL%' OR title LIKE '%MLS%' OR title LIKE '%NWSL%' OR title LIKE '%league%' OR title LIKE '%liga%'
+    OR title LIKE '%serie a%' OR title LIKE '%ligue 1%' OR title LIKE '%EFL%'
+);
+
+setProgramTitle:
+UPDATE program SET title = ? WHERE id = ?;
+
+deleteSearchText:
+DELETE FROM program_fts WHERE docid = ?;

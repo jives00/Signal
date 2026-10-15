@@ -161,13 +161,14 @@ class GuideBuilder(
                 for (p in pendingPrograms) {
                     val flags = (if (p.isNew) 1L else 0) or (if (p.isLive) 2L else 0) or (if (p.previouslyShown) 4L else 0)
                     val id = ids()
+                    val title = GameTitles.titled(p.title, p.categories, p.description)
                     db.guideQueries.insertProgram(
-                        id, epg.id, p.channel, p.start, p.stop, p.title, p.subTitle, p.description,
+                        id, epg.id, p.channel, p.start, p.stop, title, p.subTitle, p.description,
                         p.categories.takeIf { it.isNotEmpty() }?.joinToString(SEPARATOR),
                         p.season?.toLong(), p.episode?.toLong(), p.episodeLabel, p.icon, p.rating, p.year?.toLong(), flags,
                         p.credits.takeIf { it.isNotEmpty() }?.joinToString(SEPARATOR),
                     )
-                    db.guideQueries.insertSearchText(id, SearchText.fold(p.title), p.subTitle?.let(SearchText::fold).orEmpty())
+                    db.guideQueries.insertSearchText(id, SearchText.fold(title), p.subTitle?.let(SearchText::fold).orEmpty())
                 }
             }
             pendingChannels.clear()
