@@ -11,22 +11,19 @@ const PAGE = 100;
 const statusLabel: Record<VodRow["status"], string> = { matched: "Matched", manual: "Fixed by hand", unmatched: "No match", pending: "Not tried yet" };
 
 /**
- * Movies & Shows (PLAN §4.3.11–4.3.12): the catalog with TMDB matching, the provider's categories,
- * and each profile's Library.
+ * Video on Demand (PLAN §4.3.11–4.3.12), one page each: the catalog with TMDB matching, the
+ * provider's categories, and each profile's Library.
  */
-export default function Vod() {
-  const [tab, setTab] = useState<"catalog" | "categories" | "library">("catalog");
-  return (
-    <div className="page">
-      <h1>Movies &amp; Shows</h1>
-      <div className="tabs" role="tablist">
-        <button role="tab" aria-selected={tab === "catalog"} className={tab === "catalog" ? "on" : ""} onClick={() => setTab("catalog")}>Catalog</button>
-        <button role="tab" aria-selected={tab === "categories"} className={tab === "categories" ? "on" : ""} onClick={() => setTab("categories")}>Categories</button>
-        <button role="tab" aria-selected={tab === "library"} className={tab === "library" ? "on" : ""} onClick={() => setTab("library")}>Library</button>
-      </div>
-      {tab === "catalog" ? <Catalog /> : tab === "categories" ? <Categories /> : <Library />}
-    </div>
-  );
+export function VodCatalog() {
+  return <div className="page"><h1>Catalog</h1><Catalog /></div>;
+}
+
+export function VodCategories() {
+  return <div className="page"><h1>Categories</h1><Categories /></div>;
+}
+
+export function VodLibrary() {
+  return <div className="page"><h1>Library</h1><Library /></div>;
 }
 
 /**
@@ -364,7 +361,7 @@ function Library() {
 
   return (
     <>
-      <p className="detail">Added on the TV, or with Add to Library in the catalog. Shown for {profileNames([profile], profiles)}.</p>
+      <p className="detail">Added on the TV, or with Add to Library in the <Link className="inline" to="/vod/catalog">Catalog</Link>. Shown for {profileNames([profile], profiles)}.</p>
       {error && <p className="error-text">{error}</p>}
       {rows && rows.length === 0 && <p className="detail">Nothing in the Library.</p>}
       {rows && rows.length > 0 && (

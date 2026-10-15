@@ -14,7 +14,7 @@ import Reminders from "./pages/Reminders";
 import { Appearance, CompanionSettings, NameCleanupSettings } from "./pages/Settings";
 import Sources from "./pages/Sources";
 import Switch from "./pages/Switch";
-import Vod from "./pages/Vod";
+import { VodCatalog, VodCategories, VodLibrary } from "./pages/Vod";
 
 type Page = { path: string; title: string };
 
@@ -31,7 +31,14 @@ const nav: { header?: string; pages: Page[] }[] = [
       { path: "/reminders", title: "Reminders" },
     ],
   },
-  { header: "Video on Demand", pages: [{ path: "/vod", title: "Movies & Shows" }] },
+  {
+    header: "Video on Demand",
+    pages: [
+      { path: "/vod/catalog", title: "Catalog" },
+      { path: "/vod/categories", title: "Categories" },
+      { path: "/vod/library", title: "Library" },
+    ],
+  },
   {
     header: "Administration",
     pages: [
@@ -121,7 +128,10 @@ function Shell() {
           <Route path="/groups" element={<Groups />} />
           <Route path="/mapping" element={<Mapping />} />
           <Route path="/switch" element={<Switch />} />
-          <Route path="/vod" element={<Vod />} />
+          <Route path="/vod" element={<Navigate to="/vod/catalog" replace />} />
+          <Route path="/vod/catalog" element={<VodCatalog />} />
+          <Route path="/vod/categories" element={<VodCategories />} />
+          <Route path="/vod/library" element={<VodLibrary />} />
           <Route path="/reminders" element={<Reminders />} />
           <Route path="/settings" element={<Navigate to="/settings/appearance" replace />} />
           <Route path="/settings/appearance" element={<Appearance />} />
