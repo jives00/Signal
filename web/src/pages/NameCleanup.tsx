@@ -26,7 +26,7 @@ function encode(r: NameCleanupRules): string | null {
 
 /**
  * Name cleanup (PLAN §4.3.18 → 6): common prefixes and suffixes to remove, plus the user's own,
- * with a live preview on the real names. Edits are a draft until Save, so trying patterns doesn't
+ * with a live count of the real names each change affects. Edits are a draft until Save, so trying patterns doesn't
  * fill the Undo history. Displayed names only: matching and the guide keep the raw name.
  */
 export default function NameCleanup({ saved, onSaved }: { saved: string | undefined; onSaved: () => void }) {
@@ -50,7 +50,6 @@ export default function NameCleanup({ saved, onSaved }: { saved: string | undefi
   }, [rules, profile]);
 
   const dirty = encode(rules) !== encode(parse(saved));
-  const samples = preview ? [...preview.groupSamples.map((s) => ({ ...s, kind: "Group" })), ...preview.channelSamples.map((s) => ({ ...s, kind: "Channel" }))] : [];
   const togglePreset = (id: string) =>
     setRules({ ...rules, presets: rules.presets.includes(id) ? rules.presets.filter((p) => p !== id) : [...rules.presets, id] });
 
@@ -119,29 +118,11 @@ export default function NameCleanup({ saved, onSaved }: { saved: string | undefi
 
       {error && <p className="error-text">{error}</p>}
       {preview && (
-        <>
-          <p className="detail">
-            {preview.channelsChanged.toLocaleString()} of {preview.channels.toLocaleString()} channel names change
-            {rules.groups && `, and ${preview.groupsChanged.toLocaleString()} of ${preview.groups.toLocaleString()} group names`}
-            {dirty && " (not saved yet)"}.
-          </p>
-          {samples.length > 0 && (
-            <div className="table-wrap">
-              <table className="table">
-                <thead><tr><th>Before</th><th>After</th>{rules.groups && <th />}</tr></thead>
-                <tbody>
-                  {samples.map((s) => (
-                    <tr key={`${s.kind}:${s.before}`}>
-                      <td className="dim">{s.before}</td>
-                      <td>{s.after}</td>
-                      {rules.groups && <td className="detail small">{s.kind}</td>}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </>
+        <p className="detail">
+          {preview.channelsChanged.toLocaleString()} of {preview.channels.toLocaleString()} channel names change
+          {rules.groups && `, and ${preview.groupsChanged.toLocaleString()} of ${preview.groups.toLocaleString()} group names`}
+          {dirty && " (not saved yet)"}.
+        </p>
       )}
     </section>
   );
