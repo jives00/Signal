@@ -210,6 +210,40 @@ class SyncTest {
         assertEquals(1L, c.channelRow(uc)?.hidden)
     }
 
+    /**
+     * 0.2.27: voice names kept vanishing. A TV that tuned a channel before it had pulled that
+     * channel's settings had an empty profile row of its own, and its next sync (which pushes before
+     * it pulls) sent the row whole, nulls and all, over the voice names another TV had set.
+     */
+    @Test fun anEmptyRowFromTuningNeverBlanksAnotherTvsSettings() = testApplication {
+        application { signalModule(companion) }
+        val a = paired(Tv("a"))
+        val b = paired(Tv("b"))
+        a.sync()
+        b.sync()
+
+        val uc = a.addChannel("s:x:1")
+        a.db.userChannelQueries.ensureProfileRow(uc, "main")
+        a.db.userChannelQueries.setVoiceNames("fox, local fox", uc, "main")
+        a.db.userChannelQueries.setCustomName("FOX 32", uc, "main")
+        a.sync()
+
+        // B tunes the same channel before it has pulled A's settings: an empty row of its own.
+        b.addChannel("s:x:1")
+        b.db.userChannelQueries.ensureProfileRow(uc, "main")
+        b.sync()
+        b.sync()
+        a.sync()
+
+        for (tv in listOf(a, b)) {
+            assertEquals("fox, local fox", tv.channelRow(uc)?.voice_names, tv.name)
+            assertEquals("FOX 32", tv.channelRow(uc)?.custom_name, tv.name)
+        }
+        val c = paired(Tv("c"))
+        c.sync()
+        assertEquals("fox, local fox", c.channelRow(uc)?.voice_names)
+    }
+
     @Test fun anEditNotYetSentWinsOverOneThatArrivedEarlier() = testApplication {
         application { signalModule(companion) }
         val a = paired(Tv("a"))

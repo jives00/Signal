@@ -171,9 +171,13 @@ class SyncEngine(
                     continue
                 }
                 val agreed = base[key]
-                // Fields changed here and not sent yet keep their local value.
+                // Fields changed here and not sent yet keep their local value. On a row never agreed,
+                // only set ones count: its nulls are defaults, and keeping them over the NAS's values
+                // made the next sync send them back as changes.
                 val merged = if (mine == null) item.fields else JsonObject(
-                    item.fields + mine.fields.filter { (name, value) -> agreed == null || value != (agreed.fields[name] ?: JsonNull) },
+                    item.fields + mine.fields.filter { (name, value) ->
+                        if (agreed == null) value != JsonNull else value != (agreed.fields[name] ?: JsonNull)
+                    },
                 )
                 if (mine?.fields == merged) {
                     putBase(key, item.fields)
@@ -215,7 +219,14 @@ class SyncEngine(
     private fun diff(current: Map<SyncKey, SyncItem>, base: Map<SyncKey, SyncItem>): List<SyncItem> = buildList {
         for ((key, item) in current) {
             val agreed = base[key]
-            if (agreed == null) { add(item); continue }
+            // New here: only the fields it sets. A null on a row never agreed is a default, not a
+            // change: tuning a channel creates its profile row with every field empty, and sent whole
+            // (sync pushes before it pulls), it blanked the voice names another TV had set (0.2.27).
+            if (agreed == null) {
+                val set = item.fields.filterValues { it != JsonNull }
+                if (set.isNotEmpty() || item.fields.isEmpty()) add(item.copy(fields = JsonObject(set)))
+                continue
+            }
             // Only fields this version reads: a field in the agreed copy but not in the rows came
             // from a newer version, and is left alone. Sending it back as a null (0.2.16 and
             // earlier) wiped the newer version's voice names everywhere (2026-10-15).
