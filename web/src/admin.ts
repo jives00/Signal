@@ -208,3 +208,6 @@ export const addToLibrary = (itemIds: string[], profiles: string[]) => post("/ap
 export const removeFromLibrary = (key: string, profile: string) => del(`/api/library/${enc(key)}?${q(profile)}`);
 /** The companion's cached copy of a TMDB image. */
 export const tmdbImage = (size: "w500" | "w780" | "backdrop", path: string | null) => (path ? `/images/tmdb/${size}${path}` : null);
+
+// ---- Voice Commands ----
+export const getVoiceHelp = () => read(S.VoiceHelp, "/api/voice/commands");

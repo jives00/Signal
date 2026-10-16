@@ -572,16 +572,25 @@ class AppController(val platform: Platform, val log: Log) {
      * clear channel is watched at once; several, or a weak match, open a choice of the top three.
      * Returns what it did, for the log and the listening overlay.
      */
-    suspend fun voice(guesses: List<String>): VoiceResult {
+    suspend fun voice(guesses: List<String>, free: String? = null): VoiceResult {
         val best = guesses.firstOrNull { it.isNotBlank() }.orEmpty()
+        val heardFree = free?.trim()?.takeIf { it.isNotEmpty() }
         val parsed = guesses.mapNotNull { heard -> com.signal.voice.VoiceCommand.parse(heard)?.let { heard to it } }
         fun result(acted: Boolean, heard: String, shown: String, detail: String = shown) =
-            VoiceResult(acted, heard, best, "Voice: \"$heard\" → $detail (guesses: ${guesses.joinToString(" | ")})", shown).also { log.info(it.message) }
+            VoiceResult(acted, heard, best, "Voice: \"$heard\" → $detail (guesses: ${guesses.joinToString(" | ")}; free: ${heardFree ?: "-"})", shown).also { log.info(it.message) }
         // After startup's own start page, on the main thread with the screens.
         withContext(Dispatchers.Main) { androidx.compose.runtime.snapshotFlow { ready }.first { it } }
 
+        // A movie or series command, as the free recognizer heard it: the grammar knows few titles.
+        val freeCommand = heardFree?.let { com.signal.voice.VoiceCommand.parse(it) }
+        if (freeCommand != null && freeCommand.isTitleCommand) return voiceTitle(heardFree, freeCommand, ::result)
+        val (freeTitle, freeLeadIn) = heardFree?.let { com.signal.voice.VoiceCommand.spokenTitle(it) } ?: ("" to false)
+
         val tunes = ArrayList<Pair<String, String>>()
         for ((heard, command) in parsed) {
+            // Words outside the grammar make a guess a name, never a command: "play [unk]" was
+            // "play inception", not "play".
+            val whole = "[unk]" !in heard
             when (command) {
                 is com.signal.voice.VoiceCommand.Tune -> {
                     // One letter is never enough to name a channel ("v" found VH1).
@@ -589,12 +598,25 @@ class AppController(val platform: Platform, val log: Log) {
                     for (name in command.names) {
                         tunes += heard to name
                         val hits = search.channelHits(name, limit = VOICE_HITS)
-                        if (hits.isNotEmpty()) return voiceChannel(heard, hits, "", ::result)
+                        if (hits.isEmpty()) continue
+                        // Not one clear channel: a title said in full wins ("play seinfeld").
+                        val pick = com.signal.voice.VoiceChoice.choose(hits, { it.channel.displayName }, { it.exact }, { it.favorite })
+                        if (!(pick is com.signal.voice.VoiceChoice.Pick.One && pick.hit.exact)) {
+                            for (title in listOf(freeTitle, name).filter { it.isNotBlank() }.distinct()) {
+                                val titles = titleHits(title, null)
+                                val clear = titleChoice(titles)
+                                if (clear is com.signal.voice.VoiceChoice.Pick.One && clear.hit.exact) return voicePlay(heard, clear.hit.item, null, null, ::result)
+                            }
+                        }
+                        return voiceChannel(heard, hits, "", ::result)
                     }
                 }
                 is com.signal.voice.VoiceCommand.WhatsOn -> return voiceWhatsOn(heard, command.channel, ::result)
-                // The first guess that's a command is taken as said.
-                else -> return withContext(Dispatchers.Main) { voiceCommand(heard, command, ::result) }
+                else -> if (whole) {
+                    // The first guess that's a command is taken as said.
+                    return if (command.isTitleCommand) voiceTitle(heard, command, ::result)
+                    else withContext(Dispatchers.Main) { voiceCommand(heard, command, ::result) }
+                }
             }
         }
         // Else initials that sound like a guess's letters ("e a b t" → ABC).
@@ -605,10 +627,159 @@ class AppController(val platform: Platform, val log: Log) {
                 if (hits.isNotEmpty()) return voiceChannel(heard, hits, " by sound (\"$like\")", ::result)
             }
         }
-        return when (val tried = tunes.firstOrNull()?.second) {
-            null -> result(false, best, "Didn't catch that", "nothing")
-            else -> result(false, best, "No channel matches \"$tried\"", "no channel")
+        // No channel: a movie or series by that name.
+        for ((heard, title) in listOfNotNull(heardFree?.let { it to freeTitle }) + tunes) {
+            if (title.replace(" ", "").length < 2) continue
+            if (titleHits(title, null).isNotEmpty()) return voiceTitle(heard, com.signal.voice.VoiceCommand.PlayTitle(title), ::result)
         }
+        // A command only the free recognizer caught.
+        when (freeCommand) {
+            null, is com.signal.voice.VoiceCommand.Tune -> {}
+            is com.signal.voice.VoiceCommand.WhatsOn -> return voiceWhatsOn(heardFree, freeCommand.channel, ::result)
+            else -> return withContext(Dispatchers.Main) { voiceCommand(heardFree, freeCommand, ::result) }
+        }
+        // "Play ___" that matched nothing: Search, with it filled in.
+        if (freeLeadIn && freeTitle.isNotBlank()) return voiceSearch(heardFree!!, freeTitle, ::result)
+        return when (val tried = tunes.firstOrNull()?.second ?: freeTitle.ifBlank { null }) {
+            null -> result(false, best, "Didn't catch that", "nothing")
+            else -> result(false, heardFree ?: best, "Nothing matches \"$tried\"", "no match")
+        }
+    }
+
+    private val com.signal.voice.VoiceCommand.isTitleCommand: Boolean get() =
+        this is com.signal.voice.VoiceCommand.Search || this is com.signal.voice.VoiceCommand.PlayTitle || this is com.signal.voice.VoiceCommand.ContinueTitle
+
+    /** A title search hit: [exact] when the whole title was said, [saved] when it's in the Library or Continue watching. */
+    private class TitleHit(val item: com.signal.model.VodItem, val exact: Boolean, val saved: Boolean) {
+        val name get() = "${item.kind}|${com.signal.data.VodRepository.displayName(item).lowercase()}|${item.year ?: ""}"
+    }
+
+    /**
+     * Movies and series matching a spoken title, exact ones first. Spoken numbers are tried as
+     * words, then as digits ("apollo thirteen", then "apollo 13").
+     */
+    private suspend fun titleHits(title: String, kind: com.signal.model.VodKind?): List<TitleHit> {
+        val state = watchState.value
+        val cards = continueWatching.value.map { it.item.id }.toSet()
+        for (variant in listOf(title, com.signal.voice.SpokenNumbers.toDigits(title)).distinct()) {
+            val key = com.signal.match.VodTitles.nameKey(variant)
+            if (key.isEmpty()) continue
+            val items = (kind?.let { listOf(it) } ?: com.signal.model.VodKind.entries).flatMap { k ->
+                runCatching { vod.search(variant, k, VOICE_TITLE_HITS) }.getOrDefault(emptyList())
+            }
+            if (items.isEmpty()) continue
+            return items.map { item ->
+                val exact = item.titleKey == key || com.signal.match.VodTitles.nameKey(com.signal.data.VodRepository.displayName(item)) == key
+                TitleHit(item, exact, item.id in cards || state.inLibrary(com.signal.data.ItemKeys.of(item)))
+            }.sortedBy { !it.exact }
+        }
+        return emptyList()
+    }
+
+    private fun titleChoice(hits: List<TitleHit>) = com.signal.voice.VoiceChoice.choose(hits, { it.name }, { it.exact }, { it.saved })
+
+    /** "Search ___", "play the movie ___", "play ___ season 2 episode 5", "continue ___". */
+    private suspend fun voiceTitle(heard: String, command: com.signal.voice.VoiceCommand, result: (Boolean, String, String, String) -> VoiceResult): VoiceResult {
+        val (title, kind, season, episode) = when (command) {
+            is com.signal.voice.VoiceCommand.Search -> return voiceSearch(heard, command.query, result)
+            is com.signal.voice.VoiceCommand.PlayTitle -> listOf(command.title, command.kind, command.season, command.episode)
+            is com.signal.voice.VoiceCommand.ContinueTitle -> {
+                // Continue watching first: what's there is what "continue" means.
+                val wanted = com.signal.match.VodTitles.nameKey(command.title)
+                val card = continueWatching.value.firstOrNull { com.signal.match.VodTitles.nameKey(it.title) == wanted }
+                    ?: continueWatching.value.firstOrNull { com.signal.match.VodTitles.nameKey(it.title).startsWith(wanted) && wanted.isNotEmpty() }
+                if (card != null) return voicePlay(heard, card.item, card.episode?.season, card.episode?.episode, result)
+                listOf(command.title, null, null, null)
+            }
+            else -> return result(false, heard, "Didn't catch that", "nothing")
+        }
+        title as String
+        val hits = titleHits(title, kind as com.signal.model.VodKind?)
+        return when (val pick = titleChoice(hits)) {
+            null -> voiceSearch(heard, title, result)
+            is com.signal.voice.VoiceChoice.Pick.One ->
+                if (pick.hit.exact) voicePlay(heard, pick.hit.item, season as Int?, episode as Int?, result)
+                else voiceAskTitle(heard, listOf(pick.hit), season as Int?, episode as Int?, result)
+            is com.signal.voice.VoiceChoice.Pick.Several -> voiceAskTitle(heard, pick.hits, season as Int?, episode as Int?, result)
+        }
+    }
+
+    /** Search, with [query] filled in and every type shown. */
+    private suspend fun voiceSearch(heard: String, query: String, result: (Boolean, String, String, String) -> VoiceResult): VoiceResult =
+        withContext(Dispatchers.Main) {
+            inFront {
+                panel.close()
+                if (navigator.current == Route.VodPlayer) vodPlayback.stop()
+                if (navigator.current.showsVideo) playback.stop()
+                searchRequest.value = SearchRequest(query, emptySet())
+                navigator.go(Route.Search)
+            }
+            result(true, heard, "Searching \"$query\"", "search")
+        }
+
+    /** The choice of titles, like channels': each row plays its title. */
+    private suspend fun voiceAskTitle(heard: String, hits: List<TitleHit>, season: Int?, episode: Int?, result: (Boolean, String, String, String) -> VoiceResult): VoiceResult =
+        withContext(Dispatchers.Main) {
+            inFront {
+                panel.open(
+                    PanelPage.Actions(
+                        "Which one?",
+                        hits.map { h ->
+                            val what = if (h.item.kind == com.signal.model.VodKind.MOVIE) "Movie" else "Series"
+                            PanelAction(com.signal.data.VodRepository.displayName(h.item), detail = listOfNotNull(what, h.item.year?.toString()).joinToString(" · ")) {
+                                scope.launch { startTitle(h.item, season, episode) }
+                                null
+                            }
+                        },
+                        subtitle = "Heard \"$heard\"",
+                    ),
+                    null,
+                )
+            }
+            result(true, heard, "Choose a title", "a choice of ${hits.joinToString { com.signal.data.VodRepository.displayName(it.item) }}")
+        }
+
+    /** Plays a title now, or once Signal is in front. */
+    private suspend fun voicePlay(heard: String, item: com.signal.model.VodItem, season: Int?, episode: Int?, result: (Boolean, String, String, String) -> VoiceResult): VoiceResult {
+        val name = com.signal.data.VodRepository.displayName(item)
+        if (inBackground) {
+            voicePending = { scope.launch { startTitle(item, season, episode) } }
+            return result(true, heard, name, name)
+        }
+        val error = startTitle(item, season, episode)
+        return if (error == null) result(true, heard, name, name) else result(false, heard, error, error)
+    }
+
+    /**
+     * Plays a movie (resuming it, from the preferred source) or a series' episode: the one asked
+     * for, else where the series is up to (PLAN §4.3.9 → Continue). Returns why not, or null.
+     */
+    private suspend fun startTitle(item: com.signal.model.VodItem, season: Int?, episode: Int?): String? {
+        if (item.kind == com.signal.model.VodKind.MOVIE) {
+            val detail = vodDetails.movie(item)
+            withContext(Dispatchers.Main) { leaveForVod() }
+            vodPlayback.playMovie(vod.copies(item).first(), asKey = com.signal.data.ItemKeys.movie(item, detail?.tmdbId ?: item.tmdbId))
+        } else {
+            val detail = vodDetails.series(item) ?: return "Can't load ${com.signal.data.VodRepository.displayName(item)}"
+            val seriesKey = com.signal.data.ItemKeys.series(item, detail.tmdbId ?: item.tmdbId)
+            val e = if (season != null && episode != null) {
+                detail.episodes.firstOrNull { it.season == season && it.episode == episode } ?: return "No season $season episode $episode"
+            } else {
+                com.signal.ui.screens.seriesNext(seriesKey, detail, watchState.value)?.episode ?: return "No episodes"
+            }
+            withContext(Dispatchers.Main) { leaveForVod() }
+            vodPlayback.unattendedEpisodes = 0
+            vodPlayback.playEpisode(item, detail, e)
+        }
+        withContext(Dispatchers.Main) { if (navigator.current != Route.VodPlayer) navigator.go(Route.VodPlayer) }
+        return null
+    }
+
+    /** Before a movie plays from voice: the panel closes, and live video stops. A movie playing saves its place. */
+    private fun leaveForVod() {
+        panel.close()
+        if (navigator.current == Route.VodPlayer) vodPlayback.saveNow()
+        else if (navigator.current.showsVideo) playback.stop()
     }
 
     private suspend fun voiceChannel(
@@ -792,7 +963,8 @@ class AppController(val platform: Platform, val log: Log) {
                 done("$name audio")
             }
             // Handled before this, off the main thread.
-            is com.signal.voice.VoiceCommand.Tune, is com.signal.voice.VoiceCommand.WhatsOn -> fail("Didn't catch that")
+            is com.signal.voice.VoiceCommand.Tune, is com.signal.voice.VoiceCommand.WhatsOn, is com.signal.voice.VoiceCommand.Search,
+            is com.signal.voice.VoiceCommand.PlayTitle, is com.signal.voice.VoiceCommand.ContinueTitle -> fail("Didn't catch that")
         }
     }
 
@@ -827,13 +999,39 @@ class AppController(val platform: Platform, val log: Log) {
      * until the channels change, since building them from a large list takes seconds.
      */
     suspend fun voicePhrases(): Set<String> {
-        val version = search.version
+        val titles = voiceTitles()
+        val version = search.version to titles.hashCode()
         voicePhrasesCache?.takeIf { it.first == version }?.let { return it.second }
         val (names, initials) = search.voiceNames()
-        return com.signal.voice.VoiceCommand.phrases(names, initials).also { voicePhrasesCache = version to it }
+        return com.signal.voice.VoiceCommand.phrases(names, initials, titles).also { voicePhrasesCache = version to it }
     }
 
-    @kotlin.concurrent.Volatile private var voicePhrasesCache: Pair<Int, Set<String>>? = null
+    @kotlin.concurrent.Volatile private var voicePhrasesCache: Pair<Pair<Int, Int>, Set<String>>? = null
+
+    /**
+     * The titles most likely to be said (PLAN §4.3.14 → Voice commands, phase 2), folded, for the
+     * grammar: Continue watching, the Library, series with a new episode and the newest of each kind.
+     * A few hundred at most; the rest of the catalog is heard by the free recognizer.
+     */
+    suspend fun voiceTitles(): Set<String> {
+        val state = watchState.value
+        val out = LinkedHashSet<String>()
+        continueWatching.value.forEach { out += it.title }
+        state.library.forEach { out += it.title }
+        newEpisodes.value.forEach { key -> state.followedSeries()[key]?.title?.let { out += it } }
+        for (kind in com.signal.model.VodKind.entries) {
+            runCatching { vod.recentlyAdded(kind, VOICE_RECENT_TITLES) }.getOrDefault(emptyList()).forEach { out += com.signal.data.VodRepository.displayName(it) }
+        }
+        return out.mapNotNullTo(LinkedHashSet()) { com.signal.match.SearchText.fold(it).ifEmpty { null } }
+    }
+
+    /**
+     * Changes whenever the grammar's inputs do: the channels and the likely titles. The recognizer
+     * rebuilds on it (ReadyRecognizer.follow).
+     */
+    val voiceInputs: kotlinx.coroutines.flow.Flow<Any> get() =
+        combine(search.versions, continueWatching, watchState, newEpisodes, vodVersion) { a, b, c, d, e -> listOf(a, b.map { it.title }, c.library.map { it.title }, d, e) }
+            .distinctUntilChanged()
 
     private var inBackground = false
     /** What a voice command asked for while the app was in the background: done on return. */
@@ -903,6 +1101,10 @@ class AppController(val platform: Platform, val log: Log) {
         const val CARRY_OVER_DEBOUNCE_MS = 5_000L
         /** Channels a voice command looks through: enough that an exact name behind favorites' prefix matches is still seen. */
         const val VOICE_HITS = 50
+        /** Newest movies and newest series in the voice grammar, each. */
+        const val VOICE_RECENT_TITLES = 100
+        /** Titles a voice command looks through for an exact one. */
+        const val VOICE_TITLE_HITS = 20
         /** A burst of edits (a move, a rename) goes as one sync. */
         const val SYNC_DEBOUNCE_MS = 2_000L
         /** While the event stream is down (PLAN §9.2). */

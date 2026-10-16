@@ -1,0 +1,34 @@
+{
+    "groups": [
+        {
+            "title": "Playback",
+            "intro": "What's playing.",
+            "commands": [
+                {
+                    "say": [
+                        "pause",
+                        "resume"
+                    ],
+                    "does": "Pauses or resumes."
+                }
+            ],
+            "since": null
+        },
+        {
+            "title": "Movies",
+            "intro": null,
+            "commands": [
+                {
+                    "say": [
+                        "search Seinfeld"
+                    ],
+                    "does": "Opens Search."
+                }
+            ],
+            "since": "Signal 0.2.21 or later"
+        }
+    ],
+    "tips": [
+        "Voice names help."
+    ]
+}

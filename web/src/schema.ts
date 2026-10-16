@@ -335,3 +335,9 @@ export type VodCategoryView = z.infer<typeof VodCategoryView>;
 export type VodCategoriesView = z.infer<typeof VodCategoriesView>;
 export type TmdbCandidate = z.infer<typeof TmdbCandidate>;
 export type LibraryRow = z.infer<typeof LibraryRow>;
+
+/** server/Server.kt /api/voice/commands: what can be said to Signal (shared/voice/VoiceHelp.kt). */
+export const VoiceHelpCommand = z.object({ say: z.array(z.string()), does: z.string() });
+export const VoiceHelpGroup = z.object({ title: z.string(), intro: z.string().nullable(), commands: z.array(VoiceHelpCommand), since: z.string().nullable() });
+export const VoiceHelp = z.object({ groups: z.array(VoiceHelpGroup), tips: z.array(z.string()) });
+export type VoiceHelp = z.infer<typeof VoiceHelp>;

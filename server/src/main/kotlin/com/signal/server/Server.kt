@@ -201,6 +201,8 @@ fun Application.signalModule(companion: Companion) {
             vodImageRoutes(companion)
             route("/api") {
                 get("/status") { call.respond(Status(companion.version, companion.databaseState(), companion.config.secretKey != null)) }
+                // The web admin's Voice Commands page: the same list as the TV's (shared/voice/VoiceHelp.kt).
+                get("/voice/commands") { call.respond(com.signal.voice.VoiceHelp.ALL) }
                 deviceAdminRoutes(companion)
                 guideAdminRoutes(companion)
                 syncAdminRoutes(companion)

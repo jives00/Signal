@@ -92,12 +92,12 @@ private class ListenSession(context: Context) : VoiceInteractionSession(context)
         overlay?.listening()
         val app = context.applicationContext as SignalApplication
         thread(name = "voice") {
-            val guesses = runCatching {
+            val heard = runCatching {
                 listen(model, app) { partial -> mainScope.launch { overlay?.heard(partial) } }
-            }.onFailure { Log.e(TAG, "Voice: listening failed", it) }.getOrNull().orEmpty()
+            }.onFailure { Log.e(TAG, "Voice: listening failed", it) }.getOrNull() ?: Heard(emptyList(), null)
             listening = false
             mainScope.launch {
-                val result = app.controller.voice(guesses)
+                val result = app.controller.voice(heard.guesses, heard.free)
                 overlay?.outcome(result.heard, result.best, result.shown, result.acted)
                 // Bring Signal forward when it acted from another app or the home screen. The
                 // overlay stays on top a moment so the outcome can be read.
@@ -121,16 +121,19 @@ private class ListenSession(context: Context) : VoiceInteractionSession(context)
         closing?.cancel()
     }
 
-    /** Records until Vosk hears the end of speech, and returns its guesses, best first. */
+    /** The grammar recognizer's guesses, best first, and what the free one heard. */
+    private class Heard(val guesses: List<String>, val free: String?)
+
+    /** Records until Vosk hears the end of speech, and returns what both recognizers heard. */
     @Suppress("MissingPermission")
-    private fun listen(model: org.vosk.Model, app: SignalApplication, onPartial: (String) -> Unit): List<String> {
+    private fun listen(model: org.vosk.Model, app: SignalApplication, onPartial: (String) -> Unit): Heard {
         val minBuffer = AudioRecord.getMinBufferSize(SAMPLE_RATE, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT)
         // Recording starts first: the remote only sends audio while its mic is open, and people
         // start talking at once. Three seconds of buffer cover a recognizer that isn't ready yet.
         val record = AudioRecord(MediaRecorder.AudioSource.VOICE_RECOGNITION, SAMPLE_RATE, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT, maxOf(minBuffer, SAMPLE_RATE * 2 * 3))
         try {
             record.startRecording()
-            return ReadyRecognizer.use(app, model) { rec -> recognize(record, rec, onPartial) }
+            return ReadyRecognizer.use(app, model) { rec, free -> recognize(record, rec, free, onPartial) }
         } finally {
             runCatching { record.stop() }
             record.release()
@@ -138,28 +141,49 @@ private class ListenSession(context: Context) : VoiceInteractionSession(context)
         }
     }
 
-    /** Feeds the recording to Vosk until it hears the end of speech, typing out partials as it goes. */
-    private fun recognize(record: AudioRecord, rec: Recognizer, onPartial: (String) -> Unit): List<String> {
+    /**
+     * Feeds the recording to both recognizers until the grammar one hears the end of speech,
+     * typing out partials as it goes: the free one's, which has the real words where the grammar's
+     * has "?". Both run on every press for now (PLAN §4.3.14 → Voice commands, phase 2); the log
+     * line has the time each took, to judge the cost on the Shield.
+     */
+    private fun recognize(record: AudioRecord, rec: Recognizer, free: Recognizer?, onPartial: (String) -> Unit): Heard {
         val started = System.currentTimeMillis()
         val buffer = ShortArray(1600) // 100 ms
         var guesses = emptyList<String>()
         var partial = ""
+        var freeText = ""
+        var freeMs = 0L
         while (listening && System.currentTimeMillis() - started < MAX_LISTEN_MS) {
             val n = record.read(buffer, 0, buffer.size)
             if (n <= 0) break
+            if (free != null) {
+                val t = System.currentTimeMillis()
+                // The free one may end an utterance early, on a pause mid-title: keep each piece.
+                if (free.acceptWaveForm(buffer, n)) freeText = joined(freeText, JSONObject(free.result).optString("text"))
+                freeMs += System.currentTimeMillis() - t
+            }
             if (rec.acceptWaveForm(buffer, n)) {
                 guesses = guesses(rec.result)
                 // An end detected in the silence before speaking: keep listening.
                 if (guesses.isNotEmpty()) break
             } else {
-                val now = JSONObject(rec.partialResult).optString("partial")
+                val now = free?.let { joined(freeText, JSONObject(it.partialResult).optString("partial")) }?.ifBlank { null }
+                    ?: JSONObject(rec.partialResult).optString("partial")
                 if (now != partial) { partial = now; onPartial(now) }
             }
         }
         if (guesses.isEmpty()) guesses = guesses(rec.finalResult)
-        Log.i(TAG, "Voice: heard ${guesses.joinToString(" | ") { "\"$it\"" }} in ${System.currentTimeMillis() - started} ms")
-        return guesses
+        if (free != null) {
+            val t = System.currentTimeMillis()
+            freeText = joined(freeText, JSONObject(free.finalResult).optString("text"))
+            freeMs += System.currentTimeMillis() - t
+        }
+        Log.i(TAG, "Voice: heard ${guesses.joinToString(" | ") { "\"$it\"" }}, free \"$freeText\" in ${System.currentTimeMillis() - started} ms (free recognizer ${freeMs} ms)")
+        return Heard(guesses, freeText.ifBlank { null })
     }
+
+    private fun joined(a: String, b: String) = listOf(a, b).filter { it.isNotBlank() }.joinToString(" ")
 
     /** A result's guesses, best first, without blanks: `{"alternatives": [{"text": …}, …]}`. */
     private fun guesses(json: String): List<String> {

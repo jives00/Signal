@@ -7,7 +7,11 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.lazy.LazyColumn
+import com.signal.ui.components.Focusable
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
 import androidx.compose.runtime.Composable
@@ -67,6 +71,7 @@ private enum class Section(val title: String) {
     NAS("NAS & sync"),
     GUIDE_DATA("Guide data"),
     VOICE("Voice commands"),
+    WHAT_TO_SAY("What to say"),
     ABOUT("About & updates"),
 }
 
@@ -99,7 +104,7 @@ fun SettingsPage() {
             Column(Modifier.width(400.dp).fillMaxHeight().onFocusChanged { sectionsHaveFocus = it.hasFocus }.focusRequester(chrome.contentFocus).focusRestorer(firstSection)) {
                 Box(Modifier.padding(top = 24.dp))
                 // Voice commands only where Signal can be the assistant (not the dev harness).
-                Section.entries.filter { it != Section.VOICE || app.platform.voice != null }.forEach { s ->
+                Section.entries.filter { (it != Section.VOICE && it != Section.WHAT_TO_SAY) || app.platform.voice != null }.forEach { s ->
                     ListRow(s.title, selected = s == section, onSelect = { section = s; adding = false; editing = null; nasForm = null; focusSection() }, onFocused = { section = s; adding = false; editing = null; nasForm = null }, focusRequester = if (s == Section.entries.first()) firstSection else null)
                 }
             }
@@ -116,6 +121,7 @@ fun SettingsPage() {
                     section == Section.NAS -> NasSection(app, onForm = { nasForm = it }, returnTo = contentFocus)
                     section == Section.GUIDE_DATA -> GuideDataSection(app)
                     section == Section.VOICE -> app.platform.voice?.let { VoiceSection(it) }
+                    section == Section.WHAT_TO_SAY -> WhatToSaySection()
                     section == Section.ABOUT -> AboutSection(app)
                 }
             }
@@ -475,6 +481,41 @@ private fun VoiceSection(voice: com.signal.platform.VoiceSetup) {
         text("adb shell cmd role add-role-holder android.app.role.ASSISTANT com.google.android.katniss")
         SectionTitle("Voice names")
         text("Give a channel other names to say it by: long-press OK on it, then Voice names.")
+    }
+}
+
+/**
+ * What to say (PLAN §4.3.14 → Voice commands, phase 2): every command, from the same list as the
+ * web admin's Voice Commands page ([com.signal.voice.VoiceHelp]). Rows take focus only so Up/Down
+ * scroll; there's nothing to select, so focus brightens a row instead of taking the accent.
+ */
+@Composable
+private fun WhatToSaySection() {
+    val c = SignalTheme.colors
+    val help = com.signal.voice.VoiceHelp.ALL
+    @Composable fun row(content: @Composable (focused: Boolean) -> Unit) =
+        Focusable(Modifier.fillMaxWidth(), onSelect = null) { focused ->
+            Box(Modifier.fillMaxWidth().background(if (focused) c.surface else androidx.compose.ui.graphics.Color.Transparent).padding(horizontal = 40.dp, vertical = 10.dp)) { content(focused) }
+        }
+    LazyColumn(Modifier.width(1100.dp)) {
+        item {
+            row { SText("Press the mic button and say a channel, a title or a command. The panel at the bottom shows what was heard, then what Signal did.", 24, color = c.secondaryText, maxLines = 3) }
+        }
+        for (g in help.groups) {
+            item { SectionTitle(g.title) }
+            g.intro?.let { intro -> item { row { SText(intro, 22, color = c.secondaryText, maxLines = 3) } } }
+            items(g.commands) { cmd ->
+                row { focused ->
+                    Column {
+                        SText(cmd.say.joinToString("  ·  ") { "\"$it\"" }, 24, weight = FontWeight.SemiBold, color = c.text, maxLines = 2)
+                        SText(cmd.does, 22, Modifier.padding(top = 4.dp), color = if (focused) c.text else c.secondaryText, maxLines = 4)
+                    }
+                }
+            }
+        }
+        item { SectionTitle("Tips") }
+        items(help.tips) { tip -> row { focused -> SText(tip, 22, color = if (focused) c.text else c.secondaryText, maxLines = 4) } }
+        item { Box(Modifier.height(48.dp)) }
     }
 }
 

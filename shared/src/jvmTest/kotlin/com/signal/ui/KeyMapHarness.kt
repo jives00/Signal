@@ -90,6 +90,9 @@ class TestUpdater(initial: com.signal.update.UpdateState) : com.signal.update.Up
 }
 
 class TestPlatform : Platform {
+    /** Voice commands set up, for Settings' voice sections; null hides them, as in the dev harness. */
+    var voiceSetup: com.signal.platform.VoiceSetup? = null
+    override val voice: com.signal.platform.VoiceSetup? get() = voiceSetup
     override val appInfo = AppInfo(versionName = "test", buildTag = "dev", isDebug = true, deviceModel = "Test")
     override val secretBox = object : SecretBox {
         override fun encrypt(plain: String) = plain
@@ -227,10 +230,12 @@ fun keyMapTest(
     withDemo: Boolean = true,
     favorites: Int = 0,
     update: com.signal.update.UpdateState? = null,
+    voice: com.signal.platform.VoiceSetup? = null,
     block: suspend KeyMapScope.() -> Unit,
 ) = runSkikoComposeUiTest(size = androidx.compose.ui.geometry.Size(1920f, 1080f), density = androidx.compose.ui.unit.Density(1f)) {
     val platform = TestPlatform()
     if (update != null) platform.updater = TestUpdater(update)
+    platform.voiceSetup = voice
     startApp(platform, start, withDemo, favorites, block)
 }
 

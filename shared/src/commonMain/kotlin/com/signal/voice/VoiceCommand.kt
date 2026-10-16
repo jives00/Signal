@@ -38,6 +38,15 @@ sealed interface VoiceCommand {
     /** The program on a channel now, or on the one playing when [channel] is null. */
     data class WhatsOn(val channel: String?) : VoiceCommand
 
+    // Movies and series (PLAN §4.3.14 → Voice commands, phase 2). Titles come from the free
+    // recognizer, so they keep their words as heard ("apollo thirteen"); matching tries digits too.
+    /** "Search Seinfeld": Search, filled in. */
+    data class Search(val query: String) : VoiceCommand
+    /** "Play the movie Inception", "play The Office season 2 episode 5". "Play ___" alone is a [Tune] first. */
+    data class PlayTitle(val title: String, val kind: com.signal.model.VodKind? = null, val season: Int? = null, val episode: Int? = null) : VoiceCommand
+    /** "Continue Seinfeld": where it was left, or the series' next episode. */
+    data class ContinueTitle(val title: String) : VoiceCommand
+
     /** A spoken language and the codes tracks give it (ISO 639-1 and -2). */
     enum class Language(val spoken: String, val codes: Set<String>) {
         ENGLISH("english", setOf("en", "eng")), SPANISH("spanish", setOf("es", "spa")), FRENCH("french", setOf("fr", "fre", "fra")),
@@ -76,6 +85,11 @@ sealed interface VoiceCommand {
             for (thing in listOf("it", "this", "the movie", "the show", "the episode", "the video")) {
                 add("start $thing over"); add("restart $thing"); add("play $thing from the beginning")
             }
+            // Movies and series: the lead-ins, and seasons and episodes as whole phrases. The titles
+            // come from the free recognizer, and the likely ones from [phrases]' titles.
+            addAll(listOf("search for", "find", "look up", "continue watching", "keep watching", "play the movie", "play the show",
+                "watch the movie", "watch the show", "the movie", "the show"))
+            for (n in 1..30) { add("season ${SpokenNumbers.say(n)}"); add("episode ${SpokenNumbers.say(n)}") }
             for (lead in listOf("go to the", "go back to the", "switch to the", "back to the", "the")) {
                 add("$lead last channel"); add("$lead previous channel")
             }
@@ -97,9 +111,12 @@ sealed interface VoiceCommand {
          * the ones it has no word for ("a b c"). Only those: spelling every short word gave it
          * thousands of letter strings to confuse ("a b d").
          */
-        fun phrases(channelNames: Collection<String>, initials: Set<String>): Set<String> {
+        fun phrases(channelNames: Collection<String>, initials: Set<String>, titles: Collection<String> = emptyList()): Set<String> {
             val out = HashSet<String>(commandPhrases)
             out += fixedPhrases
+            // Likely titles whole (folded), said the way the recognizer spells them: a title is said
+            // in full, unlike a channel, which people shorten.
+            for (title in titles) out += title.split(' ').filter { it.isNotEmpty() }.joinToString(" ") { spoken(it) }
             fun spelled(word: String) = if (word in initials) word.toList().joinToString(" ") else null
             for (name in channelNames) {
                 val words = name.split(' ').filter { it.isNotEmpty() }
@@ -195,7 +212,7 @@ sealed interface VoiceCommand {
         private fun command(text: String): VoiceCommand? {
             when (text) {
                 "pause", "pause it", "pause this", "pause the movie", "pause the show", "pause the video" -> return Pause
-                "resume", "unpause", "keep playing", "continue", "play", "play it" -> return Resume
+                "resume", "unpause", "keep playing", "continue", "play", "play it", "continue watching", "keep watching", "resume playing" -> return Resume
                 "stop", "stop playing", "stop it" -> return Stop
                 "next" -> return Next
                 "next episode", "play the next episode", "the next episode" -> return NextEpisode
@@ -208,6 +225,19 @@ sealed interface VoiceCommand {
             }
             if (startOver.matches(text)) return StartOver
             if (lastChannel.matches(text)) return LastChannel
+            searchFor.matchEntire(text)?.let { return Search(it.groupValues[1]) }
+            continueTitle.matchEntire(text)?.let { return ContinueTitle(it.groupValues[1]) }
+            val digits = SpokenNumbers.toDigits(text)
+            seasonEpisode.matchEntire(digits)?.let { m ->
+                return PlayTitle(m.groupValues[1], com.signal.model.VodKind.SERIES, m.groupValues[2].toInt(), m.groupValues[3].toInt())
+            }
+            episodeOfSeason.matchEntire(digits)?.let { m ->
+                return PlayTitle(m.groupValues[1], com.signal.model.VodKind.SERIES, m.groupValues[3].toInt(), m.groupValues[2].toInt())
+            }
+            playKind.matchEntire(text)?.let { m ->
+                val kind = if (m.groupValues[1] == "movie" || m.groupValues[1] == "film") com.signal.model.VodKind.MOVIE else com.signal.model.VodKind.SERIES
+                return PlayTitle(m.groupValues[2], kind)
+            }
             page.matchEntire(text)?.let { m ->
                 return Open(when (m.groupValues[1]) {
                     "home", "home screen" -> Page.HOME
@@ -248,6 +278,26 @@ sealed interface VoiceCommand {
         private const val PLAYING = """(?:it|this|the (?:movie|show|episode|video|program))"""
         private val startOver = Regex("""^(?:(?:start|play)(?: $PLAYING)? (?:over|again|from the (?:beginning|start))|restart(?: $PLAYING)?|(?:start )?from the (?:beginning|start))$""")
         private val lastChannel = Regex("""^(?:(?:go|switch|flip|jump|change)\s+)?(?:back\s+)?(?:to\s+)?(?:the\s+|my\s+)?(?:last|previous) channel$""")
+        private val searchFor = Regex("""^(?:search for|search|find|look up|look for)\s+(?!for$)(.+)$""")
+        private val continueTitle = Regex("""^(?:continue|resume|keep watching|finish)(?:\s+watching)?\s+(?!watching$|playing$)(.+)$""")
+        // "The" only goes with "show": in "the office season 2", it's the title's.
+        private const val PLAY_LEAD = """(?:(?:play|watch|put on|start)\s+)?(?:(?:the\s+)?(?:show|series|tv show)\s+)?"""
+        private val seasonEpisode = Regex("""^$PLAY_LEAD(.+?)\s+season\s+(\d+)\s+episode\s+(\d+)$""")
+        private val episodeOfSeason = Regex("""^$PLAY_LEAD(.+?)\s+episode\s+(\d+)\s+(?:of\s+)?season\s+(\d+)$""")
+        private val playKind = Regex("""^(?:play|watch|put on|start)\s+(?:the\s+)?(movie|film|show|series|tv show)\s+(.+)$""")
+
+        /**
+         * What a free guess says after any lead-in, as heard ("play seinfeld" → "seinfeld", true), for
+         * matching a title. The flag says it began with a lead-in, so a miss can still open Search.
+         */
+        fun spokenTitle(heard: String): Pair<String, Boolean> {
+            var text = heard.lowercase().replace(unknown, " ").replace(nonWord, " ").trim().replace(spaces, " ")
+            text = text.removePrefix(fillers)
+            val lead = tunePrefix.find(text)
+            if (lead != null) text = text.substring(lead.range.last + 1)
+            return text.replace(trailing, "").trim() to (lead != null)
+        }
+
         private val whats = Regex("""^(what s|what is)\b""")
         private val politeEnd = Regex("""(\s+(please|now))+$""")
         private val page = Regex("""^(?:(?:go|open|show me|show|take me)\s+)?(?:to\s+)?(?:the\s+|my\s+)?(home|home screen|guide|tv guide|live tv|favorites|favourites|movies|series|shows|tv shows|search|settings)(?:\s+(?:page|screen))?$""")

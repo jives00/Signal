@@ -14,6 +14,7 @@ import Reminders from "./pages/Reminders";
 import { Appearance, CompanionSettings, NameCleanupSettings } from "./pages/Settings";
 import Sources from "./pages/Sources";
 import Switch from "./pages/Switch";
+import VoiceCommands from "./pages/VoiceCommands";
 import { VodCatalog, VodCategories, VodLibrary } from "./pages/Vod";
 
 type Page = { path: string; title: string };
@@ -48,6 +49,7 @@ const nav: { header?: string; pages: Page[] }[] = [
       { path: "/settings/appearance", title: "Appearance" },
       { path: "/settings/name-cleanup", title: "Name Cleanup" },
       { path: "/settings/companion", title: "Companion" },
+      { path: "/settings/voice", title: "Voice Commands" },
       { path: "/backups", title: "Backups" },
       { path: "/jobs", title: "Jobs & Logs" },
     ],
@@ -137,6 +139,7 @@ function Shell() {
           <Route path="/settings/appearance" element={<Appearance />} />
           <Route path="/settings/name-cleanup" element={<NameCleanupSettings />} />
           <Route path="/settings/companion" element={<CompanionSettings />} />
+          <Route path="/settings/voice" element={<VoiceCommands />} />
           <Route path="/devices" element={<Devices />} />
           <Route path="/backups" element={<Backups />} />
           <Route path="/jobs" element={<Jobs />} />

@@ -66,7 +66,7 @@ internal class ListeningOverlay(private val context: Context) {
         dot.visibility = View.VISIBLE
         pulse.start()
         status.text = "Listening…"
-        words.text = "Say a channel or a command"
+        words.text = "Say a channel, a title or a command"
         words.alpha = 0.5f
     }
 

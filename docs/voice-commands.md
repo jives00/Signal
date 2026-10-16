@@ -100,6 +100,20 @@ These work on what's showing. Each one says so in the panel when it can't apply.
 | "captions on", "turn off subtitles", "captions" | Turns captions on or off; "captions" alone switches them. |
 | "Spanish audio", "change the audio to French" | Picks the audio track in that language. |
 
+### Movies and series
+
+| Say | What it does |
+|---|---|
+| "search Seinfeld", "find the office" | Opens Search with the words filled in. |
+| "play Inception", "play the movie Inception" | Plays the title when exactly one has that name: a movie resumes where you left it, a series where you're up to. When several share it, or the words only match part of a title, a panel lists up to three. If nothing matches, Search opens with the words filled in. |
+| "play The Office season two episode five" | Plays that episode. |
+| "continue Seinfeld", "keep watching The Office" | Picks up from Continue watching, or else where the series is up to. |
+
+A channel's name still wins when it matches exactly ("watch ESPN"). "Play ___" only looks for a
+title when no channel is a clear match. Titles you're likely to say are recognized best: what's in
+Continue watching, your Library, series with new episodes, and the newest movies and series. Any
+other title also works, but an unusual name may need a second try.
+
 ## When it doesn't work
 
 - **The mic button still opens Google Assistant:** Signal isn't the assistant. Check with the

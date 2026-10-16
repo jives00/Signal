@@ -80,6 +80,33 @@ class VoiceCommandTest {
         assertEquals(VoiceCommand.Tune("start tv"), parse("watch start tv"))
     }
 
+    @Test fun moviesAndSeries() {
+        assertEquals(VoiceCommand.Search("seinfeld"), parse("search seinfeld"))
+        assertEquals(VoiceCommand.Search("the office"), parse("search for the office"))
+        assertEquals(VoiceCommand.Search("apollo thirteen"), parse("look up apollo thirteen"))
+        assertEquals(VoiceCommand.Open(VoiceCommand.Page.SEARCH), parse("search"))
+        assertEquals(VoiceCommand.ContinueTitle("seinfeld"), parse("continue seinfeld"))
+        assertEquals(VoiceCommand.ContinueTitle("the office"), parse("keep watching the office"))
+        assertEquals(VoiceCommand.Resume, parse("continue watching"))
+        assertEquals(VoiceCommand.PlayTitle("inception", com.signal.model.VodKind.MOVIE), parse("play the movie inception"))
+        assertEquals(VoiceCommand.PlayTitle("the wire", com.signal.model.VodKind.SERIES), parse("watch the show the wire"))
+        assertEquals(VoiceCommand.PlayTitle("the office", com.signal.model.VodKind.SERIES, 2, 5), parse("play the office season two episode five"))
+        assertEquals(VoiceCommand.PlayTitle("lost", com.signal.model.VodKind.SERIES, 3, 12), parse("watch lost episode twelve of season three"))
+        assertEquals(VoiceCommand.PlayTitle("24", com.signal.model.VodKind.SERIES, 1, 1), parse("twenty four season one episode one"))
+        // "Play ___" alone is a channel first; the controller tries titles when no channel is clear.
+        assertEquals(VoiceCommand.Tune("seinfeld"), parse("play seinfeld"))
+    }
+
+    @Test fun spokenTitlesKeepTheirWords() {
+        assertEquals("apollo thirteen" to true, VoiceCommand.spokenTitle("ok play apollo thirteen please"))
+        assertEquals("seinfeld" to false, VoiceCommand.spokenTitle("seinfeld"))
+    }
+
+    @Test fun likelyTitlesAreInTheGrammar() {
+        val phrases = VoiceCommand.phrases(emptyList(), emptySet(), titles = listOf("the office", "apollo 13"))
+        for (p in listOf("the office", "apollo thirteen", "season two", "episode five", "continue watching")) assert(p in phrases) { p }
+    }
+
     @Test fun seeks() {
         assertEquals(VoiceCommand.Seek(-30_000), parse("back thirty seconds"))
         assertEquals(VoiceCommand.Seek(-30_000), parse("rewind"))

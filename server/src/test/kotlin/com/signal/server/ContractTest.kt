@@ -49,6 +49,16 @@ class ContractTest {
         check("edit-result", EditResult.serializer(), EditResult(8, 1, listOf(AdminOp("favorite", "ch:src:x:42", "profile", "main", deleted = true))))
         check("channel-page", ChannelPage.serializer(), ChannelPage(1, 0, listOf(row)))
         check(
+            "voice-help", com.signal.voice.VoiceHelp.serializer(),
+            com.signal.voice.VoiceHelp(
+                listOf(
+                    com.signal.voice.VoiceHelp.Group("Playback", "What's playing.", listOf(com.signal.voice.VoiceHelp.Command(listOf("pause", "resume"), "Pauses or resumes."))),
+                    com.signal.voice.VoiceHelp.Group("Movies", commands = listOf(com.signal.voice.VoiceHelp.Command(listOf("search Seinfeld"), "Opens Search.")), since = "Signal 0.2.21 or later"),
+                ),
+                listOf("Voice names help."),
+            ),
+        )
+        check(
             "sources", SourcesView.serializer(),
             SourcesView(listOf(source), listOf(EpgSourceView("epg:src", "Provider guide", "XTREAM", "", "src", true, 0, true, 8343, 118_000, null, 1_760_000_000_000)), guideBuilding = false),
         )

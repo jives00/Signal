@@ -36,7 +36,7 @@ internal object ReadyRecognizer {
         if (following) return
         following = true
         app.controller.scope.launch {
-            app.controller.search.versions.drop(1).debounce(5_000).collect { warm(app) }
+            app.controller.voiceInputs.drop(1).debounce(5_000).collect { warm(app) }
         }
     }
 
@@ -49,16 +49,29 @@ internal object ReadyRecognizer {
     }
 
     /**
-     * Runs [block] with the recognizer, building it first if it isn't ready, and resets it after.
-     * Holds the lock throughout, so a refresh never swaps it mid-press.
+     * The free recognizer (PLAN §4.3.14 → Voice commands, phase 2): no grammar, so it hears any
+     * words, for movie and series titles. It needs no phrases, so it's built once per model.
+     */
+    private var free: Recognizer? = null
+    private var freeModel: Model? = null
+
+    /**
+     * Runs [block] with the grammar recognizer and the free one, building them first if they
+     * aren't ready, and resets them after. Holds the lock throughout, so a refresh never swaps
+     * one mid-press.
      */
     @Synchronized
-    fun <T> use(app: SignalApplication, model: Model, block: (Recognizer) -> T): T {
+    fun <T> use(app: SignalApplication, model: Model, block: (Recognizer, Recognizer?) -> T): T {
         val rec = recognizer ?: refresh(app, model)
+        val open = free?.takeIf { freeModel === model } ?: runCatching {
+            free?.close()
+            Recognizer(model, SAMPLE_RATE).also { free = it; freeModel = model }
+        }.onFailure { Log.e(TAG, "Voice: the free recognizer failed", it) }.getOrNull()
         try {
-            return block(rec)
+            return block(rec, open)
         } finally {
             rec.reset()
+            open?.reset()
         }
     }
 
