@@ -588,6 +588,28 @@ class AppController(val platform: Platform, val log: Log) {
                 return voiceTitle(heard, c, ::result)
             }
         }
+        // A title as the grammar heard it, whole and naming a title exactly: the likely titles are in
+        // the grammar, and it hears them far better than the free recognizer ("play the office season
+        // five episode two" came back from that as "wade the author he than five episode two", 0.2.28).
+        // A channel that's a clear match still wins over a title ("play espn").
+        parsed.firstOrNull()?.let { (heard, c) ->
+            if ("[unk]" in heard) return@let
+            when (c) {
+                is com.signal.voice.VoiceCommand.PlayTitle ->
+                    if (hasExactTitle(c.title, c.kind)) return voiceTitle(heard, c, ::result)
+                is com.signal.voice.VoiceCommand.ContinueTitle ->
+                    if (hasExactTitle(c.title, null)) return voiceTitle(heard, c, ::result)
+                is com.signal.voice.VoiceCommand.Tune -> if (com.signal.voice.VoiceCommand.saysPlay(heard)) {
+                    for (name in c.names) {
+                        if (!hasExactTitle(name, null)) continue
+                        val channel = com.signal.voice.VoiceChoice.choose(search.channelHits(name, limit = VOICE_HITS, forVoice = true), { it.channel.displayName }, { it.exact }, { it.favorite })
+                        if (channel is com.signal.voice.VoiceChoice.Pick.One && channel.hit.exact) break
+                        return voiceTitle(heard, com.signal.voice.VoiceCommand.PlayTitle(name), ::result)
+                    }
+                }
+                else -> {}
+            }
+        }
         // A movie or series command, as the free recognizer heard it: the grammar knows few titles.
         val freeCommand = heardFree?.let { com.signal.voice.VoiceCommand.parse(it) }
         if (freeCommand != null && freeCommand.isTitleCommand) return voiceTitle(heardFree, freeCommand, ::result)
@@ -699,6 +721,10 @@ class AppController(val platform: Platform, val log: Log) {
         }
         return emptyList()
     }
+
+    /** Whether some title of [kind] (any, when null) is named exactly [title]: several may be ("The Office", US and UK). */
+    private suspend fun hasExactTitle(title: String, kind: com.signal.model.VodKind?): Boolean =
+        title.replace(" ", "").length >= 2 && titleHits(title, kind).any { it.exact }
 
     /** The one title named exactly [title], if there's exactly one. */
     private suspend fun exactTitle(title: String): com.signal.model.VodItem? {
@@ -835,9 +861,18 @@ class AppController(val platform: Platform, val log: Log) {
         val wanted = com.signal.match.SearchText.fold(command.program)
         val exact = upcoming.filter { com.signal.match.SearchText.fold(it.program.title) == wanted }
         // Each title's next airing, a favorite channel first when it airs on several at once.
-        val firsts = (if (team != null) upcoming else exact.ifEmpty { upcoming })
-            .sortedWith(compareBy<SearchRepository.ProgramHit>({ it.program.start }, { !it.channel.isFavorite }))
-            .distinctBy { it.program.title }
+        val firsts = if (team != null) {
+            // The team's next game, on a favorite channel when one carries it: the earliest airing
+            // anywhere picked NBC Sports Philadelphia, which isn't one (0.2.28). Airings of that game
+            // starting within a few hours count, since a regional feed can start earlier.
+            val next = upcoming.minOf { it.program.start }
+            val game = upcoming.filter { it.program.start - next <= GAME_WINDOW_MS }
+            listOfNotNull(game.minWithOrNull(compareBy<SearchRepository.ProgramHit>({ !it.channel.isFavorite }, { it.program.start })))
+        } else {
+            exact.ifEmpty { upcoming }
+                .sortedWith(compareBy<SearchRepository.ProgramHit>({ it.program.start }, { !it.channel.isFavorite }))
+                .distinctBy { it.program.title }
+        }
         val choices = if (team != null || exact.isNotEmpty()) firsts.take(1) else firsts.take(com.signal.voice.VoiceChoice.CHOICES)
         if (choices.size == 1) return remindOf(heard, choices[0], now, result)
         return withContext(Dispatchers.Main) {
@@ -1191,17 +1226,26 @@ class AppController(val platform: Platform, val log: Log) {
 
     /**
      * The titles most likely to be said (PLAN §4.3.14 → Voice commands, phase 2), folded, for the
-     * grammar: Continue watching, the Library, series with a new episode and the newest of each kind.
-     * A few hundred at most; the rest of the catalog is heard by the free recognizer.
+     * grammar: Continue watching, the Library, every series being watched (new episodes included), the
+     * newest of each kind and the companion's TMDB lists.
+     * A couple of thousand at most; the rest of the catalog is heard by the free recognizer.
      */
     suspend fun voiceTitles(): Set<String> {
         val state = watchState.value
         val out = LinkedHashSet<String>()
         continueWatching.value.forEach { out += it.title }
         state.library.forEach { out += it.title }
-        newEpisodes.value.forEach { key -> state.followedSeries()[key]?.title?.let { out += it } }
+        // Every series being watched (an episode watched or started), not only those on Continue watching.
+        state.followedSeries().values.forEach { f -> f.title?.let { out += it } }
         for (kind in com.signal.model.VodKind.entries) {
             runCatching { vod.recentlyAdded(kind, VOICE_RECENT_TITLES) }.getOrDefault(emptyList()).forEach { out += com.signal.data.VodRepository.displayName(it) }
+            // The companion's TMDB lists (trending, popular, top rated, new or airing), which hold the
+            // well-known titles people ask for by name: "the simpsons" wasn't in the grammar (0.2.28),
+            // and the free recognizer couldn't hear it.
+            for ((list, _) in com.signal.data.VodEnrichment.lists(kind)) {
+                runCatching { vod.shelfItems(kind, "list:$list") }.getOrDefault(emptyList()).take(VOICE_LIST_TITLES)
+                    .forEach { out += com.signal.data.VodRepository.displayName(it) }
+            }
         }
         return out.mapNotNullTo(LinkedHashSet()) { com.signal.match.SearchText.fold(it).ifEmpty { null } }
     }
@@ -1288,6 +1332,10 @@ class AppController(val platform: Platform, val log: Log) {
         const val VOICE_HITS = 50
         /** Newest movies and newest series in the voice grammar, each. */
         const val VOICE_RECENT_TITLES = 100
+        /** Titles from each TMDB list in the voice grammar. */
+        const val VOICE_LIST_TITLES = 200
+        /** A team's airings starting within this of its next one are the same game, on other channels. */
+        const val GAME_WINDOW_MS = 3 * 60 * 60_000L
         /** Titles a voice command looks through for an exact one. */
         const val VOICE_TITLE_HITS = 20
         /** Games whose teams the voice grammar knows: four days, so Sunday's games are known by Friday (a day missed the Bears). */

@@ -143,8 +143,8 @@ names from the guide.
 Start a title with "play", "search" or "continue": those words are what make Signal listen for
 any title, which takes a moment longer. For channels, say "watch" ("watch ESPN") or just the name,
 which is faster. A channel's name still wins when it matches exactly. Titles you're likely to say
-need no lead-in and are recognized best: what's in Continue watching, your Library, series with new
-episodes, and the newest movies and series.
+need no lead-in and are recognized best: what's in Continue watching, your Library, every series
+you're watching, the newest movies and series, and the trending, popular and top-rated lists.
 
 ## When it doesn't work
 

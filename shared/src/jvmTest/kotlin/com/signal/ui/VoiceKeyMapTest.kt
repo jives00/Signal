@@ -193,9 +193,9 @@ class VoiceKeyMapTest {
      * Makes Golf Channel's program on now (or its next one, [later]) a game with teams in the title,
      * as the NAS's GameLookup does, search text included. Returns the program's channel.
      */
-    private suspend fun KeyMapScope.makeGame(title: String, later: Boolean = false): com.signal.model.Channel {
+    private suspend fun KeyMapScope.makeGame(title: String, later: Boolean = false, channel: String = "Golf Channel"): com.signal.model.Channel {
         guideReady()
-        val ch = app.search.channels("golf channel").first { it.displayName == "Golf Channel" }
+        val ch = app.search.channels(channel).first { it.displayName == channel }
         val now = kotlin.time.Clock.System.now().toEpochMilliseconds()
         val p = app.guide.programs(ch, now, now + 6 * 60 * 60_000L).first { if (later) it.start > now else it.isOn(now) }
         val q = app.guideStore.db!!.guideQueries
@@ -277,6 +277,29 @@ class VoiceKeyMapTest {
         makeGame("NFL Football - Chicago Bears vs. Detroit Lions", later = true)
         val r = app.voice(listOf("remind me about the chicago bears game"), free = "remind me about the chicago bears team")
         assertTrue(r.shown.startsWith("Reminder set: Chicago Bears vs. Detroit Lions"), r.message)
+    }
+
+    // ---- 0.2.28 on the Shield ----
+
+    // The grammar heard "play the office season five episode two" right; the free recognizer heard
+    // "wade the author he than five episode two", and won. A title the grammar names exactly wins now.
+    @Test fun theGrammarsExactTitleBeatsTheFreeRecognizer() = keyMapTest {
+        val title = uniqueTitle(com.signal.model.VodKind.SERIES)
+        val r = app.voice(listOf("play $title season one episode two"), free = "wade the author he than one episode two")
+        assertTrue(r.acted, r.message)
+        route(Route.VodPlayer)
+        val e = app.vodPlayback.current.value?.episode
+        assertEquals(1 to 2, e?.season to e?.episode)
+    }
+
+    // A game reminder found NBC Sports Philadelphia, not a favorite: a favorite airing the game wins.
+    @Test fun aGameReminderPrefersAFavoriteChannel() = keyMapTest(favorites = 3) {
+        val favorite = app.channels.channelsNow(com.signal.model.ChannelGroup.Favorites).first { it.displayName != "Tennis TV" }
+        assertFalse(app.channels.channelsNow(com.signal.model.ChannelGroup.Favorites).any { it.displayName == "Tennis TV" })
+        makeGame("NFL Football - Chicago Bears vs. Detroit Lions", later = true, channel = "Tennis TV")
+        makeGame("NFL Football - Chicago Bears vs. Detroit Lions", later = true, channel = favorite.displayName)
+        val r = app.voice(listOf("remind me about the bears game"))
+        assertTrue(r.shown.endsWith("on ${favorite.displayName}"), r.message)
     }
 
     // ---- Channels to match ----

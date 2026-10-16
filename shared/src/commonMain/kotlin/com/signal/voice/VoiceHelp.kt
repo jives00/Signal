@@ -85,7 +85,7 @@ data class VoiceHelp(val groups: List<Group>, val tips: List<String>) {
                 "Channels you name are your favorites, playlists and channels with voice names, which are understood best. Settings → Voice commands → Channels to match can widen that to every visible channel. Games are found on every channel either way.",
                 "\"Watch\" is live TV, \"play\" is Movies & Series: \"watch Friends\" tunes the channel showing it now, \"play Friends\" plays the series.",
                 "Start a movie or show with \"play\", \"search\" or \"continue\": those words make Signal listen for any title, which takes a moment longer. For channels, say \"watch\" or just the name, which is faster.",
-                "A channel's name wins when it matches exactly. Titles you're likely to say are recognized best: Continue watching, your Library, series with new episodes, and the newest movies and series.",
+                "A channel's name wins when it matches exactly. Titles you're likely to say are recognized best: Continue watching, your Library, every series you're watching, the newest movies and series, and the trending, popular and top-rated lists.",
             ),
         )
     }
