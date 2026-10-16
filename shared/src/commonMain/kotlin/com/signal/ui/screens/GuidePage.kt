@@ -652,7 +652,7 @@ private fun DetailsStrip(app: AppController, ch: Channel?, p: Program?, now: Lon
         SText(p.title, 56, Modifier.padding(top = 16.dp), weight = FontWeight.ExtraBold)
         val subtitle = listOfNotNull(p.episodeText, p.subTitle).joinToString(" · ")
         if (subtitle.isNotEmpty()) SText(subtitle, 26, color = c.secondaryText)
-        p.description?.let { com.signal.ui.components.AutoScrollText(it, 24, Modifier.padding(top = 8.dp).width(1000.dp), color = c.muted, lines = 2) }
+        p.description?.let { com.signal.ui.components.AutoScrollText(it, 24, Modifier.padding(top = 8.dp).width(1000.dp), color = c.muted, lines = 3) }
         ProgramTags(p, Modifier.padding(top = 12.dp))
     }
 }

@@ -34,10 +34,10 @@ data class VoiceHelp(val groups: List<Group>, val tips: List<String>) {
                 ),
                 Group(
                     "Playback",
-                    "These act on what's playing. Live TV can't pause or skip, so on live TV Signal says so and keeps playing.",
+                    "These act on what's playing. Live TV can't pause, stop or skip, so on live TV Signal says so and keeps playing.",
                     listOf(
                         Command(listOf("pause", "resume", "play"), "Pauses or resumes a movie or episode."),
-                        Command(listOf("stop"), "Stops a movie or episode and goes back, or stops the live channel."),
+                        Command(listOf("stop"), "Stops a movie or episode and goes back."),
                         Command(listOf("back thirty seconds", "skip ahead ten minutes", "rewind", "fast forward"), "Skips back or ahead in a movie or episode. \"Rewind\" or \"fast forward\" alone moves 30 seconds."),
                         Command(listOf("start over", "start the movie over", "restart this"), "Plays the movie or episode from the beginning."),
                         Command(listOf("next episode", "next"), "Plays the next episode. On live TV, \"next\" is the next channel."),

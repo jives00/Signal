@@ -89,7 +89,7 @@ These work on what's showing. Each one says so in the panel when it can't apply.
 | Say | What it does |
 |---|---|
 | "pause", "resume" / "play" | Pauses or resumes a movie or episode. Live TV can't pause, so on live TV Signal says so and keeps playing. |
-| "stop" | Stops a movie or episode and goes back, or stops the live channel. |
+| "stop" | Stops a movie or episode and goes back. Like "pause", it does nothing on live TV. |
 | "back thirty seconds", "skip ahead ten minutes", "rewind", "fast forward" | Skips back or ahead in a movie or episode. On its own, "rewind" or "fast forward" moves 30 seconds. |
 | "start over", "start the movie over", "restart this" | Plays a movie or episode from the beginning. |
 | "next episode", "next" | The next episode. On live TV, "next" is the next channel. |

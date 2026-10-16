@@ -64,6 +64,9 @@ class VoiceKeyMapTest {
         val pause = app.voice(listOf("pause"))
         assertFalse(pause.acted)
         assertEquals("Live TV can't pause", pause.shown)
+        val stop = app.voice(listOf("stop"))
+        assertFalse(stop.acted)
+        assertEquals("Live TV can't stop", stop.shown)
         settle()
         assertEquals(playing.displayName, player.state.value.request?.label)
     }

@@ -880,7 +880,8 @@ class AppController(val platform: Platform, val log: Log) {
             }
             com.signal.voice.VoiceCommand.Stop -> when {
                 vod != null -> { vodPlayback.stop(); navigator.back(); done("Stopped") }
-                live != null -> { playback.stop(); done("Stopped ${live.displayName}") }
+                // Like pause: stopping live TV only left a grey screen (user, 2026-10-15).
+                live != null -> fail("Live TV can't stop")
                 else -> fail(nothing)
             }
             com.signal.voice.VoiceCommand.StartOver -> when {
