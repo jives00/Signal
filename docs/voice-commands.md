@@ -112,6 +112,7 @@ These work on what's showing. Each one says so in the panel when it can't apply.
 | "channel up", "channel down", "next channel" | Changes channel, as the remote's channel buttons do. |
 | "last channel", "go to the last channel", "previous channel" | Goes back to the channel before this one. |
 | "what's on ESPN", "what's on" | Shows the program on now, without changing channel. With no channel, it's the one playing. |
+| "watch Friends", "watch Jeopardy" | Tunes the channel showing that program now. "Play Friends" plays it from Movies & Series instead. |
 | "guide", "home", "movies", "series", "search", "settings", "my favorites" | Opens the page. "Go to", "open" and "show me" work in front of them. |
 | "captions on", "turn off subtitles", "captions" | Turns captions on or off; "captions" alone switches them. |
 | "Spanish audio", "change the audio to French" | Picks the audio track in that language. |
@@ -135,6 +136,9 @@ names from the guide.
 | "play Inception", "play the movie Inception" | Plays the title when exactly one has that name: a movie resumes where you left it, a series where you're up to. When several share it, or the words only match part of a title, a panel lists up to three. If nothing matches, Search opens with the words filled in. |
 | "play The Office season two episode five" | Plays that episode. |
 | "continue Seinfeld", "keep watching The Office" | Picks up from Continue watching, or else where the series is up to. |
+
+**"Watch" or "play":** "watch ___" is live TV: a channel, or the channel showing that program now.
+"Play ___" is Movies & Series: "watch Friends" tunes today's airing, "play Friends" plays the series.
 
 Start a title with "play", "search" or "continue": those words are what make Signal listen for
 any title, which takes a moment longer. For channels, say "watch" ("watch ESPN") or just the name,
