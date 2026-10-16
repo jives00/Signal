@@ -130,10 +130,22 @@ export function CompanionSettings() {
           {companion.tmdbKeySet && (
             <div className="row"><button type="button" className="link" onClick={() => setCompanion({ ...companion, tmdbKey: "" })}>Remove the saved key</button></div>
           )}
+          <label><span>GitHub token</span>
+            <input
+              type="password"
+              autoComplete="off"
+              value={companion.githubToken ?? ""}
+              placeholder={companion.githubTokenSet ? "Saved: type to replace" : "For marking app releases stable"}
+              onChange={(e) => setCompanion({ ...companion, githubToken: e.target.value })}
+            />
+          </label>
+          {companion.githubTokenSet && (
+            <div className="row"><button type="button" className="link" onClick={() => setCompanion({ ...companion, githubToken: "" })}>Remove the saved token</button></div>
+          )}
           <label><span>Image cache (GB)</span><input type="number" min={1} max={500} value={companion.imageCacheGb} onChange={(e) => setCompanion({ ...companion, imageCacheGb: Number(e.target.value) })} /></label>
           <div className="row"><button className="primary" type="submit">Save</button></div>
         </form>
-        <p className="detail small">A device offline longer than the delete retention does a full re-sync when it's back. The TMDB key matches movies and series to TMDB for posters, lists and genres; it can be the same key Trakt uses.</p>
+        <p className="detail small">A device offline longer than the delete retention does a full re-sync when it's back. The TMDB key matches movies and series to TMDB for posters, lists and genres; it can be the same key Trakt uses. The GitHub token marks app releases stable on Devices &amp; Profiles: a fine-grained token for jives00/Signal with Contents read and write.</p>
       </section>}
     </SettingsPage>
   );

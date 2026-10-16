@@ -57,6 +57,33 @@ class ChangelogTest {
         assertEquals("https://x/a.apk", GitHubReleases.parseReleases(json).first().apkUrl)
     }
 
+    // ---- Release channels (user, 2026-10-16): Main takes every release, Parents only stable ones ----
+
+    private fun r(tag: String, testing: Boolean, apk: Boolean = true) = GitHubReleases.Release(tag, "", if (apk) "https://x/$tag.apk" else "", testing)
+
+    @Test
+    fun `a stable profile skips testing releases`() {
+        val releases = listOf(r("apk-v0.2.31", testing = true), r("apk-v0.2.30", testing = false), r("apk-v0.2.29", testing = false))
+        assertEquals("apk-v0.2.30", GitHubReleases.newest(releases, "apk-v0.2.29", stableOnly = true)?.tag)
+        assertEquals("apk-v0.2.31", GitHubReleases.newest(releases, "apk-v0.2.29", stableOnly = false)?.tag)
+    }
+
+    @Test
+    fun `never an older version, even to a TV ahead of its channel`() {
+        // A testing build on a stable profile: the newest stable is older, so nothing is offered.
+        val releases = listOf(r("apk-v0.2.31", testing = true), r("apk-v0.2.30", testing = false))
+        assertEquals(null, GitHubReleases.newest(releases, "apk-v0.2.31", stableOnly = true))
+        assertEquals(null, GitHubReleases.newest(releases, "apk-v0.2.31", stableOnly = false))
+        assertEquals(false, GitHubReleases.isNewer("apk-v0.2.31", "apk-v0.2.30"))
+        assertEquals(true, GitHubReleases.isNewer("apk-v0.2.9", "apk-v0.2.10"))
+    }
+
+    @Test
+    fun `a release without an APK is never offered`() {
+        val releases = listOf(r("apk-v0.2.31", testing = false, apk = false), r("apk-v0.2.30", testing = false))
+        assertEquals("apk-v0.2.30", GitHubReleases.newest(releases, "apk-v0.2.29", stableOnly = true)?.tag)
+    }
+
     @Test
     fun `GitHub's generated footer and headings are dropped`() {
         val generated = "## What's Changed\n\n\n**Full Changelog**: https://github.com/jives00/Signal/compare/apk-v0.2.8...apk-v0.2.9"

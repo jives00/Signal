@@ -251,7 +251,12 @@ class AppController(val platform: Platform, val log: Log) {
                 if (nas.isPaired && !guideBuilding) installNasGuide()
             }
         }
-        scope.launch { platform.updater?.check() }
+        // The profile's release channel (PLAN §4.3.15 → Release channels): stable only unless set to all.
+        // A change (from the web admin, by sync) checks again, so the TV sees what it now may take.
+        platform.updater?.stableOnly = { settings.raw(Settings.Key.UPDATE_CHANNEL) != UPDATE_ALL }
+        scope.launch {
+            settings.changes().map { settings.raw(Settings.Key.UPDATE_CHANNEL) }.distinctUntilChanged().collect { platform.updater?.check() }
+        }
     }
 
     /** Library, resume and watched rows move to the copy of their title that today's sources have. */
@@ -1332,6 +1337,8 @@ class AppController(val platform: Platform, val log: Log) {
         const val CARRY_OVER_DEBOUNCE_MS = 5_000L
         /** Channels a voice command looks through: enough that an exact name behind favorites' prefix matches is still seen. */
         const val VOICE_HITS = 50
+        /** [Settings.Key.UPDATE_CHANNEL]: every release, testing ones included. Unset is stable only. */
+        const val UPDATE_ALL = "ALL"
         /** Newest movies and newest series in the voice grammar, each. */
         const val VOICE_RECENT_TITLES = 100
         /** Titles from each TMDB list in the voice grammar. */

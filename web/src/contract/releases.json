@@ -1,0 +1,20 @@
+{
+    "releases": [
+        {
+            "tag": "apk-v0.2.30",
+            "title": "Signal 0.2.30",
+            "publishedAt": 1791828000000,
+            "stable": false,
+            "notes": "- Release channels"
+        },
+        {
+            "tag": "apk-v0.2.29",
+            "title": "Signal 0.2.29",
+            "publishedAt": 1791741600000,
+            "stable": true,
+            "notes": "- Banner is back"
+        }
+    ],
+    "tokenSet": true,
+    "error": null
+}

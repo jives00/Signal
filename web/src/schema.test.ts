@@ -21,6 +21,7 @@ import vodCategories from "./contract/vod-categories.json";
 import tmdbCandidates from "./contract/tmdb-candidates.json";
 import library from "./contract/library.json";
 import voiceHelp from "./contract/voice-help.json";
+import releases from "./contract/releases.json";
 
 const cases: [string, ZodTypeAny, unknown][] = [
   ["settings-file", S.SettingsFile, settingsFile],
@@ -41,6 +42,7 @@ const cases: [string, ZodTypeAny, unknown][] = [
   ["tmdb-candidates", S.TmdbCandidate.array(), tmdbCandidates],
   ["library", S.LibraryRow.array(), library],
   ["voice-help", S.VoiceHelp, voiceHelp],
+  ["releases", S.ReleasesView, releases],
 ];
 
 describe("contract", () => {

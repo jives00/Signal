@@ -211,3 +211,8 @@ export const tmdbImage = (size: "w500" | "w780" | "backdrop", path: string | nul
 
 // ---- Voice Commands ----
 export const getVoiceHelp = () => read(S.VoiceHelp, "/api/voice/commands");
+
+// ---- Release channels (PLAN §4.3.15) ----
+export const getReleases = () => read(S.ReleasesView, "/api/releases");
+export const markRelease = (tag: string, stable: boolean) =>
+  send<void>(`/api/releases/${encodeURIComponent(tag)}`, { method: "POST", body: JSON.stringify({ stable }) });

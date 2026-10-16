@@ -55,6 +55,9 @@ class Settings(private val db: UserDatabase, private val io: CoroutineDispatcher
         REMINDER_AUTO_SWITCH(Scope.PROFILE, "reminder_auto_switch"),
         // Movies and series (PLAN §4.3.9 → Autoplay next episode): on by default.
         AUTOPLAY_NEXT(Scope.PROFILE, "autoplay_next"),
+        // Which app updates the profile's TVs are offered (PLAN §4.3.15): unset is stable releases only;
+        // ALL is every release, testing ones included. Set in the web admin's Devices & Profiles.
+        UPDATE_CHANNEL(Scope.PROFILE, "update_channel"),
         // Which channels voice commands match (PLAN §4.3.14 → Voice commands): unset is favorites,
         // playlists and channels with voice names; ALL is every visible channel.
         VOICE_CHANNELS(Scope.PROFILE, "voice_channels"),

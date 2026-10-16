@@ -77,7 +77,16 @@ jobs:
           fi
           cat notes.md
 
+      # Published as testing (a pre-release): only profiles set to take every release are offered it,
+      # until it's marked stable in the web admin's Devices & Profiles (PLAN §4.3.15 → Release channels).
+      # A tag message with a line "stable: true" publishes it as stable at once.
       - name: Publish the GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "${GITHUB_REF_NAME}" "signal-${GITHUB_REF_NAME#apk-}.apk" --title "Signal ${GITHUB_REF_NAME#apk-}" --notes-file notes.md
+        run: |
+          channel=--prerelease
+          if grep -qx 'stable: true' notes.md; then
+            channel=--latest
+            sed -i '/^stable: true$/d' notes.md
+          fi
+          gh release create "${GITHUB_REF_NAME}" "signal-${GITHUB_REF_NAME#apk-}.apk" --title "Signal ${GITHUB_REF_NAME#apk-}" --notes-file notes.md $channel

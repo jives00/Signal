@@ -414,6 +414,9 @@ private fun AboutSection(app: AppController) {
                     if (checking) Spinner(28, if (focused) c.onAccent else c.accent, Modifier.padding(start = 16.dp))
                 },
             )
+            // Release channels (PLAN §4.3.15): set per profile in the web admin, shown here so a missing update makes sense.
+            val allReleases = app.settings.raw(Settings.Key.UPDATE_CHANNEL) == com.signal.app.AppController.UPDATE_ALL
+            ListRow("Releases", detail = if (allReleases) "All releases, testing ones included" else "Stable only · set per profile in the web admin", onSelect = null)
         }
         SectionTitle("Credits")
         SText("Uses the Archivo typeface (SIL Open Font License).", 22, Modifier.padding(horizontal = 40.dp), color = c.muted)

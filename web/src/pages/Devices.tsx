@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { copySections, getSettings, ownProfile } from "../admin";
 import { useProfiles, useToast } from "../context";
 import DeviceSettings from "./DeviceSettings";
+import Updates from "./Updates";
 import VoiceSetup from "./VoiceSetup";
 import { useSorted } from "../sort";
 import {
@@ -189,6 +190,7 @@ export default function Devices() {
       )}
       {settingsFor && <DeviceSettings device={settingsFor} onClose={() => setSettingsFor(null)} />}
 
+      <Updates />
       <VoiceSetup />
 
       <section className="section">

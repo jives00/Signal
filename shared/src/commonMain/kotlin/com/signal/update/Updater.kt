@@ -18,6 +18,12 @@ interface Updater {
     fun install()
     /** Hides the banner until the next release. */
     fun later()
+
+    /**
+     * Whether only stable releases count (PLAN §4.3.15 → Release channels): the profile's
+     * `update_channel`. Set by the app controller, which knows the settings.
+     */
+    var stableOnly: () -> Boolean
 }
 
 sealed interface UpdateState {
@@ -32,7 +38,23 @@ object GitHubReleases {
     const val REPO = "jives00/Signal"
     const val LATEST_URL = "https://api.github.com/repos/$REPO/releases/latest"
 
-    data class Release(val tag: String, val body: String, val apkUrl: String)
+    /** [prerelease]: a testing release, offered only to profiles that take every release. */
+    data class Release(val tag: String, val body: String, val apkUrl: String, val prerelease: Boolean = false)
+
+    /**
+     * The release to offer (PLAN §4.3.15 → Release channels): the highest version with an APK, after
+     * [currentTag], among stable releases or, unless [stableOnly], testing ones too. Null when none
+     * is newer: a TV ahead of its channel (a testing build on a stable profile) is never offered an
+     * older version, which the old any-different-tag rule would have done.
+     */
+    fun newest(releases: List<Release>, currentTag: String, stableOnly: Boolean): Release? {
+        val current = version(currentTag) ?: return null
+        return releases.asSequence()
+            .filter { it.apkUrl.isNotEmpty() && (!stableOnly || !it.prerelease) }
+            .mapNotNull { r -> version(r.tag)?.let { it to r } }
+            .filter { (v, _) -> compare(v, current) > 0 }
+            .maxWithOrNull { a, b -> compare(a.first, b.first) }?.second
+    }
 
     fun parseLatest(json: String): Release? {
         val root = kotlinx.serialization.json.Json.parseToJsonElement(json) as? kotlinx.serialization.json.JsonObject ?: return null
@@ -72,7 +94,8 @@ object GitHubReleases {
             val tag = str(o, "tag_name") ?: return@mapNotNull null
             val apk = (o["assets"] as? kotlinx.serialization.json.JsonArray)?.mapNotNull { it as? kotlinx.serialization.json.JsonObject }
                 ?.firstOrNull { str(it, "name")?.endsWith(".apk") == true }
-            Release(tag, changelog(str(o, "body").orEmpty()), apk?.let { str(it, "browser_download_url") }.orEmpty())
+            val prerelease = (o["prerelease"] as? kotlinx.serialization.json.JsonPrimitive)?.content == "true"
+            Release(tag, changelog(str(o, "body").orEmpty()), apk?.let { str(it, "browser_download_url") }.orEmpty(), prerelease)
         }
     }
 
@@ -110,7 +133,10 @@ object GitHubReleases {
         }
     }
 
-    /** "dev" builds never offer updates; otherwise any different newest tag is an update. */
-    fun isNewer(currentTag: String, latestTag: String): Boolean =
-        currentTag != "dev" && latestTag.startsWith("apk-") && latestTag != currentTag
+    /** "dev" builds never offer updates; otherwise a higher version is an update, never a lower one. */
+    fun isNewer(currentTag: String, latestTag: String): Boolean {
+        val current = version(currentTag) ?: return false
+        val latest = latestTag.takeIf { it.startsWith("apk-") }?.let(::version) ?: return false
+        return compare(latest, current) > 0
+    }
 }

@@ -21,6 +21,8 @@ import io.ktor.server.request.path
 import io.ktor.server.response.respond
 import io.ktor.server.response.respondFile
 import io.ktor.server.response.respondText
+import io.ktor.server.request.receive
+import io.ktor.server.routing.post
 import io.ktor.server.routing.Route
 import io.ktor.server.routing.RouteSelector
 import io.ktor.server.routing.RouteSelectorEvaluation
@@ -90,6 +92,8 @@ class Companion(
         }
     }
     val tmdb by lazy { Tmdb(tmdbClient, { settings.tmdbKey }) }
+    /** App releases and their channels, for Devices & Profiles → Updates (PLAN §4.3.15). */
+    val releases by lazy { Releases(tmdbClient, { settings.githubToken }) }
     /** VOD enrichment (PLAN §4.3.12). */
     val vod by lazy {
         VodEnricher(tmdb, { tmdbStore }, ::vodItems, { if (vodItemsOverride != null) 0 else catalog.version }, ::followedVod)
@@ -203,6 +207,17 @@ fun Application.signalModule(companion: Companion) {
                 get("/status") { call.respond(Status(companion.version, companion.databaseState(), companion.config.secretKey != null)) }
                 // The web admin's Voice Commands page: the same list as the TV's (shared/voice/VoiceHelp.kt).
                 get("/voice/commands") { call.respond(com.signal.voice.VoiceHelp.ALL) }
+                // Release channels (PLAN §4.3.15): the recent app releases, and marking one stable or testing.
+                get("/releases") { call.respond(companion.releases.list()) }
+                post("/releases/{tag}") {
+                    val tag = call.parameters["tag"].orEmpty()
+                    if (!tag.startsWith("apk-")) return@post call.respondText("Not an app release.", status = HttpStatusCode.BadRequest)
+                    val mark = call.receive<MarkRelease>()
+                    when (val error = companion.releases.mark(tag, mark.stable)) {
+                        null -> call.respond(HttpStatusCode.NoContent)
+                        else -> call.respondText(error, status = HttpStatusCode.BadGateway)
+                    }
+                }
                 deviceAdminRoutes(companion)
                 guideAdminRoutes(companion)
                 syncAdminRoutes(companion)

@@ -87,6 +87,7 @@ class TestUpdater(initial: com.signal.update.UpdateState) : com.signal.update.Up
     override suspend fun check(manual: Boolean) = true
     override fun install() = Unit
     override fun later() { state.value = com.signal.update.UpdateState.None }
+    override var stableOnly: () -> Boolean = { true }
 }
 
 class TestPlatform : Platform {

@@ -13,6 +13,8 @@
         "newDeviceProfile": "main",
         "tmdbKeySet": true,
         "tmdbKey": null,
-        "imageCacheGb": 20
+        "imageCacheGb": 20,
+        "githubTokenSet": false,
+        "githubToken": null
     }
 }

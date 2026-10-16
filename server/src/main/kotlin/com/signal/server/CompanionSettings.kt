@@ -17,6 +17,10 @@ data class CompanionSettingsView(
     val tmdbKey: String? = null,
     /** The image cache's size limit (PLAN §4.3.12). */
     val imageCacheGb: Int = 20,
+    /** Whether a GitHub token is saved, for marking app releases stable (PLAN §4.3.15). It never leaves the companion. */
+    val githubTokenSet: Boolean = false,
+    /** On save: a new token, "" to remove it, or null to keep the saved one. */
+    val githubToken: String? = null,
 )
 
 class CompanionSettings(private val companion: Companion) {
@@ -30,9 +34,12 @@ class CompanionSettings(private val companion: Companion) {
     /** Decrypted with the secret key (PLAN §5.7); null when unset or the key can't decrypt it. */
     val tmdbKey: String? get() = get(TMDB_KEY)?.takeIf { it.isNotEmpty() }?.let { enc -> runCatching { companion.cipher?.decrypt(enc) }.getOrNull() }
 
+    /** Decrypted like the TMDB key; null when unset. Marks app releases stable on GitHub. */
+    val githubToken: String? get() = get(GITHUB_TOKEN)?.takeIf { it.isNotEmpty() }?.let { enc -> runCatching { companion.cipher?.decrypt(enc) }.getOrNull() }
+
     fun view(): CompanionSettingsView {
         val schedule = companion.guideJob.schedule()
-        return CompanionSettingsView(schedule.time, schedule.timeZone, snapshotsToKeep, tombstoneDays, newDeviceProfile, tmdbKey != null, null, imageCacheGb)
+        return CompanionSettingsView(schedule.time, schedule.timeZone, snapshotsToKeep, tombstoneDays, newDeviceProfile, tmdbKey != null, null, imageCacheGb, githubToken != null, null)
     }
 
     /** Validates and saves; returns an error for people, or null. */
@@ -47,6 +54,9 @@ class CompanionSettings(private val companion: Companion) {
         val key = v.tmdbKey?.trim()
         if (!key.isNullOrEmpty() && companion.cipher == null) return "SIGNAL_SECRET_KEY isn't set, so the TMDB key can't be stored."
         if (!key.isNullOrEmpty() && !key.all { it.isLetterOrDigit() || it in "._-" }) return "That doesn't look like a TMDB API key or read access token."
+        val token = v.githubToken?.trim()
+        if (!token.isNullOrEmpty() && companion.cipher == null) return "SIGNAL_SECRET_KEY isn't set, so the GitHub token can't be stored."
+        if (!token.isNullOrEmpty() && !token.all { it.isLetterOrDigit() || it == '_' }) return "That doesn't look like a GitHub token."
         companion.guideJob.setSchedule(schedule)
         store.putSetting(SNAPSHOTS_KEEP, v.snapshotsToKeep.toString())
         store.putSetting(TOMBSTONE_DAYS, v.tombstoneDays.toString())
@@ -57,6 +67,11 @@ class CompanionSettings(private val companion: Companion) {
             key.isEmpty() -> store.putSetting(TMDB_KEY, "")
             else -> store.putSetting(TMDB_KEY, companion.cipher!!.encrypt(key))
         }
+        when {
+            token == null -> {}
+            token.isEmpty() -> store.putSetting(GITHUB_TOKEN, "")
+            else -> store.putSetting(GITHUB_TOKEN, companion.cipher!!.encrypt(token))
+        }
         return null
     }
 
@@ -66,6 +81,7 @@ class CompanionSettings(private val companion: Companion) {
         const val NEW_DEVICE_PROFILE = "new_device_profile"
         const val TMDB_KEY = "tmdb_api_key"
         const val IMAGE_CACHE_GB = "image_cache_gb"
+        const val GITHUB_TOKEN = "github_token"
         const val MAIN = "main"
         const val OWN = "own"
     }

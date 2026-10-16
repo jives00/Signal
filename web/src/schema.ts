@@ -157,6 +157,8 @@ export const CompanionSettingsView = z.object({
   tmdbKeySet: z.boolean().default(false),
   tmdbKey: z.string().nullable().default(null),
   imageCacheGb: z.number().default(20),
+  githubTokenSet: z.boolean().default(false),
+  githubToken: z.string().nullable().default(null),
 });
 export const SettingsView = z.object({
   household: z.record(z.string()),
@@ -341,3 +343,9 @@ export const VoiceHelpCommand = z.object({ say: z.array(z.string()), does: z.str
 export const VoiceHelpGroup = z.object({ title: z.string(), intro: z.string().nullable(), commands: z.array(VoiceHelpCommand), since: z.string().nullable() });
 export const VoiceHelp = z.object({ groups: z.array(VoiceHelpGroup), tips: z.array(z.string()) });
 export type VoiceHelp = z.infer<typeof VoiceHelp>;
+
+/** server/Releases.kt /api/releases (PLAN §4.3.15 → Release channels): recent app releases. */
+export const ReleaseView = z.object({ tag: z.string(), title: z.string(), publishedAt: z.number(), stable: z.boolean(), notes: z.string() });
+export const ReleasesView = z.object({ releases: z.array(ReleaseView), tokenSet: z.boolean(), error: z.string().nullable() });
+export type ReleaseView = z.infer<typeof ReleaseView>;
+export type ReleasesView = z.infer<typeof ReleasesView>;

@@ -49,6 +49,16 @@ class ContractTest {
         check("edit-result", EditResult.serializer(), EditResult(8, 1, listOf(AdminOp("favorite", "ch:src:x:42", "profile", "main", deleted = true))))
         check("channel-page", ChannelPage.serializer(), ChannelPage(1, 0, listOf(row)))
         check(
+            "releases", ReleasesView.serializer(),
+            ReleasesView(
+                listOf(
+                    ReleaseView("apk-v0.2.30", "Signal 0.2.30", 1_791_828_000_000, stable = false, notes = "- Release channels"),
+                    ReleaseView("apk-v0.2.29", "Signal 0.2.29", 1_791_741_600_000, stable = true, notes = "- Banner is back"),
+                ),
+                tokenSet = true,
+            ),
+        )
+        check(
             "voice-help", com.signal.voice.VoiceHelp.serializer(),
             com.signal.voice.VoiceHelp(
                 listOf(

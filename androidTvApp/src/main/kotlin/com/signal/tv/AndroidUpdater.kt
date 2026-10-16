@@ -45,32 +45,44 @@ class AndroidUpdater(
     private var release: GitHubReleases.Release? = null
     private val prefs = context.getSharedPreferences("updater", Context.MODE_PRIVATE)
 
+    override var stableOnly: () -> Boolean = { true }
+
+    /**
+     * Offers the newest release this profile takes (PLAN §4.3.15 → Release channels): stable ones
+     * only, or testing ones too. From GitHub's releases list, since GitHub's "latest" skips testing
+     * releases; that's only the fallback when the list can't be had.
+     */
     override suspend fun check(manual: Boolean): Boolean {
         if (_state.value is UpdateState.Downloading) return true
         return runCatching {
-            val response = withContext(Dispatchers.IO) { http.get(GitHubReleases.LATEST_URL) }
-            if (!response.status.isSuccess()) { android.util.Log.w("Signal", "Update check: HTTP ${response.status.value}"); return false }
-            val latest = GitHubReleases.parseLatest(response.bodyAsText()) ?: return false
-            android.util.Log.i("Signal", "Update check: running $currentTag, latest ${latest.tag}")
-            release = latest
+            val stable = stableOnly()
+            val list = releases()
+            val offer = if (list != null) {
+                GitHubReleases.newest(list, currentTag, stable)
+            } else {
+                val response = withContext(Dispatchers.IO) { http.get(GitHubReleases.LATEST_URL) }
+                if (!response.status.isSuccess()) { android.util.Log.w(TAG, "Update check: HTTP ${response.status.value}"); return false }
+                GitHubReleases.parseLatest(response.bodyAsText())?.takeIf { GitHubReleases.isNewer(currentTag, it.tag) }
+            }
+            android.util.Log.i(TAG, "Update check: running $currentTag, ${if (stable) "stable releases" else "all releases"}, offering ${offer?.tag ?: "nothing"}")
+            release = offer
             val dismissed = if (manual) null else prefs.getString(KEY_DISMISSED, null)
-            _state.value = if (GitHubReleases.isNewer(currentTag, latest.tag) && latest.tag != dismissed) {
-                UpdateState.Available(latest.tag, changesSince(latest) ?: latest.body)
+            _state.value = if (offer != null && offer.tag != dismissed) {
+                // Every release's notes since the installed version, testing ones included: the
+                // offered build has their changes too (user, 2026-10-16).
+                UpdateState.Available(offer.tag, list?.let { GitHubReleases.changesSince(it, currentTag, offer.tag) } ?: offer.body)
             } else {
                 UpdateState.None
             }
             true
-        }.getOrElse { e -> android.util.Log.w("Signal", "Update check failed: ${e.message}"); false }
+        }.getOrElse { e -> android.util.Log.w(TAG, "Update check failed: ${e.message}"); false }
     }
 
-    /**
-     * Every release's notes since the installed version, not only the newest's (user, 2026-10-16).
-     * Null when the list can't be fetched, so the newest release's notes show as before.
-     */
-    private suspend fun changesSince(latest: GitHubReleases.Release): String? = runCatching {
+    /** GitHub's recent releases, testing ones included; null when they can't be had. */
+    private suspend fun releases(): List<GitHubReleases.Release>? = runCatching {
         val response = withContext(Dispatchers.IO) { http.get(GitHubReleases.RELEASES_URL) }
         if (!response.status.isSuccess()) return null
-        GitHubReleases.changesSince(GitHubReleases.parseReleases(response.bodyAsText()), currentTag, latest.tag)
+        GitHubReleases.parseReleases(response.bodyAsText())
     }.getOrNull()
 
     override fun install() {
