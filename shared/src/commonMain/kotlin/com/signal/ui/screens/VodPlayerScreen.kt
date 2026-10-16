@@ -71,6 +71,8 @@ fun VodPlayerScreen() {
     var position by remember { mutableStateOf(PlaybackPosition(0, 0)) }
     var controls by remember { mutableStateOf(false) }
     var focusOptions by remember { mutableStateOf(false) }
+    // The controls shown on their own as a video starts: the first key isn't theirs, so Back still leaves.
+    var peek by remember { mutableStateOf(false) }
     var lastInput by remember { mutableStateOf(0L) }
     var aspect by remember { mutableStateOf(AspectMode.FIT) }
     // Holding Left/Right: presses arriving close together seek further each time (PLAN §4.3.10 → scrub).
@@ -142,6 +144,13 @@ fun VodPlayerScreen() {
         position = PlaybackPosition(0, 0)
         nextCard = null
         nextDismissed = false
+        // A movie or episode starting shows the controls (title, progress) for 5 seconds (user, 2026-10-16).
+        if (n != null) {
+            controls = true
+            focusOptions = false
+            peek = true
+            input()
+        }
     }
     val remaining = position.durationMs - position.positionMs
     val nearEnd = position.durationMs > 0 && position.positionMs > 0 && remaining in 1..NEXT_CARD_BEFORE_END_MS
@@ -201,6 +210,8 @@ fun VodPlayerScreen() {
 
     RemoteHandler { action ->
         if (nextCard != null) return@RemoteHandler false
+        val peeked = peek
+        peek = false
         when (action) {
             RemoteAction.PlayPause -> {
                 val paused = !state.paused
@@ -224,7 +235,7 @@ fun VodPlayerScreen() {
                 true
             }
             RemoteAction.Back -> {
-                if (controls) { controls = false; focusOptions = false } else back()
+                if (controls && !peeked) { controls = false; focusOptions = false } else back()
                 true
             }
             else -> false

@@ -38,7 +38,7 @@ class FullScreenKeyMapTest {
         toFullScreen()
         press(RemoteAction.Right)
         assertFalse(shows("Groups"))
-        assertFalse(shows("Aspect ratio"))
+        // The info bar shown on tuning takes no keys: Left still opens the channel list.
         press(RemoteAction.Left)
         eventually("channel list") { shows("Groups") }
     }
@@ -132,16 +132,23 @@ class FullScreenKeyMapTest {
         eventually("recalled") { current?.key == start.key }
     }
 
-    // ---- Zap banner --------------------------------------------------------------------
+    // ---- The info bar on a channel change (user, 2026-10-16; it was a zap banner) ----------
 
-    @Test fun zapBannerOkOpensTheInfoBar() = keyMapTest {
+    @Test fun aChannelChangeShowsTheInfoBarWithoutTakingKeys() = keyMapTest {
         toFullScreen()
         val start = current!!
         press(RemoteAction.Down)
-        eventually("banner") { current?.key != start.key && shows(current!!.displayName) }
-        assertFalse(shows("Aspect ratio"))
+        eventually("the info bar for the new channel") { current?.key != start.key && shows("Aspect ratio") && shows(current!!.displayName) }
+        // It takes no focus: Down changes channel again, rather than moving within it.
+        val second = current!!
+        press(RemoteAction.Down)
+        eventually("the next channel") { current?.key != second.key }
+        // OK makes it the interactive one, on its first option.
         press(RemoteAction.Select)
-        eventually("info bar") { shows("Aspect ratio") }
+        eventually("the info bar's options") { focusedText() == "Audio" }
+        // It hides after 5 seconds.
+        ui.mainClock.advanceTimeBy(6_000)
+        eventually("hidden") { !shows("Aspect ratio") }
     }
 
     // ---- Channel list ------------------------------------------------------------------
