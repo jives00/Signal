@@ -400,6 +400,12 @@ class VoiceKeyMapTest {
         eventually("program details") { panelTitle != null && panelTitle != "Which channel?" }
     }
 
+    @Test fun aLeadingTheStillFindsTheChannel() = keyMapTest {
+        val r = app.voice(listOf("watch the golf channel"))
+        assertTrue(r.acted, r.message)
+        eventually("full screen on Golf Channel") { app.navigator.current is Route.FullScreen && current?.displayName == "Golf Channel" }
+    }
+
     // ---- Channels to match ----
 
     // By default, with favorites set, only they (and playlists and voice names) are matched.

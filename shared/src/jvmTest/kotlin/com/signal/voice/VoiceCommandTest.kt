@@ -19,6 +19,15 @@ class VoiceCommandTest {
         assertEquals(listOf("golf channel", "golf"), VoiceCommand.Tune("golf channel").names)
         assertEquals(listOf("channel"), VoiceCommand.Tune("channel").names)
     }
+
+    // "Watch the discovery channel" found nothing (Chromecast, 0.2.33): "the" is tried as said, then without.
+    @Test fun leadingTheIsTriedBothWays() {
+        assertEquals(
+            listOf("the discovery channel", "the discovery", "discovery channel", "discovery"),
+            VoiceCommand.Tune("the discovery channel").names,
+        )
+        assertEquals(listOf("the"), VoiceCommand.Tune("the").names)
+    }
     @Test fun lettersInsideWords() = assertEquals("fox sports 1", tune("put on fox sports 1"))
     @Test fun nothing() = assertNull(VoiceCommand.parse("  "))
     @Test fun onlyAPrefix() = assertEquals("switch", tune("switch"))

@@ -11,7 +11,13 @@ sealed interface VoiceCommand {
          * What to search for, in order: as said, then without a trailing "channel" ("a b c channel"),
          * which is part of some names (Golf Channel) and only a filler after others.
          */
-        val names: List<String> get() = listOf(channel) + listOfNotNull(channel.removeSuffix(" channel").takeIf { it != channel && it.isNotBlank() })
+        val names: List<String> get() {
+            // Then without a leading "the": "watch the discovery channel" found nothing, since only
+            // names like "The Weather Channel" have it (Chromecast, 0.2.33).
+            val asSaid = listOf(channel) + listOfNotNull(channel.removeSuffix(" channel").takeIf { it != channel && it.isNotBlank() })
+            val withoutThe = asSaid.mapNotNull { n -> n.removePrefix("the ").takeIf { it != n && it.isNotBlank() } }
+            return (asSaid + withoutThe).distinct()
+        }
     }
 
     // Playback (PLAN §4.3.14 → Voice commands, phase 2). What they do depends on what's playing.
