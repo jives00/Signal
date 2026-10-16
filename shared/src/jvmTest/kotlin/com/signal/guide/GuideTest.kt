@@ -167,6 +167,33 @@ class GuideTest {
         assertTrue(logged.none { it.startsWith("Guide: index") }, "no index built: $logged")
     }
 
+    /**
+     * A new guide build (nightly, from the NAS) keeps the saved resolutions: each is checked with one
+     * seek as its channel is resolved, instead of every source's index being built again (2026-10-16).
+     */
+    @Test fun savedResolutionsCarryOverToANewGuideBuild() = runBlocking<Unit> {
+        sources.save(Source(id = "demo", name = "Demo", kind = SourceKind.DEMO, url = "demo:"))
+        sources.refresh("demo").getOrThrow()
+        epg.ensureForSource(sources.byId("demo")!!)
+        assertTrue(build())
+        settle()
+        val first = channels.channelsNow(channels.groupsNow().first { it.group is ChannelGroup.Provider }.group).take(5)
+        val before = first.map { guide.resolve(it) }
+        withTimeoutOrNull(10_000) { while (!java.io.File(store.resolvedPath()).exists()) kotlinx.coroutines.delay(100) }
+        val builtBefore = store.builtAt()
+
+        // Tonight's build: the same guide, a new file and build time.
+        val later = now + hour
+        assertTrue(store.build(later) { fresh, previous -> builder.build(epg.all(), fresh, previous, later).values.any { it.programs > 0 } })
+        assertTrue(store.builtAt() != builtBefore, "a new build")
+
+        val logged = java.util.Collections.synchronizedList(ArrayList<String>())
+        val next = GuideRepository(store, epg, settings, Dispatchers.IO, scope) { logged += it }
+        withTimeoutOrNull(10_000) { next.state.first { it.sources == epg.all() && it.version == store.version.value } }
+        assertEquals(before, first.map { next.resolve(it) })
+        assertTrue(logged.none { it.startsWith("Guide: index") }, "no index built: $logged")
+    }
+
     @Test fun xmltvPlainAndGzippedWithTimeShiftAndPruning() = runBlocking<Unit> {
         val list = m3u("#EXTM3U\n#EXTINF:-1 tvg-id=\"a.us\" group-title=\"G\",US: Alpha HD\nhttp://p/1.ts\n#EXTINF:-1 group-title=\"G\",Bravo ᴴᴰ\nhttp://p/2.ts\n")
         served["http://g/one.xml"] = xmltv(

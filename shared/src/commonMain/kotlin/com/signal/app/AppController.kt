@@ -696,8 +696,8 @@ class AppController(val platform: Platform, val log: Log) {
         val wanted = com.signal.match.SearchText.fold(title)
         if (wanted.replace(" ", "").length < 2) return null
         val now = Clock.System.now().toEpochMilliseconds()
-        val upcoming = search.programs(title, now, limit = 40).filter {
-            it.program.start > now && com.signal.match.SearchText.fold(com.signal.guide.GameTitles.withoutMatchup(it.program.title)) == wanted
+        val upcoming = search.programs(title.removePrefix("the ").trim(), now, limit = 40).filter {
+            it.program.start > now && spokenTitleKey(it.program.title) == spokenTitleKey(title)
         }
         if (upcoming.isEmpty()) return null
         val mine = search.voiceStreamIds()
@@ -793,13 +793,22 @@ class AppController(val platform: Platform, val log: Log) {
         }
     }
 
-    /** Programs on now titled exactly [title] (teams aside), on visible channels: "watch friends" is the airing. */
+    /**
+     * A program title as it's said: folded, teams aside, without "the" and a plural "s" on any word.
+     * "Cubs classic" was heard for "Cubs Classics" (2026-10-16), and "the" comes and goes in speech.
+     */
+    private fun spokenTitleKey(title: String): String =
+        com.signal.match.SearchText.fold(com.signal.guide.GameTitles.withoutMatchup(title)).split(' ')
+            .filter { it.isNotEmpty() && it != "the" }.joinToString(" ") { if (it.length > 3) it.removeSuffix("s") else it }
+
+    /** Programs on now titled [title] (teams aside, said loosely), on visible channels: "watch friends" is the airing. */
     private suspend fun onNow(title: String): List<SearchRepository.ProgramHit> {
         val wanted = com.signal.match.SearchText.fold(title)
         if (wanted.replace(" ", "").length < 2) return emptyList()
         val now = Clock.System.now().toEpochMilliseconds()
-        return search.programs(title, now, limit = 40).filter {
-            it.program.isOn(now) && com.signal.match.SearchText.fold(com.signal.guide.GameTitles.withoutMatchup(it.program.title)) == wanted
+        // "The" said or not: searched without it, compared without it.
+        return search.programs(title.removePrefix("the ").trim(), now, limit = 40, onNowOnly = true).filter {
+            it.program.isOn(now) && spokenTitleKey(it.program.title) == spokenTitleKey(title)
         }
     }
 

@@ -321,6 +321,15 @@ class VoiceKeyMapTest {
         assertFalse(app.navigator.current is Route.FullScreen)
     }
 
+    // "Watch cubs classic" was heard for "Cubs Classics" and found nothing (2026-10-16).
+    @Test fun watchToleratesAPluralAndThe() = keyMapTest {
+        val ch = makeGame("Zebra Quartz Classics")
+        app.voice(listOf("watch zebra quartz classic")).let { assertTrue(it.acted, it.message) }
+        eventually("its channel") { app.navigator.current is Route.FullScreen && current?.key == ch.key }
+        app.navigator.resetTo(Route.Home)
+        app.voice(listOf("watch the zebra quartz classics")).let { assertTrue(it.acted, it.message) }
+    }
+
     @Test fun watchAShowThatIsntOnSaysWhen() = keyMapTest {
         makeGame("Zebra Quartz Hour", later = true)
         val r = app.voice(listOf("watch zebra quartz hour"))

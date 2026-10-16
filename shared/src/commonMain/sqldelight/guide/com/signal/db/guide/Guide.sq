@@ -145,3 +145,17 @@ DELETE FROM program_fts WHERE docid = ?;
 -- airing in [from, to), for the team names a voice command can say. Guide time.
 gameTitles:
 SELECT DISTINCT title FROM program WHERE stop > ? AND start < ? AND title LIKE '% vs. %';
+
+-- Whether a guide channel has any program: a saved resolution from an earlier guide build still
+-- holds when it does (GuideRepository). One seek on program_channel.
+hasPrograms:
+SELECT EXISTS (SELECT 1 FROM program WHERE epg_source_id = ? AND guide_channel_id = ?);
+
+-- Programs on now matching a search (guide time): for voice's "watch ___". Search's own query takes
+-- the earliest matches from the last 12 hours, and a show aired in blocks ("Friends" on TBS) filled
+-- it before the airing on now (2026-10-16).
+searchProgramsOnNow:
+SELECT p.* FROM program_fts f
+JOIN program p ON p.id = f.docid
+WHERE program_fts MATCH ? AND p.start <= ? AND p.stop > ?
+LIMIT ?;

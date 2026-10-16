@@ -189,10 +189,10 @@ class SearchRepository(
     data class ProgramHit(val program: Program, val channel: Channel)
 
     /** Programs from now to 7 days out: on now first, then by start (PLAN §4.3.14), each on a visible channel. */
-    suspend fun programs(query: String, now: Long, limit: Int = 60): List<ProgramHit> {
+    suspend fun programs(query: String, now: Long, limit: Int = 60, onNowOnly: Boolean = false): List<ProgramHit> {
         val words = SearchText.words(query)
         if (words.isEmpty()) return emptyList()
-        val programs = guide.search(words, now, limit * 4)
+        val programs = if (onNowOnly) guide.searchOnNow(words, now, limit * 4) else guide.search(words, now, limit * 4)
         if (programs.isEmpty()) return emptyList()
         val map = lock.withLock { guideChannelMap() }
         val hits = programs.mapNotNull { p -> map["${p.epgSourceId}|${p.guideChannelId}"]?.first()?.let { p to it.streamId } }
