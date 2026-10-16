@@ -38,6 +38,23 @@ object GameTitles {
     fun withMatchup(title: String, matchup: Matchup): String =
         if (title.contains(matchup.text)) title else "$title$SEPARATOR${matchup.text}"
 
+    /** The teams in a title this named ("NFL Football - Pittsburgh Steelers vs. Cleveland Browns"), or null. */
+    fun matchup(title: String): Matchup? {
+        if (!hasMatchup(title)) return null
+        val teams = title.substringAfterLast(SEPARATOR).split(" vs. ")
+        return if (teams.size == 2 && teams.all { it.isNotBlank() }) Matchup(teams[0].trim(), teams[1].trim()) else null
+    }
+
+    /**
+     * How a team is said (PLAN §4.3.14 → Voice commands, phase 2): its full name, its nickname (the
+     * last word) and its place (the rest): "Pittsburgh Steelers", "Steelers", "Pittsburgh".
+     */
+    fun spokenNames(team: String): List<String> {
+        val words = team.split(' ').filter { it.isNotBlank() }
+        if (words.size < 2) return words
+        return listOf(team, words.last(), words.dropLast(1).joinToString(" ")).distinct()
+    }
+
     /** True when the title ends with teams this added (either step). */
     fun hasMatchup(title: String): Boolean = title.substringAfterLast(SEPARATOR, "").contains(" vs. ")
 

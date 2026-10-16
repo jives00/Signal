@@ -651,7 +651,8 @@ class AppController(val platform: Platform, val log: Log) {
     }
 
     private val com.signal.voice.VoiceCommand.isTitleCommand: Boolean get() =
-        this is com.signal.voice.VoiceCommand.Search || this is com.signal.voice.VoiceCommand.PlayTitle || this is com.signal.voice.VoiceCommand.ContinueTitle
+        this is com.signal.voice.VoiceCommand.Search || this is com.signal.voice.VoiceCommand.PlayTitle || this is com.signal.voice.VoiceCommand.ContinueTitle ||
+            this is com.signal.voice.VoiceCommand.Game || this is com.signal.voice.VoiceCommand.Remind
 
     /** A title search hit: [exact] when the whole title was said, [saved] when it's in the Library or Continue watching. */
     private class TitleHit(val item: com.signal.model.VodItem, val exact: Boolean, val saved: Boolean) {
@@ -693,6 +694,8 @@ class AppController(val platform: Platform, val log: Log) {
     private suspend fun voiceTitle(heard: String, command: com.signal.voice.VoiceCommand, result: (Boolean, String, String, String) -> VoiceResult): VoiceResult {
         val (title, kind, season, episode) = when (command) {
             is com.signal.voice.VoiceCommand.Search -> return voiceSearch(heard, command.query, result)
+            is com.signal.voice.VoiceCommand.Game -> return voiceGame(heard, command.team, result)
+            is com.signal.voice.VoiceCommand.Remind -> return voiceRemind(heard, command, result)
             is com.signal.voice.VoiceCommand.PlayTitle -> listOf(command.title, command.kind, command.season, command.episode)
             is com.signal.voice.VoiceCommand.ContinueTitle -> {
                 // Continue watching first: what's there is what "continue" means.
@@ -713,6 +716,111 @@ class AppController(val platform: Platform, val log: Log) {
                 else voiceAskTitle(heard, listOf(pick.hit), season as Int?, episode as Int?, result)
             is com.signal.voice.VoiceChoice.Pick.Several -> voiceAskTitle(heard, pick.hits, season as Int?, episode as Int?, result)
         }
+    }
+
+    // ---- Games and reminders (PLAN §4.3.14 → Voice commands, phase 2, step 4) ------------------
+
+    /**
+     * Games with [team] in their title's teams (PLAN §6 → Game titles), from now on, on visible
+     * channels. "Steelers" matches "Pittsburgh Steelers" by its words, so does "Pittsburgh".
+     */
+    private suspend fun gameHits(team: String, now: Long): List<SearchRepository.ProgramHit> {
+        val wanted = com.signal.match.SearchText.fold(team)
+        if (wanted.isEmpty()) return emptyList()
+        return search.programs(team, now, limit = 60).filter { h ->
+            val m = com.signal.guide.GameTitles.matchup(h.program.title) ?: return@filter false
+            listOf(m.away, m.home).any { " ${com.signal.match.SearchText.fold(it)} ".contains(" $wanted ") }
+        }
+    }
+
+    /** "Pittsburgh Steelers vs. Cleveland Browns", or the title when it names no teams. */
+    private fun gameName(p: com.signal.model.Program) = com.signal.guide.GameTitles.matchup(p.title)?.text ?: p.title
+
+    /** "Watch the Steelers game": the game on now. One tunes; several (or several channels) ask. */
+    private suspend fun voiceGame(heard: String, team: String, result: (Boolean, String, String, String) -> VoiceResult): VoiceResult {
+        val now = Clock.System.now().toEpochMilliseconds()
+        val hits = gameHits(team, now)
+        val on = hits.filter { it.program.isOn(now) }
+        if (on.isEmpty()) {
+            val next = hits.filter { it.program.start > now }.minByOrNull { it.program.start }
+                ?: return result(false, heard, "No ${team.replaceFirstChar { it.uppercase() }} game in the guide", "no game")
+            val time = com.signal.ui.screens.programTime(this, next.program, now).substringBefore(" –")
+            return result(false, heard, "${gameName(next.program)} starts $time on ${next.channel.displayName}", "game later")
+        }
+        return withContext(Dispatchers.Main) {
+            when (val pick = com.signal.voice.VoiceChoice.choose(on, { "${it.program.title}|${it.channel.displayName}" }, { true }, { it.channel.isFavorite })) {
+                null -> result(false, heard, "No game on", "no game")
+                is com.signal.voice.VoiceChoice.Pick.One -> {
+                    val ch = pick.hit.channel
+                    inFront { watch(ch) }
+                    result(true, heard, "${gameName(pick.hit.program)} on ${ch.displayName}", "game on ${ch.displayName}")
+                }
+                is com.signal.voice.VoiceChoice.Pick.Several -> {
+                    inFront {
+                        panel.open(
+                            PanelPage.Actions(
+                                "Which game?",
+                                pick.hits.map { h -> PanelAction(gameName(h.program), detail = channelLabel(h.channel)) { watch(h.channel); null } },
+                                subtitle = "Heard \"$heard\"",
+                            ),
+                            null,
+                        )
+                    }
+                    result(true, heard, "Choose a game", "a choice of games")
+                }
+            }
+        }
+    }
+
+    /**
+     * "Remind me about Jeopardy" or "… the Steelers game": a reminder on the next airing (PLAN
+     * §4.3.4 → Reminders). An exact title is preferred; several titles ask, a game takes its next one.
+     */
+    private suspend fun voiceRemind(heard: String, command: com.signal.voice.VoiceCommand.Remind, result: (Boolean, String, String, String) -> VoiceResult): VoiceResult {
+        val now = Clock.System.now().toEpochMilliseconds()
+        val team = command.team
+        val hits = if (team != null) gameHits(team, now) else search.programs(command.program, now, limit = 60)
+        val upcoming = hits.filter { it.program.start > now }
+        if (upcoming.isEmpty()) {
+            val on = hits.firstOrNull { it.program.isOn(now) }
+                ?: return result(false, heard, "Nothing called \"${command.program}\" in the guide", "no program")
+            return result(false, heard, "${gameName(on.program)} is on now on ${on.channel.displayName}", "on now")
+        }
+        val wanted = com.signal.match.SearchText.fold(command.program)
+        val exact = upcoming.filter { com.signal.match.SearchText.fold(it.program.title) == wanted }
+        // Each title's next airing, a favorite channel first when it airs on several at once.
+        val firsts = (if (team != null) upcoming else exact.ifEmpty { upcoming })
+            .sortedWith(compareBy<SearchRepository.ProgramHit>({ it.program.start }, { !it.channel.isFavorite }))
+            .distinctBy { it.program.title }
+        val choices = if (team != null || exact.isNotEmpty()) firsts.take(1) else firsts.take(com.signal.voice.VoiceChoice.CHOICES)
+        if (choices.size == 1) return remindOf(heard, choices[0], now, result)
+        return withContext(Dispatchers.Main) {
+            inFront {
+                panel.open(
+                    PanelPage.Actions(
+                        "Remind me about…",
+                        choices.map { h ->
+                            PanelAction(gameName(h.program), detail = "${com.signal.ui.screens.programTime(this@AppController, h.program, now)} · ${h.channel.displayName}") {
+                                scope.launch { reminders.add(h.channel, h.program) }
+                                null
+                            }
+                        },
+                        subtitle = "Heard \"$heard\"",
+                    ),
+                    null,
+                )
+            }
+            result(true, heard, "Choose a program", "a choice of programs")
+        }
+    }
+
+    private suspend fun remindOf(heard: String, hit: SearchRepository.ProgramHit, now: Long, result: (Boolean, String, String, String) -> VoiceResult): VoiceResult {
+        val time = com.signal.ui.screens.programTime(this, hit.program, now).substringBefore(" –")
+        val what = "${gameName(hit.program)}, $time on ${hit.channel.displayName}"
+        val userChannel = channels.userChannelIdFor(hit.channel)
+        if (reminders.find(reminderList.value, userChannel, hit.program) != null) return result(false, heard, "Already reminding you: $what", "already set")
+        reminders.add(hit.channel, hit.program)
+        return result(true, heard, "Reminder set: $what", "reminder")
     }
 
     /** Search, with [query] filled in and every type shown. */
@@ -976,7 +1084,8 @@ class AppController(val platform: Platform, val log: Log) {
             }
             // Handled before this, off the main thread.
             is com.signal.voice.VoiceCommand.Tune, is com.signal.voice.VoiceCommand.WhatsOn, is com.signal.voice.VoiceCommand.Search,
-            is com.signal.voice.VoiceCommand.PlayTitle, is com.signal.voice.VoiceCommand.ContinueTitle -> fail("Didn't catch that")
+            is com.signal.voice.VoiceCommand.PlayTitle, is com.signal.voice.VoiceCommand.ContinueTitle,
+            is com.signal.voice.VoiceCommand.Game, is com.signal.voice.VoiceCommand.Remind -> fail("Didn't catch that")
         }
     }
 
@@ -1012,13 +1121,27 @@ class AppController(val platform: Platform, val log: Log) {
      */
     suspend fun voicePhrases(): Set<String> {
         val titles = voiceTitles()
-        val version = search.version to titles.hashCode()
+        val teams = voiceTeams()
+        val version = Triple(search.version, titles.hashCode(), teams.hashCode())
         voicePhrasesCache?.takeIf { it.first == version }?.let { return it.second }
         val (names, initials) = search.voiceNames()
-        return com.signal.voice.VoiceCommand.phrases(names, initials, titles).also { voicePhrasesCache = version to it }
+        return com.signal.voice.VoiceCommand.phrases(names, initials, titles, teams).also { voicePhrasesCache = version to it }
     }
 
-    @kotlin.concurrent.Volatile private var voicePhrasesCache: Pair<Pair<Int, Int>, Set<String>>? = null
+    @kotlin.concurrent.Volatile private var voicePhrasesCache: Pair<Triple<Int, Int, Int>, Set<String>>? = null
+
+    /**
+     * Teams in the next day's games, folded, each as it's said (PLAN §4.3.14 → Voice commands, phase
+     * 2): full name, nickname and place. In the grammar, "watch the Steelers game" needs no free
+     * recognizer.
+     */
+    suspend fun voiceTeams(): Set<String> {
+        val titles = runCatching { guide.gameTitles(Clock.System.now().toEpochMilliseconds()) }.getOrDefault(emptyList())
+        return titles.mapNotNull(com.signal.guide.GameTitles::matchup)
+            .flatMap { listOf(it.away, it.home) }
+            .flatMap(com.signal.guide.GameTitles::spokenNames)
+            .mapNotNullTo(LinkedHashSet()) { com.signal.match.SearchText.fold(it).ifEmpty { null } }
+    }
 
     /**
      * The titles most likely to be said (PLAN §4.3.14 → Voice commands, phase 2), folded, for the
@@ -1042,8 +1165,10 @@ class AppController(val platform: Platform, val log: Log) {
      * rebuilds on it (ReadyRecognizer.follow).
      */
     val voiceInputs: kotlinx.coroutines.flow.Flow<Any> get() =
-        combine(search.versions, continueWatching, watchState, newEpisodes, vodVersion) { a, b, c, d, e -> listOf(a, b.map { it.title }, c.library.map { it.title }, d, e) }
-            .distinctUntilChanged()
+        // The guide too: a new one brings the next day's games, whose teams the grammar knows.
+        combine(
+            listOf(search.versions, continueWatching.map { c -> c.map { it.title } }, watchState.map { s -> s.library.map { it.title } }, newEpisodes, vodVersion, guideStore.version),
+        ) { it.toList() }.distinctUntilChanged()
 
     /** From the activity's onStop to the next onStart, whichever activity instance that is. */
     var inBackground = false

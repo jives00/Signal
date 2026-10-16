@@ -100,6 +100,17 @@ These work on what's showing. Each one says so in the panel when it can't apply.
 | "captions on", "turn off subtitles", "captions" | Turns captions on or off; "captions" alone switches them. |
 | "Spanish audio", "change the audio to French" | Picks the audio track in that language. |
 
+### Games and reminders
+
+| Say | What it does |
+|---|---|
+| "watch the Steelers game", "put on the Cleveland game" | Tunes the game on now with that team, by nickname or city. When it's on more than one channel, a panel asks which. A game that hasn't started says when and where. |
+| "remind me about the Steelers game", "remind me about Jeopardy" | Sets a reminder on the next airing. When several programs match, a panel lists up to three. |
+
+Games need their teams in the guide's title, which the NAS companion's guide adds for most
+big-league games. Teams playing in the next day are recognized best, since Signal learns their
+names from the guide.
+
 ### Movies and series
 
 | Say | What it does |
@@ -109,10 +120,11 @@ These work on what's showing. Each one says so in the panel when it can't apply.
 | "play The Office season two episode five" | Plays that episode. |
 | "continue Seinfeld", "keep watching The Office" | Picks up from Continue watching, or else where the series is up to. |
 
-A channel's name still wins when it matches exactly ("watch ESPN"). "Play ___" only looks for a
-title when no channel is a clear match. Titles you're likely to say are recognized best: what's in
-Continue watching, your Library, series with new episodes, and the newest movies and series. Any
-other title also works, but an unusual name may need a second try.
+Start a title with "play", "search" or "continue": those words are what make Signal listen for
+any title, which takes a moment longer. For channels, say "watch" ("watch ESPN") or just the name,
+which is faster. A channel's name still wins when it matches exactly. Titles you're likely to say
+need no lead-in and are recognized best: what's in Continue watching, your Library, series with new
+episodes, and the newest movies and series.
 
 ## When it doesn't work
 

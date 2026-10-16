@@ -105,6 +105,36 @@ class VoiceCommandTest {
             assert(!VoiceCommand.wantsTitle(s)) { s }
     }
 
+    @Test fun gamesAndReminders() {
+        assertEquals(VoiceCommand.Game("steelers"), parse("watch the steelers game"))
+        assertEquals(VoiceCommand.Game("pittsburgh steelers"), parse("put on the pittsburgh steelers game"))
+        assertEquals(VoiceCommand.Game("cubs"), parse("cubs game"))
+        // Not teams.
+        assertEquals(null, VoiceCommand.gameOf("the next game"))
+        assertEquals(null, VoiceCommand.gameOf("the football game"))
+        assertEquals(VoiceCommand.Remind("jeopardy"), parse("remind me about jeopardy"))
+        assertEquals(VoiceCommand.Remind("the steelers game"), parse("remind me about the steelers game"))
+        assertEquals("steelers", VoiceCommand.Remind("the steelers game").team)
+        assertEquals(null, VoiceCommand.Remind("jeopardy").team)
+        assertEquals(VoiceCommand.Remind("the news"), parse("set a reminder for the news"))
+        // "Remind me" starts the free recognizer; a game doesn't need it.
+        assert(VoiceCommand.wantsTitle("remind me about jeopardy"))
+        assert(!VoiceCommand.wantsTitle("watch the steelers game"))
+    }
+
+    @Test fun teamsInTheGrammar() {
+        val phrases = VoiceCommand.phrases(emptyList(), emptySet(), teams = listOf("pittsburgh steelers", "steelers", "49ers"))
+        for (p in listOf("steelers game", "pittsburgh steelers game", "forty nine ers game", "remind me about the")) assert(p in phrases) { p }
+    }
+
+    @Test fun gameTitlesGiveTheirTeams() {
+        val m = com.signal.guide.GameTitles.matchup("NFL Football - Pittsburgh Steelers vs. Cleveland Browns")
+        assertEquals(com.signal.guide.GameTitles.Matchup("Pittsburgh Steelers", "Cleveland Browns"), m)
+        assertNull(com.signal.guide.GameTitles.matchup("NFL Football"))
+        assertEquals(listOf("Pittsburgh Steelers", "Steelers", "Pittsburgh"), com.signal.guide.GameTitles.spokenNames("Pittsburgh Steelers"))
+        assertEquals(listOf("Texas State Bobcats", "Bobcats", "Texas State"), com.signal.guide.GameTitles.spokenNames("Texas State Bobcats"))
+    }
+
     @Test fun spokenTitlesKeepTheirWords() {
         assertEquals("apollo thirteen" to true, VoiceCommand.spokenTitle("ok play apollo thirteen please"))
         assertEquals("seinfeld" to false, VoiceCommand.spokenTitle("seinfeld"))

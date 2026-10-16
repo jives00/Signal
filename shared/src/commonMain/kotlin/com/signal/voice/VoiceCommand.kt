@@ -47,6 +47,14 @@ sealed interface VoiceCommand {
     /** "Continue Seinfeld": where it was left, or the series' next episode. */
     data class ContinueTitle(val title: String) : VoiceCommand
 
+    /** "Watch the Steelers game": a game on now with that team in its title (PLAN §6 → Game titles). */
+    data class Game(val team: String) : VoiceCommand
+    /** "Remind me about Jeopardy", "remind me about the Steelers game": the next airing. */
+    data class Remind(val program: String) : VoiceCommand {
+        /** The team, when it names a game: "the steelers game" → "steelers". */
+        val team: String? get() = gameOf(program)
+    }
+
     /** A spoken language and the codes tracks give it (ISO 639-1 and -2). */
     enum class Language(val spoken: String, val codes: Set<String>) {
         ENGLISH("english", setOf("en", "eng")), SPANISH("spanish", setOf("es", "spa")), FRENCH("french", setOf("fr", "fre", "fra")),
@@ -89,6 +97,8 @@ sealed interface VoiceCommand {
             // come from the free recognizer, and the likely ones from [phrases]' titles.
             addAll(listOf("search for", "find", "look up", "continue watching", "keep watching", "play the movie", "play the show",
                 "watch the movie", "watch the show", "the movie", "the show"))
+            // Games and reminders (PLAN §4.3.14 → Voice commands, phase 2). Team names come from [phrases]' teams.
+            addAll(listOf("the game", "watch the", "put on the", "remind me about", "remind me about the", "remind me to watch", "set a reminder for"))
             for (n in 1..30) { add("season ${SpokenNumbers.say(n)}"); add("episode ${SpokenNumbers.say(n)}") }
             for (lead in listOf("go to the", "go back to the", "switch to the", "back to the", "the")) {
                 add("$lead last channel"); add("$lead previous channel")
@@ -111,9 +121,17 @@ sealed interface VoiceCommand {
          * the ones it has no word for ("a b c"). Only those: spelling every short word gave it
          * thousands of letter strings to confuse ("a b d").
          */
-        fun phrases(channelNames: Collection<String>, initials: Set<String>, titles: Collection<String> = emptyList()): Set<String> {
+        fun phrases(channelNames: Collection<String>, initials: Set<String>, titles: Collection<String> = emptyList(), teams: Collection<String> = emptyList()): Set<String> {
             val out = HashSet<String>(commandPhrases)
             out += fixedPhrases
+            // Teams in upcoming games (PLAN §6 → Game titles), folded, each with "game" after it as
+            // the phrase people say: "steelers game", "pittsburgh steelers game".
+            for (team in teams) {
+                val spoken = team.split(' ').filter { it.isNotEmpty() }.joinToString(" ") { spoken(it) }
+                if (spoken.isEmpty()) continue
+                out += spoken
+                out += "$spoken game"
+            }
             // Likely titles whole (folded), said the way the recognizer spells them: a title is said
             // in full, unlike a channel, which people shorten.
             for (title in titles) out += title.split(' ').filter { it.isNotEmpty() }.joinToString(" ") { spoken(it) }
@@ -225,6 +243,8 @@ sealed interface VoiceCommand {
             }
             if (startOver.matches(text)) return StartOver
             if (lastChannel.matches(text)) return LastChannel
+            remind.matchEntire(text)?.let { return Remind(it.groupValues[1].replace(trailing, "").trim()) }
+            game.matchEntire(text)?.let { m -> gameOf(m.value)?.let { return Game(it) } }
             searchFor.matchEntire(text)?.let { return Search(it.groupValues[1]) }
             continueTitle.matchEntire(text)?.let { return ContinueTitle(it.groupValues[1]) }
             val digits = SpokenNumbers.toDigits(text)
@@ -278,6 +298,17 @@ sealed interface VoiceCommand {
         private const val PLAYING = """(?:it|this|the (?:movie|show|episode|video|program))"""
         private val startOver = Regex("""^(?:(?:start|play)(?: $PLAYING)? (?:over|again|from the (?:beginning|start))|restart(?: $PLAYING)?|(?:start )?from the (?:beginning|start))$""")
         private val lastChannel = Regex("""^(?:(?:go|switch|flip|jump|change)\s+)?(?:back\s+)?(?:to\s+)?(?:the\s+|my\s+)?(?:last|previous) channel$""")
+        private val remind = Regex("""^(?:remind me (?:about|of|to watch|when)|set a reminder for|set a reminder about)\s+(.+?)(?:\s+(?:starts|is on|comes on))?$""")
+        private val game = Regex("""^(?:(?:watch|put on|turn on|show me|go to|switch to|tune to|find|play)\s+)?(?:the\s+)?.+?\s+game$""")
+        private val gameTeam = Regex("""^(?:(?:watch|put on|turn on|show me|go to|switch to|tune to|find|play)\s+)?(?:the\s+)?(.+?)\s+game$""")
+
+        /** The team in "the steelers game" (after any lead-in), or null when it isn't a game. */
+        fun gameOf(text: String): String? = gameTeam.matchEntire(text.trim())?.groupValues?.get(1)?.trim()
+            // "the next game", "this game", "a game" aren't teams.
+            ?.takeIf { it.isNotEmpty() && it !in notTeams }
+
+        private val notTeams = setOf("next", "this", "a", "the", "that", "last", "big", "whole", "football", "basketball", "baseball", "hockey", "soccer")
+
         private val searchFor = Regex("""^(?:search for|search|find|look up|look for)\s+(?!for$)(.+)$""")
         private val continueTitle = Regex("""^(?:continue|resume|keep watching|finish)(?:\s+watching)?\s+(?!watching$|playing$)(.+)$""")
         // "The" only goes with "show": in "the office season 2", it's the title's.
@@ -299,7 +330,7 @@ sealed interface VoiceCommand {
             return "[unk]" in text || titleLead.containsMatchIn(text.removePrefix(fillers))
         }
 
-        private val titleLead = Regex("""^(play|search|find|look up|look for|continue|resume|keep watching|watch the (movie|show|film|series))\s+\S""")
+        private val titleLead = Regex("""^(play|search|find|look up|look for|continue|resume|keep watching|watch the (movie|show|film|series)|remind me( about| of| to watch)?|set a reminder( for| about)?)\s+\S""")
 
         /**
          * What a free guess says after any lead-in, as heard ("play seinfeld" → "seinfeld", true), for

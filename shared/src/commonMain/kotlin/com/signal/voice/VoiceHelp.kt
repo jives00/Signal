@@ -33,6 +33,15 @@ data class VoiceHelp(val groups: List<Group>, val tips: List<String>) {
                     ),
                 ),
                 Group(
+                    "Games and reminders",
+                    "Games need their teams in the guide's title, which the NAS's guide adds for most big-league games.",
+                    listOf(
+                        Command(listOf("watch the Steelers game", "put on the Cleveland game"), "Tunes the game on now with that team, by nickname or city. When it's on more than one channel, a panel asks which. A game that hasn't started says when and where."),
+                        Command(listOf("remind me about the Steelers game", "remind me about Jeopardy"), "Sets a reminder on the next airing. When several programs match, a panel lists up to three."),
+                    ),
+                    since = "Signal 0.2.24 or later",
+                ),
+                Group(
                     "Playback",
                     "These act on what's playing. Live TV can't pause, stop or skip, so on live TV Signal says so and keeps playing.",
                     listOf(
@@ -67,14 +76,14 @@ data class VoiceHelp(val groups: List<Group>, val tips: List<String>) {
                         Command(listOf("play The Office season two episode five"), "Plays that episode."),
                         Command(listOf("continue Seinfeld", "keep watching The Office"), "Picks up from Continue watching, or where the series is up to."),
                     ),
-                    since = "Signal 0.2.21 or later",
+                    since = "Signal 0.2.22 or later",
                 ),
             ),
             tips = listOf(
                 "Voice names give a channel easier names to say (\"fox\" for your local FOX station). Set them by long-pressing OK on a channel, or on the web admin's Channels page. A voice name wins over everything else.",
                 "Only visible channels count: channels in hidden groups, or hidden themselves, aren't matched.",
-                "A channel's name wins when it matches exactly. \"Play ___\" only looks for a movie or series when no channel is a clear match.",
-                "Titles you're likely to say are recognized best: Continue watching, your Library, series with new episodes, and the newest movies and series.",
+                "Start a movie or show with \"play\", \"search\" or \"continue\": those words make Signal listen for any title, which takes a moment longer. For channels, say \"watch\" or just the name, which is faster.",
+                "A channel's name wins when it matches exactly. Titles you're likely to say are recognized best: Continue watching, your Library, series with new episodes, and the newest movies and series.",
             ),
         )
     }

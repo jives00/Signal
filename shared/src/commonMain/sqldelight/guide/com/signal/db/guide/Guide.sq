@@ -132,3 +132,8 @@ UPDATE program SET title = ? WHERE id = ?;
 
 deleteSearchText:
 DELETE FROM program_fts WHERE docid = ?;
+
+-- Voice commands (PLAN §4.3.14 → Voice commands, phase 2): games with their teams in the title,
+-- airing in [from, to), for the team names a voice command can say. Guide time.
+gameTitles:
+SELECT DISTINCT title FROM program WHERE stop > ? AND start < ? AND title LIKE '% vs. %';

@@ -187,6 +187,65 @@ class VoiceKeyMapTest {
         assertEquals(null, panelTitle)
     }
 
+    // ---- Games and reminders (step 4) ----
+
+    /**
+     * Makes Golf Channel's program on now (or its next one, [later]) a game with teams in the title,
+     * as the NAS's GameLookup does, search text included. Returns the program's channel.
+     */
+    private suspend fun KeyMapScope.makeGame(title: String, later: Boolean = false): com.signal.model.Channel {
+        guideReady()
+        val ch = app.search.channels("golf channel").first { it.displayName == "Golf Channel" }
+        val now = kotlin.time.Clock.System.now().toEpochMilliseconds()
+        val p = app.guide.programs(ch, now, now + 6 * 60 * 60_000L).first { if (later) it.start > now else it.isOn(now) }
+        val q = app.guideStore.db!!.guideQueries
+        q.setProgramTitle(title, p.id)
+        q.deleteSearchText(p.id)
+        q.insertSearchText(p.id, com.signal.match.SearchText.fold(title), p.subTitle?.let(com.signal.match.SearchText::fold).orEmpty())
+        return ch
+    }
+
+    @Test fun watchTheGameOnNow() = keyMapTest {
+        val ch = makeGame("NFL Football - Pittsburgh Steelers vs. Cleveland Browns")
+        val r = app.voice(listOf("watch the steelers game"))
+        assertTrue(r.acted, r.message)
+        eventually("full screen on the game's channel") { app.navigator.current is Route.FullScreen && current?.key == ch.key }
+        // The city works too.
+        app.navigator.resetTo(Route.Home)
+        assertTrue(app.voice(listOf("put on the cleveland game")).acted)
+    }
+
+    @Test fun aGameLaterSaysWhen() = keyMapTest {
+        makeGame("NFL Football - Pittsburgh Steelers vs. Cleveland Browns", later = true)
+        val r = app.voice(listOf("watch the steelers game"))
+        assertFalse(r.acted)
+        assertTrue(r.shown.startsWith("Pittsburgh Steelers vs. Cleveland Browns starts"), r.shown)
+        assertTrue(r.shown.endsWith("on Golf Channel"), r.shown)
+    }
+
+    @Test fun remindAboutTheNextGame() = keyMapTest {
+        makeGame("NFL Football - Pittsburgh Steelers vs. Cleveland Browns", later = true)
+        val r = app.voice(listOf("remind me about the steelers game"))
+        assertTrue(r.shown.startsWith("Reminder set: Pittsburgh Steelers vs. Cleveland Browns"), r.message)
+        eventually("the reminder") { app.reminderList.value.any { it.title.endsWith("Pittsburgh Steelers vs. Cleveland Browns") } }
+        // Asking again says it's already set.
+        assertTrue(app.voice(listOf("remind me about the steelers game")).shown.startsWith("Already reminding you"))
+    }
+
+    // Program titles come from the free recognizer: the grammar doesn't know them.
+    @Test fun remindAboutAProgramByTitle() = keyMapTest {
+        makeGame("Zebra Quartz Hour", later = true)
+        val r = app.voice(listOf("remind me about [unk]"), free = "remind me about zebra quartz hour")
+        assertTrue(r.shown.startsWith("Reminder set: Zebra Quartz Hour"), r.message)
+        eventually("the reminder") { app.reminderList.value.any { it.title == "Zebra Quartz Hour" } }
+    }
+
+    @Test fun teamsJoinTheGrammar() = keyMapTest {
+        makeGame("NFL Football - Pittsburgh Steelers vs. Cleveland Browns")
+        val phrases = app.voicePhrases()
+        for (p in listOf("steelers game", "pittsburgh steelers game", "cleveland", "browns")) assertTrue(p in phrases, p)
+    }
+
     @Test fun nothingPlayingSaysSo() = keyMapTest(start = Route.Settings) {
         val r = app.voice(listOf("pause"))
         assertFalse(r.acted)

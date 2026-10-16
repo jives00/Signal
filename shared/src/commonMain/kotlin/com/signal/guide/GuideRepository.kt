@@ -119,6 +119,16 @@ class GuideRepository(
             .filter { it.stop > now }
     }
 
+    /**
+     * Titles of games with their teams named, airing between [now] and [hours] ahead, for the team
+     * names voice commands know (PLAN §4.3.14 → Voice commands, phase 2). Guide time, so a time
+     * shift moves the window by a few hours at most, which a day's window absorbs.
+     */
+    suspend fun gameTitles(now: Long, hours: Int = 24): List<String> = withContext(io) {
+        val db = store.db ?: return@withContext emptyList()
+        db.guideQueries.gameTitles(now, now + hours * 60 * 60_000L).executeAsList()
+    }
+
     /** For diagnostics: whether any guide lists [tvgId], and with how many programs. */
     suspend fun describeTvgId(tvgId: String): String = withContext(io) {
         val row = store.db?.guideQueries?.guideChannelByIdAnyCase(tvgId)?.executeAsOneOrNull() ?: return@withContext "not in any guide"
