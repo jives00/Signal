@@ -83,9 +83,9 @@ data class VoiceHelp(val groups: List<Group>, val tips: List<String>) {
             tips = listOf(
                 "Voice names give a channel easier names to say (\"fox\" for your local FOX station). Set them by long-pressing OK on a channel, or on the web admin's Channels page. A voice name wins over everything else.",
                 "Channels you name are your favorites, playlists and channels with voice names, which are understood best. Settings → Voice commands → Channels to match can widen that to every visible channel. Games are found on every channel either way.",
-                "\"Watch\" is live TV, \"play\" is Movies & Series: \"watch Friends\" tunes the channel showing it now, \"play Friends\" plays the series.",
+                "\"Watch\" (or just a name) is always live TV, \"play\" is always Movies & Series: \"watch Friends\" tunes the channel showing it now, or says when it's next on; \"play Friends\" plays the series. \"Play ESPN\" won't tune a channel.",
                 "Start a movie or show with \"play\", \"search\" or \"continue\": those words make Signal listen for any title, which takes a moment longer. For channels, say \"watch\" or just the name, which is faster.",
-                "A channel's name wins when it matches exactly. Titles you're likely to say are recognized best: Continue watching, your Library, every series you're watching, the newest movies and series, and the trending, popular and top-rated lists.",
+                "Titles you're likely to say are recognized best: Continue watching, your Library, every series you're watching, the newest movies and series, and the trending, popular and top-rated lists.",
             ),
         )
     }

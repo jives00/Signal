@@ -137,14 +137,16 @@ names from the guide.
 | "play The Office season two episode five" | Plays that episode. |
 | "continue Seinfeld", "keep watching The Office" | Picks up from Continue watching, or else where the series is up to. |
 
-**"Watch" or "play":** "watch ___" is live TV: a channel, or the channel showing that program now.
-"Play ___" is Movies & Series: "watch Friends" tunes today's airing, "play Friends" plays the series.
+**"Watch" or "play":** "watch ___", or just a name, is always live TV: a channel, or the channel
+showing that program now. If it isn't on, Signal says when it's next on. "Play ___" is always Movies
+& Series: "watch Friends" tunes today's airing, "play Friends" plays the series, and "play ESPN"
+won't tune a channel.
 
 Start a title with "play", "search" or "continue": those words are what make Signal listen for
 any title, which takes a moment longer. For channels, say "watch" ("watch ESPN") or just the name,
-which is faster. A channel's name still wins when it matches exactly. Titles you're likely to say
-need no lead-in and are recognized best: what's in Continue watching, your Library, every series
-you're watching, the newest movies and series, and the trending, popular and top-rated lists.
+which is faster. Titles you're likely to say are recognized best: what's in Continue watching, your
+Library, every series you're watching, the newest movies and series, and the trending, popular and
+top-rated lists.
 
 ## When it doesn't work
 

@@ -163,6 +163,9 @@ class SearchRepository(
         }
     }
 
+    /** The streams voice commands match ([voicePool]): games and reminders keep to them too. */
+    suspend fun voiceStreamIds(): Set<String> = lock.withLock { withContext(io) { voicePool(index()).mapTo(HashSet()) { it.streamId } } }
+
     /**
      * The channels voice commands match (Settings → Voice commands → Channels to match): by default
      * favorites, playlists and channels with voice names. A grammar of every visible channel's words

@@ -182,9 +182,11 @@ class VoiceKeyMapTest {
     // Without the free recognizer, the grammar's words name a title only exactly: "golden" is part of
     // several Demo titles, and it isn't a title of its own.
     @Test fun grammarWordsNameATitleOnlyExactly() = keyMapTest(start = Route.Settings) {
+        // Nothing plays: "play ___" without an exact title opens Search, filled in.
         val r = app.voice(listOf("play golden"))
-        assertFalse(r.acted, r.message)
+        assertEquals("Searching \"golden\"", r.shown, r.message)
         assertEquals(null, panelTitle)
+        assertEquals(null, app.vodPlayback.current.value)
     }
 
     // ---- Games and reminders (step 4) ----
@@ -300,6 +302,40 @@ class VoiceKeyMapTest {
         makeGame("NFL Football - Chicago Bears vs. Detroit Lions", later = true, channel = favorite.displayName)
         val r = app.voice(listOf("remind me about the bears game"))
         assertTrue(r.shown.endsWith("on ${favorite.displayName}"), r.message)
+    }
+
+    // ---- Watch is live TV, play is Movies & Series, always (user, 2026-10-16) ----
+
+    // "Watch friends" played the series when Friends wasn't on.
+    @Test fun watchNeverPlaysAMovieOrSeries() = keyMapTest {
+        val title = uniqueTitle(com.signal.model.VodKind.MOVIE)
+        val r = app.voice(listOf("watch $title"), free = "watch $title")
+        assertFalse(r.acted, r.message)
+        assertEquals(null, app.vodPlayback.current.value)
+        assertEquals(Route.Home, app.navigator.current)
+    }
+
+    @Test fun playNeverTunesAChannel() = keyMapTest {
+        app.voice(listOf("play golf channel"), free = "play golf channel")
+        settle()
+        assertFalse(app.navigator.current is Route.FullScreen)
+    }
+
+    @Test fun watchAShowThatIsntOnSaysWhen() = keyMapTest {
+        makeGame("Zebra Quartz Hour", later = true)
+        val r = app.voice(listOf("watch zebra quartz hour"))
+        assertFalse(r.acted)
+        assertTrue(r.shown.startsWith("Zebra Quartz Hour isn't on now · next on Golf Channel"), r.shown)
+    }
+
+    // A reminder landed on NBC Sports Philadelphia, not a favorite: games stay on your channels.
+    @Test fun aGameOnlyElsewhereIsntTaken() = keyMapTest(favorites = 3) {
+        assertFalse(app.channels.channelsNow(com.signal.model.ChannelGroup.Favorites).any { it.displayName == "Tennis TV" })
+        makeGame("NFL Football - Chicago Bears vs. Detroit Lions", later = true, channel = "Tennis TV")
+        val r = app.voice(listOf("remind me about the bears game"))
+        assertFalse(r.acted, r.message)
+        assertTrue(r.shown.startsWith("No Bears game on your channels · next is on Tennis TV"), r.shown)
+        assertTrue(app.reminderList.value.isEmpty())
     }
 
     // ---- Channels to match ----
