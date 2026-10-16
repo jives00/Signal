@@ -18,6 +18,7 @@ import java.lang.ref.WeakReference
 class MainActivity : ComponentActivity() {
     private val signal get() = application as SignalApplication
     private var started = false
+    private val displayModes = com.signal.tv.player.DisplayModeMatcher(this)
 
     // Settings files (PLAN §9.2 → Fallback): the system picker. Throws ActivityNotFoundException where
     // Android TV has none, and AndroidSettingsFiles falls back to Downloads.
@@ -81,6 +82,22 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+
+        // Auto frame rate (PLAN §4.3.15 → 5): the display takes the video's rate in full screen and in
+        // movies and episodes, keeps it while that video carries on in a preview, and goes back to the
+        // system's once nothing plays.
+        lifecycleScope.launch {
+            kotlinx.coroutines.flow.combine(
+                androidx.compose.runtime.snapshotFlow { controller.navigator.current },
+                signal.platform.player.state,
+                controller.playerSettings,
+            ) { route, s, settings -> Triple(route, s, settings) }.collect { (route, s, settings) ->
+                val playing = s.status == PlaybackState.Status.PLAYING || s.status == PlaybackState.Status.BUFFERING
+                val match = playing && (route is com.signal.app.Route.FullScreen || route == com.signal.app.Route.VodPlayer)
+                val video = s.video
+                displayModes.update(settings.frameRate, video?.frameRate, video?.width ?: 0, video?.height ?: 0, match = match, keep = playing)
+            }
+        }
     }
 
     // The key layer consumes every remote key while anything in the app has focus. A remote key that
@@ -108,6 +125,7 @@ class MainActivity : ComponentActivity() {
     // coming back resumes where the user was (PLAN §4.2 → Sleep, the Home button and interruptions).
     override fun onStop() {
         super.onStop()
+        displayModes.reset()
         signal.controller.onBackground()
     }
 

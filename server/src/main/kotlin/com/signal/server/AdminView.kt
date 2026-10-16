@@ -55,8 +55,14 @@ class AdminView(items: List<SyncItem>, val profileId: String) {
     val channelProfiles: Map<String, JsonObject> = p(SyncType.CHANNEL_PROFILE).associate { it.id to it.fields }
     val favorites: Map<String, String> = p(SyncType.FAVORITE).associate { it.id to (it.fields.str("sort_key") ?: "") }
 
-    class Playlist(val id: String, val name: String, val sortKey: String)
-    val playlists: List<Playlist> = p(SyncType.PLAYLIST).map { Playlist(it.id, it.fields.str("name") ?: "Playlist", it.fields.str("sort_key") ?: "") }.sortedBy { it.sortKey }
+    /** [sort] is the playlist's live sort, as the TV reads it: null is the manual order. */
+    class Playlist(val id: String, val name: String, val sortKey: String, val sort: ChannelSort? = null)
+    val playlists: List<Playlist> = p(SyncType.PLAYLIST).map {
+        Playlist(
+            it.id, it.fields.str("name") ?: "Playlist", it.fields.str("sort_key") ?: "",
+            it.fields.str("channel_sort")?.let { s -> runCatching { ChannelSort.valueOf(s) }.getOrNull() }?.takeIf { s -> s != ChannelSort.PROVIDER },
+        )
+    }.sortedBy { it.sortKey }
     /** Playlist ID → (user channel, sort key), in order. */
     val playlistItems: Map<String, List<Pair<String, String>>> = p(SyncType.PLAYLIST_ITEM).mapNotNull { i ->
         val pl = i.fields.str("playlist_id") ?: return@mapNotNull null
@@ -325,13 +331,17 @@ class AdminChannels(private val companion: Companion) {
     }
 
     /** Favorites in the order the TV shows them: the manual order, or A–Z or by number when the profile sorts them. */
-    fun favoriteRows(view: AdminView, now: Long): List<ChannelRow> {
-        val rows = rowsFor(view, view.favorites.entries.sortedBy { it.value }.map { it.key }, now)
-        return when (view.favoritesSort) {
-            null -> rows
-            ChannelSort.NUMBER -> rows.sortedBy { it.number }
-            else -> rows.sortedBy { it.name.lowercase() }
-        }
+    fun favoriteRows(view: AdminView, now: Long): List<ChannelRow> =
+        sortedRows(rowsFor(view, view.favorites.entries.sortedBy { it.value }.map { it.key }, now), view.favoritesSort)
+
+    /** A playlist's channels in the order the TV shows them: its manual order, or its sort on top. */
+    fun playlistRows(view: AdminView, playlist: AdminView.Playlist, now: Long): List<ChannelRow> =
+        sortedRows(rowsFor(view, view.playlistItems[playlist.id].orEmpty().map { it.first }, now), playlist.sort)
+
+    private fun sortedRows(rows: List<ChannelRow>, sort: ChannelSort?): List<ChannelRow> = when (sort) {
+        null, ChannelSort.PROVIDER -> rows
+        ChannelSort.NUMBER -> rows.sortedBy { it.number }
+        ChannelSort.A_Z -> rows.sortedBy { it.name.lowercase() }
     }
 
     /** One channel by stream ID, with programs. */

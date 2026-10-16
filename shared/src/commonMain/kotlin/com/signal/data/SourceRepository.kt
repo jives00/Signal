@@ -71,6 +71,7 @@ class SourceRepository(
                 live_format = source.liveFormat.name,
                 connection_limit = source.connectionLimit.toLong(),
                 expires_at = existing?.expires_at,
+                provider_connections = existing?.provider_connections,
                 last_refreshed_at = existing?.last_refreshed_at ?: 0,
                 last_error = existing?.last_error,
                 created_at = existing?.created_at ?: Clock.System.now().toEpochMilliseconds(),
@@ -100,7 +101,7 @@ class SourceRepository(
                     db.sourceQueries.markRefreshed(
                         Clock.System.now().toEpochMilliseconds(),
                         loaded.expiresAt,
-                        (loaded.connectionLimit ?: source.connectionLimit).toLong(),
+                        loaded.connectionLimit?.toLong(),
                         source.id,
                     )
                 }
@@ -122,7 +123,7 @@ class SourceRepository(
             val loaded = load(source)
             buildString {
                 append("${loaded.streams.size} channels")
-                loaded.connectionLimit?.let { append(" Â· $it connections") }
+                loaded.connectionLimit?.let { append(" · $it connections") }
             }
         }
     }
@@ -312,6 +313,8 @@ class SourceRepository(
         connectionLimit = connection_limit.toInt(),
         lastRefreshedAt = last_refreshed_at,
         lastError = last_error,
+        providerConnections = provider_connections?.toInt(),
+        expiresAt = expires_at,
     )
 
     private fun VodCategory.toRow() = com.signal.db.user.Vod_category(sourceId, kind.name, categoryId, CharacterCleanup.clean(name, true).ifEmpty { name }, position.toLong())

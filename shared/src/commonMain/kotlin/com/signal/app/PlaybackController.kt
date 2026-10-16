@@ -135,10 +135,17 @@ class PlaybackController(
     private suspend fun start(channel: Channel) {
         val source = sources.byId(channel.stream.sourceId) ?: return
         val url = StreamUrls.live(source, channel.stream)
-        _aspect.value = channels.remembered(channel)?.aspect?.let { runCatching { AspectMode.valueOf(it) }.getOrNull() } ?: AspectMode.FIT
+        val remembered = channels.remembered(channel)
+        _aspect.value = remembered?.aspect?.let { runCatching { AspectMode.valueOf(it) }.getOrNull() } ?: AspectMode.FIT
         startedUrl = url
         log.info("Tune ${channel.displayName} (${CredentialMasking.forLog(url, source)})")
-        player.play(PlayRequest(url = url, headers = StreamUrls.headers(source, channel.stream), isLive = true, label = channel.displayName))
+        // The channel's remembered audio and subtitles beat the Playback settings (PLAN §4.3.3 → Remembered choices).
+        player.play(
+            PlayRequest(
+                url = url, headers = StreamUrls.headers(source, channel.stream), isLive = true, label = channel.displayName,
+                audioLanguage = remembered?.audioLanguage, subtitle = remembered?.subtitle,
+            ),
+        )
     }
 
     /** Up/Down in full screen: the previous or next channel in the current group, wrapping (PLAN §4.3.3). */

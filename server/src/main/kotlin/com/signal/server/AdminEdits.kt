@@ -2,6 +2,7 @@ package com.signal.server
 
 import com.signal.data.ChannelRepository
 import com.signal.data.FractionalIndex
+import com.signal.model.ChannelSort
 import com.signal.data.Settings
 import com.signal.data.newId
 import com.signal.model.EpgKind
@@ -169,9 +170,27 @@ class AdminEdits(private val companion: Companion) {
         return removeFromPlaylist(playlistId, streamIds.mapNotNull { v.userChannelByStream[it] }, profile)
     }
 
-    suspend fun movePlaylistItem(playlistId: String, userChannelId: String, toIndex: Int, profile: String): EditResult {
+    /** The playlist menu's Sort: [sort] on top of the manual order, or null for the manual order itself. */
+    suspend fun setPlaylistSort(id: String, profile: String, sort: ChannelSort?): EditResult {
+        val batch = Batch(view(profile))
+        batch.ops += AdminOp(SyncType.PLAYLIST, id, SyncScope.PROFILE, profile, fields("channel_sort" to sort?.name))
+        return run(batch)
+    }
+
+    /** Like [moveFavorite]: with [sortedOrder], what a sorted playlist shows plus the move becomes its manual order. */
+    suspend fun movePlaylistItem(playlistId: String, userChannelId: String, toIndex: Int, profile: String, sortedOrder: List<String>? = null): EditResult {
         val v = view(profile)
         val batch = Batch(v)
+        if (sortedOrder != null) {
+            val keys = v.playlistItems[playlistId].orEmpty().toMap()
+            val order = sortedOrder.filter { it != userChannelId }.toMutableList()
+            if (userChannelId in sortedOrder) order.add(toIndex.coerceIn(0, order.size), userChannelId)
+            order.zip(FractionalIndex.sequence(order.size)).forEach { (uc, key) ->
+                if (keys[uc] != key) batch.ops += AdminOp(SyncType.PLAYLIST_ITEM, "$playlistId|$uc", SyncScope.PROFILE, profile, fields("sort_key" to key))
+            }
+            batch.ops += AdminOp(SyncType.PLAYLIST, playlistId, SyncScope.PROFILE, profile, fields("channel_sort" to null))
+            return run(batch)
+        }
         ChannelRepository.newKeyForMove(v.playlistItems[playlistId].orEmpty(), userChannelId, toIndex)?.let {
             batch.ops += AdminOp(SyncType.PLAYLIST_ITEM, "$playlistId|$userChannelId", SyncScope.PROFILE, profile, fields("sort_key" to it))
         }

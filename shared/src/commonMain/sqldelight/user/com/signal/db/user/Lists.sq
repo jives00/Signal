@@ -12,7 +12,9 @@ CREATE TABLE playlist (
     id TEXT NOT NULL PRIMARY KEY,
     profile_id TEXT NOT NULL,
     name TEXT NOT NULL,
-    sort_key TEXT NOT NULL
+    sort_key TEXT NOT NULL,
+    -- Unset is the manual order; A_Z or NUMBER sort on top of it (9.sqm).
+    channel_sort TEXT
 );
 
 CREATE TABLE playlist_item (
@@ -76,6 +78,12 @@ INSERT INTO playlist(id, profile_id, name, sort_key) VALUES (?, ?, ?, ?);
 
 renamePlaylist:
 UPDATE playlist SET name = ? WHERE id = ?;
+
+setPlaylistSort:
+UPDATE playlist SET channel_sort = ? WHERE id = ?;
+
+playlistSort:
+SELECT channel_sort FROM playlist WHERE id = ?;
 
 setPlaylistKey:
 UPDATE playlist SET sort_key = ? WHERE id = ?;

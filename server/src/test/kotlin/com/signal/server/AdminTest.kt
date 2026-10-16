@@ -131,6 +131,32 @@ class AdminTest {
         assertEquals("A_Z", obj(client.send("GET", "/api/lists?profile=main")).s("favoritesSort"))
     }
 
+    @Test fun aPlaylistFollowsItsSortAndAMoveSwitchesToManual() = testApplication {
+        application { signalModule(companion) }
+        client.demo()
+        client.send("POST", "/api/playlists", """{"name":"Mix","profiles":["main"]}""")
+        val id = obj(client.send("GET", "/api/lists?profile=main"))["playlists"]!!.jsonArray.single().jsonObject.s("id")!!
+        val streams = client.channels("limit=5").rows().map { it.s("streamId")!! }
+        client.send("POST", "/api/playlists/$id/add", """{"profile":"main","streamIds":${Json.encodeToString(streams)}}""")
+        suspend fun playlist() = obj(client.send("GET", "/api/lists?profile=main"))["playlists"]!!.jsonArray.single().jsonObject
+        fun names(p: JsonObject) = p["channels"]!!.jsonArray.map { it.jsonObject.s("name")!! }
+        val manual = names(playlist())
+
+        client.send("PUT", "/api/playlists/$id/sort?profile=main", """{"sort":"A_Z"}""")
+        val sorted = playlist()
+        assertEquals("A_Z", sorted.s("sort"))
+        assertEquals(manual.sortedBy { it.lowercase() }, names(sorted))
+        // It reaches the TVs as the playlist's own field.
+        assertEquals("A_Z", obj(syncStore.all().single { it.type == SyncType.PLAYLIST }.fields)["channel_sort"]?.jsonPrimitive?.contentOrNull)
+
+        val last = sorted["channels"]!!.jsonArray.last().jsonObject
+        client.send("POST", "/api/playlists/$id/items/${last.s("userChannelId")}/move", """{"profile":"main","toIndex":0}""")
+        val after = playlist()
+        assertEquals(null, after["sort"]?.jsonPrimitive?.contentOrNull)
+        val az = names(sorted)
+        assertEquals(listOf(az.last()) + az.dropLast(1), names(after))
+    }
+
     @Test fun channelsSortByAColumn() = testApplication {
         application { signalModule(companion) }
         client.demo()

@@ -14,6 +14,8 @@ object NasPaths {
     fun pairStatus(pairingId: String) = "/device/pair/$pairingId"
     /** GET with the device's key → [DeviceInfo]; 401 once the key is revoked. */
     const val ME = "/device/me"
+    /** POST plain text with the device's key: Settings → About → Send logs (PLAN §4.3.15). */
+    const val LOGS = "/device/logs"
 }
 
 /** The companion's /health answer; the app reads only that it answers and its version. */

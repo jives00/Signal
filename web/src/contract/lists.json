@@ -82,7 +82,8 @@
                     "next": null,
                     "unavailable": false
                 }
-            ]
+            ],
+            "sort": null
         }
     ],
     "favoritesSort": null

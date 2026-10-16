@@ -32,7 +32,11 @@ data class CatalogStream(
 
 /** A source's refresh state on the companion. */
 @Serializable
-data class CatalogSource(val id: String, val lastRefreshedAt: Long, val lastError: String?, val streams: Int)
+data class CatalogSource(
+    val id: String, val lastRefreshedAt: Long, val lastError: String?, val streams: Int,
+    /** What the provider allows and when the account expires, from its last refresh (Xtream only). */
+    val providerConnections: Int? = null, val expiresAt: Long? = null,
+)
 
 /**
  * The companion's own copy of every source's channel list (PLAN §5.2 → Jobs → Source refresh), for
@@ -92,7 +96,7 @@ class Catalog(dir: File, http: HttpClient, cipher: SecretCipher?) {
 
     private fun reloadStates() {
         states = db.sourceQueries.all().executeAsList().map { s ->
-            CatalogSource(s.id, s.last_refreshed_at, s.last_error, db.streamQueries.countForSource(s.id).executeAsOne().toInt())
+            CatalogSource(s.id, s.last_refreshed_at, s.last_error, db.streamQueries.countForSource(s.id).executeAsOne().toInt(), s.provider_connections?.toInt(), s.expires_at)
         }
     }
 
@@ -111,7 +115,7 @@ class Catalog(dir: File, http: HttpClient, cipher: SecretCipher?) {
                 val h = have[w.id]
                 val changed = h == null || h.kind != w.kind || h.url != w.url || h.username != w.username || h.password != w.password ||
                     h.enabled != w.enabled || h.userAgent != w.userAgent || h.referrer != w.referrer
-                if (h == null || h != w.copy(lastRefreshedAt = h.lastRefreshedAt, lastError = h.lastError)) repo.save(w)
+                if (h == null || h != w.copy(lastRefreshedAt = h.lastRefreshedAt, lastError = h.lastError, providerConnections = h.providerConnections, expiresAt = h.expiresAt)) repo.save(w)
                 changed && w.enabled
             }.map { it.id }.also { if (have.keys.any { it !in ids }) reloadStreams() else reloadStates() }
         }

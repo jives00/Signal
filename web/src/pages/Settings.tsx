@@ -4,6 +4,13 @@ import { ApplyTo, profileNames, useProfiles, useToast } from "../context";
 import type { CompanionSettingsView, SettingsView } from "../schema";
 import NameCleanup from "./NameCleanup";
 
+/** Languages for audio and subtitles, as the TV offers them (SettingsPlayback.kt). */
+export const languages: [string, string][] = [
+  ["en", "English"], ["es", "Spanish"], ["fr", "French"], ["de", "German"], ["it", "Italian"], ["pt", "Portuguese"],
+  ["nl", "Dutch"], ["pl", "Polish"], ["ru", "Russian"], ["ar", "Arabic"], ["hi", "Hindi"], ["zh", "Chinese"],
+  ["ja", "Japanese"], ["ko", "Korean"], ["tr", "Turkish"], ["el", "Greek"], ["sv", "Swedish"],
+];
+
 /** A profile setting the TV has, with its choices (PLAN §4.3.15). [null] is the TV's own default. */
 const profileSettings: { section: string; key: string; label: string; options: [string | null, string][] }[] = [
   { section: "Live TV & guide", key: "group_sort", label: "Group order", options: [[null, "Provider order"], ["A_Z", "A–Z"], ["Z_A", "Z–A"], ["MANUAL", "Manual"]] },
@@ -14,6 +21,10 @@ const profileSettings: { section: string; key: string; label: string; options: [
   { section: "Display", key: "start_page", label: "Start page", options: [[null, "Home"], ["LIVE_TV", "Live TV"], ["MOVIES", "Movies"], ["SERIES", "Series"], ["LAST_CHANNEL", "Last channel, full screen"]] },
   { section: "Display", key: "clock_24h", label: "Time format", options: [[null, "The TV's own"], ["false", "12-hour"], ["true", "24-hour"]] },
   { section: "Display", key: "show_numbers", label: "Channel numbers", options: [[null, "Shown"], ["false", "Hidden"]] },
+  // Playback (PLAN §4.3.15 → 5). The TV can keep a second audio language; picking one here sets the first only.
+  { section: "Playback", key: "audio_languages", label: "Audio language", options: [[null, "The stream's own"], ...languages] },
+  { section: "Playback", key: "subtitles", label: "Subtitles", options: [["OFF", "Off"], [null, "Forced only"], ["ALWAYS", "Always"]] },
+  { section: "Playback", key: "subtitle_language", label: "Subtitle language", options: [[null, "The TV's language"], ...languages] },
 ];
 
 /** Loads the settings for the shown profile, and the companion's own. */
@@ -59,7 +70,7 @@ export function Appearance() {
               {profileSettings.filter((s) => s.section === section).map((s) => (
                 <label key={s.key}>
                   <span>{s.label}</span>
-                  <select value={data.profile[s.key] ?? ""} onChange={(e) => save(applied, () => putSetting("profile", s.key, e.target.value || null, applyTo), load)}>
+                  <select value={(s.key === "audio_languages" ? data.profile[s.key]?.split(",")[0] : data.profile[s.key]) ?? ""} onChange={(e) => save(applied, () => putSetting("profile", s.key, e.target.value || null, applyTo), load)}>
                     {s.options.map(([v, l]) => <option key={l} value={v ?? ""}>{l}</option>)}
                   </select>
                 </label>

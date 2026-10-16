@@ -9,7 +9,7 @@ import { useToast } from "../context";
 import type { EpgSourceView, SourceView, SourcesView } from "../schema";
 import { useSorted } from "../sort";
 
-const blank: SourceForm = { name: "", kind: "XTREAM", url: "", username: "", password: "", userAgent: "", referrer: "", enabled: true, liveFormat: "TS", connectionLimit: 2 };
+const blank: SourceForm = { name: "", kind: "XTREAM", url: "", username: "", password: "", userAgent: "", referrer: "", enabled: true, liveFormat: "TS", connectionLimit: 0 };
 
 /**
  * Sources (PLAN §4.3.18 → 2): the sources and EPG sources, shared by every device. Credentials are
@@ -33,6 +33,12 @@ export default function Sources() {
     const timer = setInterval(load, busy ? 3_000 : 30_000);
     return () => clearInterval(timer);
   }, [load, busy]);
+
+  /** Streams the source plays at once: the user's limit, never above the provider's (Source.connections on the TV). */
+  function connections(s: SourceView): number | null {
+    const own = s.connectionLimit > 0 ? s.connectionLimit : null;
+    return own != null && s.providerConnections != null ? Math.min(own, s.providerConnections) : (s.providerConnections ?? own);
+  }
 
   function edit(s: SourceView) {
     setEditing({
@@ -98,7 +104,7 @@ export default function Sources() {
         {data && data.sources.length === 0 && <p className="detail">No sources yet. Add one here or on a TV.</p>}
         {data && data.sources.length > 0 && (
           <table className="table">
-            <thead><tr>{sourceTable.header("name", "Name")}{sourceTable.header("kind", "Type")}{sourceTable.header("login", "Login")}{sourceTable.header("streams", "Channels")}{sourceTable.header("refreshed", "Last refresh")}<th /></tr></thead>
+            <thead><tr>{sourceTable.header("name", "Name")}{sourceTable.header("kind", "Type")}{sourceTable.header("login", "Login")}{sourceTable.header("streams", "Channels")}<th>Connections</th>{sourceTable.header("refreshed", "Last refresh")}<th /></tr></thead>
             <tbody>
               {sourceTable.rows.map((s) => (
                 <tr key={s.id} className={s.enabled ? "" : "dim"}>
@@ -109,6 +115,10 @@ export default function Sources() {
                     {s.hasPassword && <> · <span className="mono">{revealed[s.id] ?? "••••••"}</span> <button className="link" onClick={() => reveal(s)}>{revealed[s.id] ? "Hide" : "Reveal"}</button></>}
                   </td>
                   <td>{s.streams.toLocaleString()}</td>
+                  <td>
+                    {connections(s) ?? "The provider's"}
+                    {s.providerConnections != null && <div className="detail small">Provider allows {s.providerConnections}{s.expiresAt ? ` · expires ${new Date(s.expiresAt * 1000).toLocaleDateString()}` : ""}</div>}
+                  </td>
                   <td>
                     {s.refreshing ? "Refreshing…" : s.lastRefreshedAt ? ago(s.lastRefreshedAt) : "Never"}
                     {s.lastError && <div className="error-text small">{s.lastError}</div>}
@@ -147,6 +157,19 @@ export default function Sources() {
               </label>
             </>}
             {f.kind === "M3U" && <label>Connections allowed<input type="number" min={1} max={50} value={f.connectionLimit} onChange={(e) => set({ connectionLimit: Number(e.target.value) })} /></label>}
+            {f.kind === "XTREAM" && (() => {
+              // Xtream reports its own limit; this can only lower it (PLAN §4.3.15 → Connection limit). 0 is the provider's.
+              const provider = data?.sources.find((s) => s.id === editing?.id)?.providerConnections ?? null;
+              const max = provider ?? 6;
+              return (
+                <label>Connections
+                  <select value={provider != null && f.connectionLimit >= provider ? 0 : f.connectionLimit} onChange={(e) => set({ connectionLimit: Number(e.target.value) })}>
+                    <option value={0}>{provider != null ? `The provider's limit (${provider})` : "The provider's limit"}</option>
+                    {Array.from({ length: max - 1 }, (_, i) => i + 1).map((n) => <option key={n} value={n}>{n} at a time</option>)}
+                  </select>
+                </label>
+              );
+            })()}
             <label>User agent (optional)<input value={f.userAgent} onChange={(e) => set({ userAgent: e.target.value })} /></label>
             <label>Referrer (optional)<input value={f.referrer} onChange={(e) => set({ referrer: e.target.value })} /></label>
             <div className="row">

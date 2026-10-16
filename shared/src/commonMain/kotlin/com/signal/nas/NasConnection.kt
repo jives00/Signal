@@ -299,6 +299,19 @@ class NasConnection(
         return withContext(kotlinx.coroutines.Dispatchers.Default) { runCatching { json.decodeFromString<VodMeta>(body) }.getOrNull() }
     }
 
+    /** Settings → About → Send logs (PLAN §4.3.15): the app's own masked log lines. False when it didn't arrive. */
+    suspend fun sendLogs(text: String): Boolean {
+        if (!isPaired) return false
+        val response = call(SYNC_TIMEOUT_MS) { base ->
+            http.post(base + NasPaths.LOGS) {
+                asDevice()
+                contentType(ContentType.Text.Plain)
+                setBody(text)
+            }
+        } ?: return false
+        return response.status.isSuccess()
+    }
+
     /** Where images come from right now: the companion that answered last, or null to use TMDB's CDN. */
     fun imageUrl(size: String, path: String): String {
         val base = active?.second?.takeIf { isPaired && _status.value is Status.Connected }

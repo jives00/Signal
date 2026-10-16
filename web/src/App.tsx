@@ -106,6 +106,11 @@ function Shell() {
             </div>
           ))}
         </nav>
+        {/* TMDB's terms: its logo and notice wherever its data or images show (PLAN §4.3.15 → About). */}
+        <div className="attribution">
+          <img src={`${import.meta.env.BASE_URL}tmdb.svg`} alt="TMDB" />
+          <p>This product uses the TMDB API but is not endorsed or certified by TMDB.</p>
+        </div>
       </aside>
       <div className="main">
         <header className="topbar">

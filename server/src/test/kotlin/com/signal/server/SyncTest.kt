@@ -102,7 +102,7 @@ class SyncTest {
         suspend fun sync() = assertNotNull(engine.sync(transport), "$name's sync failed: ${engine.state.value.error}")
 
         fun addSource(id: String, password: String) = db.sourceQueries.upsert(
-            com.signal.db.user.Source(id, "Provider", "XTREAM", "http://provider.example", "me", box.encrypt(password), null, null, 1, "TS", 2, null, 5, null, 100),
+            com.signal.db.user.Source(id, "Provider", "XTREAM", "http://provider.example", "me", box.encrypt(password), null, null, 1, "TS", 2, null, null, 5, null, 100),
         )
 
         fun addChannel(streamId: String): String {

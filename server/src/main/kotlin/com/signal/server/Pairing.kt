@@ -4,11 +4,16 @@ import com.signal.nas.APP_VERSION_HEADER
 import com.signal.nas.DeviceInfo
 import com.signal.nas.NasPaths
 import com.signal.nas.PairRequest
+import io.ktor.http.ContentDisposition
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.request.receive
+import io.ktor.server.request.receiveText
+import io.ktor.server.response.header
 import io.ktor.server.response.respond
+import io.ktor.server.response.respondFile
 import io.ktor.server.response.respondText
+import java.io.File
 import io.ktor.server.routing.Route
 import io.ktor.server.routing.RoutingCall
 import io.ktor.server.routing.delete
@@ -50,7 +55,23 @@ fun Route.deviceRoutes(companion: Companion) {
         val device = call.device(companion) ?: return@get
         call.respond(DeviceInfo(device.id, device.name))
     }
+
+    // Send logs (PLAN §4.3.15 → About): the app's own log lines, already masked on the device. Only the
+    // latest upload per device is kept; the web admin's device settings download it.
+    post(NasPaths.LOGS) {
+        val device = call.device(companion) ?: return@post
+        val text = call.receiveText()
+        if (text.length > MAX_LOG_CHARS) return@post call.respondText("Logs too large", status = HttpStatusCode.PayloadTooLarge)
+        deviceLogFile(companion, device.id).apply { parentFile.mkdirs() }.writeText(text)
+        call.respond(HttpStatusCode.NoContent)
+    }
 }
+
+private const val MAX_LOG_CHARS = 2_000_000
+
+/** Where a device's last uploaded logs are kept. Device IDs are UUIDs, never a path. */
+internal fun deviceLogFile(companion: Companion, deviceId: String): File =
+    File(File(companion.config.dataDir, "logs"), deviceId.filter { it.isLetterOrDigit() || it == '-' } + ".txt")
 
 /** The web admin's Devices page (PLAN §4.3.18 → Devices & profiles). */
 fun Route.deviceAdminRoutes(companion: Companion) {
@@ -96,6 +117,14 @@ fun Route.deviceAdminRoutes(companion: Companion) {
             store.rename(call.parameters["id"].orEmpty(), name) -> call.respond(HttpStatusCode.NoContent)
             else -> call.respondText("No such device", status = HttpStatusCode.NotFound)
         }
+    }
+
+    // The last logs the device sent (Settings → About → Send logs on the TV), as a download.
+    get("/devices/{id}/logs") {
+        val file = deviceLogFile(companion, call.parameters["id"].orEmpty())
+        if (!file.isFile) return@get call.respondText("This TV hasn't sent its logs. On the TV: Settings → About & updates → Send logs.", status = HttpStatusCode.NotFound)
+        call.response.header(HttpHeaders.ContentDisposition, ContentDisposition.Attachment.withParameter(ContentDisposition.Parameters.FileName, "signal-logs-${file.nameWithoutExtension.take(8)}.txt").toString())
+        call.respondFile(file)
     }
 
     // Forget: the device's key stops working at once, and it has to pair again.

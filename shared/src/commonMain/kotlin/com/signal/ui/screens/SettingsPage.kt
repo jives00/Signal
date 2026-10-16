@@ -69,6 +69,7 @@ private enum class Section(val title: String) {
     CHANNELS("Channels & groups"),
     LIVE_TV("Live TV & guide"),
     MOVIES("Movies & Series"),
+    PLAYBACK("Playback"),
     APPEARANCE("Appearance"),
     NAS("NAS & sync"),
     GUIDE_DATA("Guide data"),
@@ -119,6 +120,7 @@ fun SettingsPage() {
                     section == Section.CHANNELS -> ChannelsSection(app, contentFocus)
                     section == Section.LIVE_TV -> LiveTvGuideSection(app, contentFocus)
                     section == Section.MOVIES -> MoviesSection(app, contentFocus)
+                    section == Section.PLAYBACK -> PlaybackSection(app, contentFocus)
                     section == Section.APPEARANCE -> AppearanceSection(app, contentFocus)
                     section == Section.NAS -> NasSection(app, onForm = { nasForm = it }, returnTo = contentFocus)
                     section == Section.GUIDE_DATA -> GuideDataSection(app)
@@ -164,7 +166,12 @@ private fun SourcesSection(app: AppController, onAdd: () -> Unit, onEdit: (Sourc
                 app.refreshing == s.id -> "Refreshing…"
                 s.lastError != null -> "Error: ${s.lastError}"
                 !s.enabled -> "Disabled"
-                else -> "$count channels · ${refreshedLabel(app, s.lastRefreshedAt)}"
+                else -> listOfNotNull(
+                    "$count channels",
+                    refreshedLabel(app, s.lastRefreshedAt),
+                    s.connections?.let { if (it == 1) "1 connection" else "$it connections" },
+                    expiryLabel(s.expiresAt),
+                ).joinToString(" · ")
             }
             ListRow("${s.name} · ${kindLabel(s.kind)}", detail = detail, onSelect = { app.panel.open(sourceActions(app, s, onEdit, returnTo), returnTo) })
         }
@@ -185,9 +192,42 @@ internal fun refreshedLabel(app: AppController, at: Long): String {
     return "refreshed ${t.date} ${formatTime(t.hour, t.minute, app.settings.bool(Settings.Key.CLOCK_24H, app.platform.systemUses24HourClock()))}"
 }
 
+/** The provider account's expiry (Xtream `exp_date`, epoch seconds), or null when it doesn't say. */
+private fun expiryLabel(expiresAt: Long?): String? {
+    if (expiresAt == null || expiresAt <= 0) return null
+    val date = Instant.fromEpochSeconds(expiresAt).toLocalDateTime(TimeZone.currentSystemDefault()).date
+    return "account expires $date"
+}
+
+private fun connectionsLabel(n: Int) = if (n == 1) "1 at a time" else "$n at a time"
+
+/**
+ * Connection limit (PLAN §4.3.15 → Sources): how many streams the source plays at once. Xtream reports
+ * its limit, and this can only go lower; M3U doesn't, so it's set here (2 by default).
+ */
+private fun connectionsPage(app: AppController, s: Source): PanelPage {
+    val provider = s.providerConnections?.takeIf { it > 0 }
+    fun pick(n: Int) { app.scope.launch { app.sources.save(s.copy(connectionLimit = n)) } }
+    val options = buildList {
+        if (s.kind == SourceKind.XTREAM) {
+            add(PanelAction(if (provider != null) "The provider's limit (${connectionsLabel(provider)})" else "The provider's limit", selected = s.connectionLimit <= 0 || (provider != null && s.connectionLimit >= provider)) { pick(0); null })
+            (1 until (provider ?: 6)).forEach { n -> add(PanelAction(connectionsLabel(n), selected = n == s.connectionLimit && (provider == null || n < provider)) { pick(n); null }) }
+        } else {
+            (1..6).forEach { n -> add(PanelAction(connectionsLabel(n), selected = n == s.connectionLimit) { pick(n); null }) }
+        }
+    }
+    val subtitle = when {
+        s.kind != SourceKind.XTREAM -> "M3U providers don't say how many streams they allow, so set it from your plan. Signal names it when a stream is refused for being over the limit."
+        provider != null -> "Your provider allows ${connectionsLabel(provider)}${expiryLabel(s.expiresAt)?.let { "; the $it" } ?: ""}. Set it lower to keep a stream free for another app."
+        else -> "Read from the provider at the next refresh. Set it lower to keep a stream free for another app."
+    }
+    return PanelPage.Actions("Connections", options, subtitle = subtitle)
+}
+
 private fun sourceActions(app: AppController, s: Source, onEdit: (Source) -> Unit, returnTo: FocusRequester): PanelPage = PanelPage.Actions(s.name, buildList {
     add(PanelAction("Refresh now") { app.scope.launch { app.refresh(s.id) }; null })
     if (s.kind != SourceKind.DEMO) add(PanelAction("Edit") { onEdit(s); null })
+    if (s.kind != SourceKind.DEMO) add(PanelAction("Connections", detail = s.connections?.let(::connectionsLabel) ?: "The provider's limit") { connectionsPage(app, s) })
     // With another source beside this one: the provider switch review (PLAN §4.5).
     if (app.sourceList.value.size > 1) add(PanelAction("Match channels to this source", detail = "Link your channels to its streams before switching") {
         com.signal.ui.menus.SwitchReview.open(app, s, returnTo); null
@@ -382,10 +422,20 @@ private fun AboutSection(app: AppController) {
     // A manual check's progress and outcome; null until OK is pressed.
     var checking by remember { mutableStateOf(false) }
     var reached by remember { mutableStateOf<Boolean?>(null) }
-    Column(Modifier.width(1100.dp)) {
+    val nasStatus by app.nas.status.collectAsState()
+    var logsSent by remember { mutableStateOf<String?>(null) }
+    // Text rows take focus only so Up/Down scroll the list; there's nothing to select (as in What to say).
+    @Composable fun textRow(content: @Composable (focused: Boolean) -> Unit) =
+        Focusable(Modifier.fillMaxWidth(), onSelect = null) { focused ->
+            Box(Modifier.fillMaxWidth().background(if (focused) c.surface else androidx.compose.ui.graphics.Color.Transparent).padding(horizontal = 40.dp, vertical = 8.dp)) { content(focused) }
+        }
+    LazyColumn(Modifier.width(1100.dp)) {
+      item {
         SectionTitle("Signal")
         SText("Version ${info.versionName} (${info.buildTag})", 26, Modifier.padding(horizontal = 40.dp))
         SText(info.deviceModel, 22, Modifier.padding(horizontal = 40.dp, vertical = 8.dp), color = c.muted)
+      }
+      item {
         SectionTitle("Updates")
         if (updater == null) {
             SText(if (info.isDebug) "Debug builds don't update themselves." else "Updates aren't available here.", 24, Modifier.padding(horizontal = 40.dp), color = c.muted)
@@ -420,8 +470,42 @@ private fun AboutSection(app: AppController) {
             val allReleases = app.settings.raw(Settings.Key.UPDATE_CHANNEL) == com.signal.app.AppController.UPDATE_ALL
             ListRow("Releases", detail = if (allReleases) "All releases, testing ones included" else "Stable only · set per profile in the web admin", onSelect = null)
         }
-        SectionTitle("Credits")
-        SText("Uses the Archivo typeface (SIL Open Font License).", 22, Modifier.padding(horizontal = 40.dp), color = c.muted)
+      }
+      // Send logs (PLAN §4.3.15): only while the companion answers, since that's where they go.
+      if (nasStatus is NasConnection.Status.Connected) item {
+        SectionTitle("Troubleshooting")
+        ListRow("Send logs", detail = logsSent ?: "Sends recent app logs to the NAS · download them from the web admin's Devices page", onSelect = {
+            logsSent = "Sending…"
+            app.scope.launch { logsSent = if (app.sendLogs()) "Sent · in the web admin: Devices & Profiles → this TV → Logs" else "Not sent: the NAS didn't answer" }
+        })
+      }
+      item { SectionTitle("TMDB") }
+      item {
+        textRow {
+            Column {
+                // TMDB's terms ask for its logo and this notice wherever its data or images show.
+                coil3.compose.AsyncImage(
+                    model = com.signal.resources.Res.getUri("files/tmdb.svg"),
+                    contentDescription = "TMDB",
+                    modifier = Modifier.height(28.dp).padding(bottom = 4.dp),
+                )
+                SText(com.signal.app.Credits.TMDB_NOTICE, 22, Modifier.padding(top = 8.dp), color = c.secondaryText, maxLines = 2)
+                SText("Movie and series details, posters and lists come from TMDB through the NAS.", 22, color = c.secondaryText, maxLines = 2)
+            }
+        }
+      }
+      item { SectionTitle("Open-source licenses") }
+      item { textRow { SText(com.signal.app.Credits.SIGNAL_LICENSE, 22, color = c.secondaryText, maxLines = 2) } }
+      items(com.signal.app.Credits.libraries) { lib ->
+        textRow { focused ->
+            Row {
+                SText(lib.name, 22, Modifier.weight(1f), color = if (focused) c.text else c.secondaryText, maxLines = 2)
+                SText(lib.license, 22, Modifier.padding(start = 24.dp), color = c.muted)
+            }
+        }
+      }
+      item { textRow { SText(com.signal.app.Credits.FFMPEG_NOTICE, 22, color = c.secondaryText, maxLines = 5) } }
+      item { Box(Modifier.height(48.dp)) }
     }
 }
 

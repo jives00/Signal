@@ -2,6 +2,7 @@ package com.signal.data
 
 import app.cash.sqldelight.coroutines.asFlow
 import app.cash.sqldelight.coroutines.mapToList
+import app.cash.sqldelight.coroutines.mapToOneOrNull
 import com.signal.db.user.UserDatabase
 import com.signal.match.NameCleanup
 import com.signal.model.Channel
@@ -44,6 +45,32 @@ class ChannelRepository(
 
     // ---- Reading -------------------------------------------------------------------------
 
+    /**
+     * Favorites and playlists sorted on top of their manual order (milestone 6; playlists from 1.0).
+     * Null or PROVIDER is the manual order itself.
+     */
+    private fun sortedLive(channels: List<Channel>, sort: ChannelSort?): List<Channel> = when (sort) {
+        null, ChannelSort.PROVIDER -> channels
+        ChannelSort.NUMBER -> channels.sortedBy { it.number }
+        ChannelSort.A_Z -> channels.sortedBy { it.displayName.lowercase() }
+    }
+
+    // Each playlist's sort, as last read: menus are built on a key press and can't wait for the database.
+    private val playlistSorts = HashMap<String, ChannelSort>()
+
+    private fun rememberPlaylistSort(id: String, sort: ChannelSort?) = synchronized(playlistSorts) {
+        if (sort == null || sort == ChannelSort.PROVIDER) playlistSorts.remove(id) else playlistSorts[id] = sort
+    }
+
+    /** A playlist's sort, or null for its manual order. Known once the playlist or the group list has loaded. */
+    fun playlistSort(id: String): ChannelSort? = synchronized(playlistSorts) { playlistSorts[id] }
+
+    /** Playlist menu → Sort: Manual (null), A–Z or channel number, on top of the manual order. */
+    suspend fun setPlaylistSort(id: String, sort: ChannelSort?) = withContext(io) {
+        rememberPlaylistSort(id, sort)
+        db.listsQueries.setPlaylistSort(sort?.name, id)
+    }
+
     fun groups(includeHidden: Boolean = false): Flow<List<GroupEntry>> = combine(
         db.streamQueries.groups().asFlow().mapToList(io),
         db.listsQueries.groupOverrides(profile).asFlow().mapToList(io),
@@ -83,7 +110,11 @@ class ChannelRepository(
 
         buildList {
             add(GroupEntry(ChannelGroup.Favorites, favoriteCount(), null, false))
-            playlists.forEach { add(GroupEntry(ChannelGroup.Playlist(it.id, it.name), it.channel_count.toInt(), null, false)) }
+            playlists.forEach { p ->
+                val sort = p.channel_sort?.let { runCatching { ChannelSort.valueOf(it) }.getOrNull() }
+                rememberPlaylistSort(p.id, sort)
+                add(GroupEntry(ChannelGroup.Playlist(p.id, p.name), p.channel_count.toInt(), null, false, channelSort = sort))
+            }
             addAll(sorted)
         }
     }
@@ -106,23 +137,22 @@ class ChannelRepository(
             }.filter { !it.isHidden }
             .let { favorites ->
                 // A live sort: the manual order stays underneath, and Manual brings it back (milestone 6).
-                when (settings.favoritesSort()) {
-                    null -> favorites
-                    ChannelSort.NUMBER -> favorites.sortedBy { it.number }
-                    else -> favorites.sortedBy { it.displayName.lowercase() }
-                }
+                sortedLive(favorites, settings.favoritesSort())
             }
         }
         is ChannelGroup.Playlist -> combine(
             db.listsQueries.playlistChannels(group.id).asFlow().mapToList(io),
+            db.listsQueries.playlistSort(group.id).asFlow().mapToOneOrNull(io),
             settings.changes(),
-        ) { rows, _ ->
+        ) { rows, sortRow, _ ->
+            val sort = sortRow?.channel_sort?.let { runCatching { ChannelSort.valueOf(it) }.getOrNull() }
+            rememberPlaylistSort(group.id, sort)
             rows.map { r ->
                 channel(
                     stream = r.stream(), displayName = r.display_name, userChannelId = r.item_user_channel_id, customName = r.custom_name,
                     customLogo = r.custom_logo, customNumber = r.custom_number, hidden = r.hidden, favorite = r.is_favorite,
                 )
-            }.filter { !it.isHidden }
+            }.filter { !it.isHidden }.let { sortedLive(it, sort) }
         }
         is ChannelGroup.Provider -> combine(
             db.streamQueries.channelsInGroup(profile, group.sourceId, group.name).asFlow().mapToList(io),

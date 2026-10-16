@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import {
   addToPlaylist, createPlaylist, deletePlaylist, editChannels, getChannels, getLists, moveFavorite, moved, movePlaylist,
-  movePlaylistItem, putSetting, removeFavorite, removeFromPlaylist, renamePlaylist,
+  movePlaylistItem, putSetting, removeFavorite, removeFromPlaylist, renamePlaylist, setPlaylistSort,
 } from "../admin";
 import { ApplyTo, profileNames, useProfiles, useToast } from "../context";
 import type { ChannelRow, ListsView } from "../schema";
@@ -11,7 +11,7 @@ const favoriteSorts = [["", "Manual"], ["A_Z", "A–Z"], ["NUMBER", "Number"]] a
 /**
  * Favorites & playlists (PLAN §4.3.18 → 4): ordered lists with drag to reorder, add by search, and
  * remove. Favorites edits go to every profile in Apply to; a playlist belongs to the shown profile.
- * Favorites show in the profile's sort, as on the TV; a move there switches it to Manual.
+ * Favorites and each playlist show in their sort, as on the TV; a move there switches it to Manual.
  */
 export default function Lists() {
   const { profile, applyTo, profiles } = useProfiles();
@@ -57,6 +57,11 @@ export default function Lists() {
           rows={p.channels}
           actions={
             <>
+              <label className="detail">Sort{" "}
+                <select value={p.sort ?? ""} onChange={(e) => save("Saved", () => setPlaylistSort(p.id, profile, e.target.value || null), load)} aria-label={`Sort ${p.name}`}>
+                  {favoriteSorts.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+                </select>
+              </label>
               <button className="link" disabled={i === 0} onClick={() => save("Moved", () => movePlaylist(p.id, profile, i - 1), load)} aria-label="Move playlist up">↑</button>
               <button className="link" disabled={i === lists.playlists.length - 1} onClick={() => save("Moved", () => movePlaylist(p.id, profile, i + 1), load)} aria-label="Move playlist down">↓</button>
               <button onClick={() => { const name = window.prompt("Playlist name", p.name)?.trim(); if (name && name !== p.name) save("Renamed", () => renamePlaylist(p.id, profile, name), load); }}>Rename</button>
@@ -66,8 +71,8 @@ export default function Lists() {
           onAdd={(streamIds) => save("Added", () => addToPlaylist(p.id, profile, streamIds), load)}
           onRemove={(r) => save("Removed", () => removeFromPlaylist(p.id, profile, [r.userChannelId!]), load)}
           onMove={(r, to) => {
-            setLists({ ...lists, playlists: lists.playlists.map((x) => (x.id === p.id ? { ...x, channels: moved(x.channels, x.channels.indexOf(r), to) } : x)) });
-            save("Moved", () => movePlaylistItem(p.id, r.userChannelId!, profile, to), load);
+            setLists({ ...lists, playlists: lists.playlists.map((x) => (x.id === p.id ? { ...x, sort: null, channels: moved(x.channels, x.channels.indexOf(r), to) } : x)) });
+            save(p.sort ? `Moved · ${p.name} is now in manual order` : "Moved", () => movePlaylistItem(p.id, r.userChannelId!, profile, to), load);
           }}
         />
       ))}

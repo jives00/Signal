@@ -134,9 +134,34 @@ class AppController(val platform: Platform, val log: Log) {
     /** The sources, kept live, so Settings never shows an empty list while it reloads. */
     val sourceList: StateFlow<List<Source>> = sources.sources().stateIn(scope, SharingStarted.Eagerly, emptyList())
 
+    /**
+     * Settings → Playback (PLAN §4.3.15 → 5), kept live: the player follows every change, including
+     * device settings edited in the web admin, and the display follows auto frame rate.
+     */
+    val playerSettings: StateFlow<com.signal.player.PlayerSettings> = settings.changes().map { settings.playerSettings() }
+        .distinctUntilChanged().stateIn(scope, SharingStarted.Eagerly, settings.playerSettings())
+
+    init {
+        platform.player.configure(playerSettings.value)
+        scope.launch { playerSettings.collect { platform.player.configure(it) } }
+    }
+
     /** Settings → Appearance → Channel numbers (PLAN §4.3.2): off hides them wherever a channel is named. */
     val showNumbers: StateFlow<Boolean> = settings.changes().map { settings.bool(Settings.Key.SHOW_NUMBERS, true) }
         .distinctUntilChanged().stateIn(scope, SharingStarted.Eagerly, settings.bool(Settings.Key.SHOW_NUMBERS, true))
+
+    /**
+     * What a playback error says (PLAN §4.3.3 → Errors). Over the connection limit it names the source
+     * and its limit (PLAN §4.3.15 → Connection limit), since it otherwise looks like a broken channel.
+     */
+    fun playbackErrorText(error: com.signal.player.PlaybackError?): String {
+        if (error == null) return ""
+        if (error.kind != com.signal.player.PlaybackError.Kind.CONNECTION_LIMIT || platform.player.state.value.request?.isLive == false) return error.message
+        val source = playback.current.value?.stream?.sourceId?.let { id -> sourceList.value.firstOrNull { it.id == id } } ?: return error.message
+        val limit = source.connections ?: return error.message
+        val streams = if (limit == 1) "1 stream" else "$limit streams"
+        return "${source.name} allows $streams at once, and they're in use. Stop playback on another device and try again."
+    }
 
     /** A channel's name as shown in titles: with its number in front, unless numbers are hidden. */
     fun channelLabel(channel: com.signal.model.Channel): String =
@@ -393,6 +418,21 @@ class AppController(val platform: Platform, val log: Log) {
     suspend fun unpairNas() {
         nas.unpair()
         sync.reset()
+    }
+
+    /**
+     * Settings → About → Send logs (PLAN §4.3.15): the app's recent log lines to the companion, for the
+     * web admin's device page. Only Signal's own lines, which never hold credentials or stream URLs (PLAN §1).
+     */
+    suspend fun sendLogs(): Boolean {
+        val info = platform.appInfo
+        val text = buildString {
+            appendLine("Signal ${info.versionName} (${info.buildTag}) · ${info.deviceModel}")
+            appendLine("Sent ${Clock.System.now()}")
+            appendLine()
+            log.recent().forEach(::appendLine)
+        }
+        return nas.sendLogs(text).also { log.info(if (it) "Logs sent to the NAS" else "Logs not sent: the NAS didn't answer") }
     }
 
     /** Settings → NAS & sync → Export settings: a file of every setting, passwords included (PLAN §9.2 → Fallback). */

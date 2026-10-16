@@ -81,7 +81,7 @@ class SettingsAndSetupKeyMapTest {
 
     @Test fun channelNumbersCanBeHidden() = keyMapTest(start = Route.Settings) {
         focusedStartsWith("Sources")
-        repeat(4) { press(RemoteAction.Down) }
+        repeat(5) { press(RemoteAction.Down) }
         focusedStartsWith("Appearance")
         press(RemoteAction.Right)
         focusedStartsWith("Start page")
@@ -95,6 +95,24 @@ class SettingsAndSetupKeyMapTest {
         press(RemoteAction.Select)
         eventually("numbers shown") { app.showNumbers.value }
         assertEquals("${ch.number}  ${ch.displayName}", app.channelLabel(ch))
+    }
+
+    @Test fun playbackSettingsReachThePlayer() = keyMapTest(start = Route.Settings) {
+        focusedStartsWith("Sources")
+        repeat(4) { press(RemoteAction.Down) }
+        focusedStartsWith("Playback")
+        press(RemoteAction.Right)
+        focusedStartsWith("Audio language")
+        // Audio language, Subtitles: pick Always.
+        press(RemoteAction.Down)
+        focusedStartsWith("Subtitles")
+        press(RemoteAction.Select)
+        eventually("the subtitles panel") { app.panel.top?.title == "Subtitles" }
+        press(RemoteAction.Down, times = 2)
+        focusedStartsWith("Always")
+        press(RemoteAction.Select)
+        eventually("subtitles always") { app.playerSettings.value.subtitles == com.signal.player.SubtitleMode.ALWAYS }
+        assertEquals("ALWAYS", app.settings.raw(com.signal.data.Settings.Key.SUBTITLES))
     }
 
     @Test fun nameCleanupPresetsAndOwnRules() = keyMapTest(start = Route.Settings) {
@@ -152,8 +170,8 @@ class SettingsAndSetupKeyMapTest {
 
     @Test fun settingsNasSectionOffersPairing() = keyMapTest(start = Route.Settings) {
         focusedStartsWith("Sources")
-        // Sources, Channels & groups, Live TV & guide, Movies & Series, Appearance, then NAS & sync.
-        repeat(5) { press(RemoteAction.Down) }
+        // Sources, Channels & groups, Live TV & guide, Movies & Series, Playback, Appearance, then NAS & sync.
+        repeat(6) { press(RemoteAction.Down) }
         focusedStartsWith("NAS & sync")
         press(RemoteAction.Right)
         focusedStartsWith("Pair with NAS")

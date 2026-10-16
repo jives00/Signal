@@ -66,7 +66,7 @@ fun VideoBox(modifier: Modifier = Modifier, aspect: AspectMode = AspectMode.FIT,
             PlaybackState.Status.BUFFERING -> DelayedSpinner(if (compact) 48 else 72)
             PlaybackState.Status.ERROR -> Column(Modifier.background(c.videoGround).padding(32.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                 SText(errorTitle, if (compact) 26 else 32, weight = FontWeight.ExtraBold)
-                SText(state.error?.message ?: "", if (compact) 22 else 26, color = c.muted, maxLines = 3)
+                SText(app.playbackErrorText(state.error), if (compact) 22 else 26, color = c.muted, maxLines = 3)
                 SText(retryHint ?: if (compact) "Press OK to retry" else "Press OK to retry · Up/Down to change channel", 22, Modifier.padding(top = 12.dp), color = c.muted)
             }
             PlaybackState.Status.IDLE -> emptyText?.let { SText(it, 24, color = c.muted) }

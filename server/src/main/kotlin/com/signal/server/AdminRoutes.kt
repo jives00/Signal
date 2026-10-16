@@ -92,6 +92,8 @@ data class SourceView(
     val id: String, val name: String, val kind: String, val url: String, val username: String, val hasPassword: Boolean,
     val userAgent: String?, val referrer: String?, val enabled: Boolean, val liveFormat: String, val connectionLimit: Int,
     val lastRefreshedAt: Long, val lastError: String?, val streams: Int, val refreshing: Boolean,
+    /** Xtream: what the provider allows, and when the account expires (epoch seconds), from the companion's last refresh. */
+    val providerConnections: Int? = null, val expiresAt: Long? = null,
 )
 
 @Serializable
@@ -127,7 +129,9 @@ data class VodCategoryView(
 /** Every category, movies then series, each in the column's order ([sort], a GroupSort name), hidden ones included. */
 @Serializable data class VodCategoriesView(val sort: String, val categories: List<VodCategoryView>)
 
-@Serializable data class PlaylistView(val id: String, val name: String, val channels: List<ChannelRow>)
+/** [sort] is "A_Z", "NUMBER", or null for the manual order (the TV's playlist menu → Sort). */
+@Serializable data class PlaylistView(val id: String, val name: String, val channels: List<ChannelRow>, val sort: String? = null)
+@Serializable data class SortRequest(val sort: String? = null)
 @Serializable data class ListsView(
     val favorites: List<ChannelRow>,
     val playlists: List<PlaylistView>,
@@ -273,7 +277,7 @@ fun Route.adminPageRoutes(companion: Companion) {
             val view = channels.view(call.profile())
             ListsView(
                 favorites = channels.favoriteRows(view, now()),
-                playlists = view.playlists.map { p -> PlaylistView(p.id, p.name, channels.rowsFor(view, view.playlistItems[p.id].orEmpty().map { it.first }, now())) },
+                playlists = view.playlists.map { p -> PlaylistView(p.id, p.name, channels.playlistRows(view, p, now()), p.sort?.name) },
                 favoritesSort = view.favoritesSort?.name,
             )
         }
@@ -298,9 +302,18 @@ fun Route.adminPageRoutes(companion: Companion) {
     post("/playlists/{id}/move") { val m = call.receive<MoveRequest>(); call.edit { edits.movePlaylist(call.parameters["id"]!!, m.toIndex, m.profile) } }
     post("/playlists/{id}/add") { val r = call.receive<PlaylistItems>(); call.edit { edits.addToPlaylist(call.parameters["id"]!!, r.streamIds, r.profile) } }
     post("/playlists/{id}/remove") { val r = call.receive<PlaylistItems>(); call.edit { edits.removeFromPlaylist(call.parameters["id"]!!, r.userChannelIds, r.profile) } }
+    put("/playlists/{id}/sort") {
+        val r = call.receive<SortRequest>()
+        val sort = r.sort?.let { runCatching { ChannelSort.valueOf(it) }.getOrNull() ?: throw SyncRefused(400, "Unknown sort.") }
+        call.edit { edits.setPlaylistSort(call.parameters["id"]!!, call.profile(), sort) }
+    }
     post("/playlists/{id}/items/{uc}/move") {
         val m = call.receive<MoveRequest>()
-        call.edit { edits.movePlaylistItem(call.parameters["id"]!!, call.parameters["uc"]!!, m.toIndex, m.profile) }
+        // As with Favorites: a move in a sorted playlist keeps what's on screen as the new manual order.
+        val view = channels.view(m.profile)
+        val shown = view.playlists.firstOrNull { it.id == call.parameters["id"] }?.takeIf { it.sort != null }
+            ?.let { p -> channels.playlistRows(view, p, now()).mapNotNull { it.userChannelId } }
+        call.edit { edits.movePlaylistItem(call.parameters["id"]!!, call.parameters["uc"]!!, m.toIndex, m.profile, shown) }
     }
 
     // ---- Groups ----
@@ -609,7 +622,7 @@ private fun SourceForm.toSource(id: String): Source {
     return Source(
         id = id, name = name.trim().take(100), kind = k, url = url.trim(), username = username.trim(), password = password,
         userAgent = userAgent?.trim()?.ifEmpty { null }, referrer = referrer?.trim()?.ifEmpty { null }, enabled = enabled,
-        liveFormat = runCatching { LiveFormat.valueOf(liveFormat) }.getOrDefault(LiveFormat.TS), connectionLimit = connectionLimit.coerceIn(1, 50),
+        liveFormat = runCatching { LiveFormat.valueOf(liveFormat) }.getOrDefault(LiveFormat.TS), connectionLimit = if (k == SourceKind.XTREAM) connectionLimit.coerceIn(0, 50) else connectionLimit.takeIf { it > 0 }?.coerceAtMost(50) ?: 2,
     )
 }
 
@@ -620,6 +633,7 @@ private suspend fun sourceViews(companion: Companion, view: AdminView): List<Sou
         SourceView(
             s.id, s.name, s.kind.name, s.url, s.username, s.password.isNotEmpty(), s.userAgent, s.referrer, s.enabled, s.liveFormat.name, s.connectionLimit,
             st?.lastRefreshedAt ?: 0, st?.lastError, st?.streams ?: 0, companion.catalog.refreshing == s.id,
+            st?.providerConnections, st?.expiresAt,
         )
     }
 }

@@ -174,6 +174,66 @@ class ChannelRepositoryTest {
     }
 
     @Test
+    fun playlistSortIsLiveAndManualComesBack() = runBlocking {
+        setup()
+        val id = channels.createPlaylist("Mix")
+        val all = channels.channelsNow(ChannelGroup.Provider("s1", "Sports", "Sports")) + channels.channelsNow(ChannelGroup.Provider("s1", "News", "News"))
+        all.reversed().forEach { channels.addToPlaylist(it, id) }
+        val playlist = ChannelGroup.Playlist(id, "Mix")
+        val manual = listOf("Charlie HD", "Bravo", "US: Alpha HD")
+        assertEquals(manual, channels.channelsNow(playlist).map { it.displayName })
+        channels.setPlaylistSort(id, com.signal.model.ChannelSort.A_Z)
+        assertEquals(listOf("Bravo", "Charlie HD", "US: Alpha HD"), channels.channelsNow(playlist).map { it.displayName })
+        // Menus read the sort without the database, and the group list carries it.
+        assertEquals(com.signal.model.ChannelSort.A_Z, channels.playlistSort(id))
+        assertEquals(com.signal.model.ChannelSort.A_Z, channels.groups().first().first { it.group == playlist }.channelSort)
+        channels.setPlaylistSort(id, null)
+        assertEquals(manual, channels.channelsNow(playlist).map { it.displayName })
+        assertEquals(null, channels.playlistSort(id))
+    }
+
+    @Test
+    fun connectionLimitNeverExceedsTheProvider() {
+        val xtream = Source(id = "x", name = "X", kind = SourceKind.XTREAM, url = "http://h")
+        assertEquals(null, xtream.copy(connectionLimit = 0).connections) // not refreshed yet
+        assertEquals(4, xtream.copy(connectionLimit = 0, providerConnections = 4).connections)
+        assertEquals(2, xtream.copy(connectionLimit = 2, providerConnections = 4).connections)
+        assertEquals(4, xtream.copy(connectionLimit = 6, providerConnections = 4).connections)
+        assertEquals(2, Source(id = "m", name = "M", kind = SourceKind.M3U, url = "http://h/l.m3u").connections)
+    }
+
+    @Test
+    fun aRefreshKeepsTheUsersConnectionLimit() = runBlocking {
+        setup()
+        sources.save(sources.byId("s1")!!.copy(connectionLimit = 1))
+        sources.refresh("s1").getOrThrow()
+        // M3U reports no limit, so the user's stays and there's no provider's.
+        assertEquals(1, sources.byId("s1")!!.connectionLimit)
+        assertEquals(null, sources.byId("s1")!!.providerConnections)
+    }
+
+    @Test
+    fun playbackSettingsReadTheirDefaultsAndChoices() {
+        val defaults = settings.playerSettings()
+        assertEquals(com.signal.player.PlayerSettings(), defaults)
+        settings.put(Settings.Key.AUDIO_LANGUAGES, "es, en")
+        settings.put(Settings.Key.SUBTITLES, "ALWAYS")
+        settings.put(Settings.Key.LIVE_BUFFER, "STABLE")
+        settings.put(Settings.Key.STREAM_TIMEOUT, "30")
+        settings.put(Settings.Key.STREAM_RETRIES, "9") // out of range: the default
+        settings.put(Settings.Key.VIDEO_DECODER, "NOT_A_MODE")
+        settings.put(Settings.Key.AUDIO_PASSTHROUGH, "false")
+        val s = settings.playerSettings()
+        assertEquals(listOf("es", "en"), s.audioLanguages)
+        assertEquals(com.signal.player.SubtitleMode.ALWAYS, s.subtitles)
+        assertEquals(com.signal.player.LiveBuffer.STABLE, s.liveBuffer)
+        assertEquals(30, s.timeoutSeconds)
+        assertEquals(1, s.retries)
+        assertEquals(com.signal.player.DecoderMode.HARDWARE_FALLBACK, s.decoder)
+        assertFalse(s.passthrough)
+    }
+
+    @Test
     fun demoSourceLoadsTwoThousandChannels() = runBlocking {
         sources.save(Source(id = "demo", name = "Demo", kind = SourceKind.DEMO, url = "demo:"))
         assertEquals(DemoData.CHANNEL_COUNT, sources.refresh("demo").getOrThrow())

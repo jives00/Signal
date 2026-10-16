@@ -15,6 +15,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -35,14 +36,26 @@ import androidx.media3.datasource.HttpDataSource
 import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.audio.AudioCapabilities
+import androidx.media3.exoplayer.audio.AudioSink
+import androidx.media3.exoplayer.audio.DefaultAudioSink
+import androidx.media3.exoplayer.mediacodec.MediaCodecSelector
+import androidx.media3.exoplayer.mediacodec.MediaCodecUtil
+import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.ui.AspectRatioFrameLayout
+import androidx.media3.ui.CaptionStyleCompat
+import androidx.media3.ui.SubtitleView
 import androidx.media3.ui.PlayerView
 import com.signal.player.AspectMode
 import com.signal.player.FrameRateMeter
 import com.signal.player.PlayRequest
 import com.signal.player.PlaybackError
+import com.signal.player.DecoderMode
 import com.signal.player.PlaybackState
+import com.signal.player.PlayerSettings
+import com.signal.player.SubtitleBackground
+import com.signal.player.SubtitleMode
 import com.signal.player.Track
 import com.signal.player.VideoInfo
 import com.signal.player.VideoPlayer
@@ -56,31 +69,75 @@ import java.net.SocketTimeoutException
  * The Shield's player (PLAN §5.6): one Media3 ExoPlayer for the whole app. The Home hero, the Live
  * TV preview and full screen each attach their own view to it, so moving between them never
  * re-buffers. Audio focus and "becoming noisy" are handled by Media3 (PLAN §4.2).
+ *
+ * Settings → Playback (PLAN §4.3.15 → 5): languages, subtitles and tunneling go to the track selector
+ * at once. The decoder, passthrough and buffer sizes are fixed when an ExoPlayer is built, so a play
+ * that needs different ones (another setting, or live after on-demand) builds a new one first.
  */
 @OptIn(UnstableApi::class)
-class ExoVideoPlayer(context: Context) : VideoPlayer {
+class ExoVideoPlayer(private val context: Context) : VideoPlayer {
     private val main = Handler(Looper.getMainLooper())
     private val _state = MutableStateFlow(PlaybackState())
     override val state: StateFlow<PlaybackState> = _state.asStateFlow()
     private var request: PlayRequest? = null
-    private var autoRetried = false
+    /** Automatic retries left for the current request (Settings → Playback → Stream retries). */
+    private var retriesLeft = 0
+    @Volatile private var settings = PlayerSettings()
+    /** Subtitle style for the views: state, so a change restyles the one on screen. */
+    private var subtitleStyle by mutableStateOf(Style(settings))
+
+    /** What an ExoPlayer instance is built with. */
+    private data class Engine(val decoder: DecoderMode, val passthrough: Boolean, val minMs: Int, val maxMs: Int, val startMs: Int, val rebufferMs: Int, val targetBytes: Int)
+
+    private data class Style(val size: Float, val color: Int, val background: SubtitleBackground) {
+        constructor(s: PlayerSettings) : this(s.subtitleSize.scale, s.subtitleColor.argb.toInt(), s.subtitleBackground)
+    }
+
+    private fun engineFor(live: Boolean): Engine = settings.let { s ->
+        if (live) s.liveBuffer.let { Engine(s.decoder, s.passthrough, it.minMs, it.maxMs, it.startMs, it.rebufferMs, C.LENGTH_UNSET) }
+        // The Shield's heap is 192 MB: a large on-demand buffer is capped in bytes as well as time.
+        else s.vodBuffer.let { Engine(s.decoder, s.passthrough, it.minMs, it.maxMs, it.startMs, it.rebufferMs, if (it == com.signal.player.VodBuffer.LARGE) LARGE_VOD_BYTES else C.LENGTH_UNSET) }
+    }
 
     /** Measures the frame rate when the stream doesn't declare one; null once measured, or while nothing plays. */
     @Volatile private var fpsMeter: FrameRateMeter? = null
     private var measuredFps: Float? = null
 
-    private val exo: ExoPlayer = ExoPlayer.Builder(context)
-        // FFmpeg (the LGPL build, PLAN §5.3) only after the platform: AC3/E-AC3/DTS pass through to a
-        // receiver when the HDMI chain supports it, and FFmpeg decodes them only when it doesn't (PLAN §5.6).
-        .setRenderersFactory(DefaultRenderersFactory(context).setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON))
-        // "Balanced" live buffer: a short start for fast zapping (PLAN §5.6 → Zapping fast).
-        .setLoadControl(
-            DefaultLoadControl.Builder()
-                .setBufferDurationsMs(15_000, 30_000, 1_000, 2_000)
-                .build(),
-        )
-        .build()
-        .apply {
+    private var engine: Engine = engineFor(live = true)
+    private lateinit var trackSelector: DefaultTrackSelector
+    private var exo: ExoPlayer = build(engine)
+
+    private fun build(e: Engine): ExoPlayer {
+        val selector = DefaultTrackSelector(context)
+        trackSelector = selector
+        val renderers = object : DefaultRenderersFactory(context) {
+            // Passthrough off: the sink is told the HDMI chain takes plain PCM only, so AC3, E-AC3 and DTS
+            // are decoded here (by FFmpeg when the platform can't) instead of sent to the receiver.
+            override fun buildAudioSink(context: Context, enableFloatOutput: Boolean, enableAudioTrackPlaybackParams: Boolean): AudioSink? =
+                if (e.passthrough) super.buildAudioSink(context, enableFloatOutput, enableAudioTrackPlaybackParams)
+                else DefaultAudioSink.Builder(context)
+                    .setAudioCapabilities(AudioCapabilities.DEFAULT_AUDIO_CAPABILITIES)
+                    .setEnableFloatOutput(enableFloatOutput)
+                    .setEnableAudioTrackPlaybackParams(enableAudioTrackPlaybackParams)
+                    .build()
+        }
+            // FFmpeg (the LGPL build, PLAN §5.3) only after the platform: AC3/E-AC3/DTS pass through to a
+            // receiver when the HDMI chain supports it, and FFmpeg decodes them only when it doesn't (PLAN §5.6).
+            .setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON)
+            .setEnableDecoderFallback(e.decoder == DecoderMode.HARDWARE_FALLBACK)
+            .setMediaCodecSelector(codecSelector(e.decoder))
+        return ExoPlayer.Builder(context)
+            .setRenderersFactory(renderers)
+            .setTrackSelector(selector)
+            // Live starts quickly for fast zapping (PLAN §5.6 → Zapping fast); the sizes are Settings → Playback.
+            .setLoadControl(
+                DefaultLoadControl.Builder()
+                    .setBufferDurationsMs(e.minMs, e.maxMs, e.startMs, e.rebufferMs)
+                    .setTargetBufferBytes(e.targetBytes)
+                    .build(),
+            )
+            .build()
+            .apply {
             setAudioAttributes(
                 AudioAttributes.Builder().setUsage(C.USAGE_MEDIA).setContentType(C.AUDIO_CONTENT_TYPE_MOVIE).build(),
                 /* handleAudioFocus = */ true,
@@ -103,6 +160,60 @@ class ExoVideoPlayer(context: Context) : VideoPlayer {
                 }
             }
         }
+    }
+
+    /**
+     * Settings → Playback → Video decoder. Only video decoders are filtered: audio always has the
+     * platform's and FFmpeg's. When the choice leaves none for a format, all are kept, so it still plays.
+     */
+    private fun codecSelector(mode: DecoderMode) = MediaCodecSelector { mime, secure, tunneling ->
+        val all = MediaCodecUtil.getDecoderInfos(mime, secure, tunneling)
+        if (!MimeTypes.isVideo(mime)) return@MediaCodecSelector all
+        val chosen = when (mode) {
+            DecoderMode.HARDWARE -> all.filter { it.hardwareAccelerated }
+            DecoderMode.HARDWARE_FALLBACK -> all
+            DecoderMode.SOFTWARE -> all.filter { it.softwareOnly }
+        }
+        chosen.ifEmpty { all }
+    }
+
+    override fun configure(settings: PlayerSettings) {
+        val changed = settings != this.settings
+        this.settings = settings
+        subtitleStyle = Style(settings)
+        if (changed) applyTrackPreferences(request)
+    }
+
+    /**
+     * Languages and subtitles (PLAN §4.3.15 → 5) for [r]: the channel's remembered choices first, then
+     * the settings. Also clears a track picked by hand on the previous stream.
+     */
+    private fun applyTrackPreferences(r: PlayRequest?) {
+        val s = settings
+        val audio = (listOfNotNull(r?.audioLanguage) + s.audioLanguages).distinct()
+        val remembered = r?.subtitle
+        val p = trackSelector.buildUponParameters()
+            .clearOverrides()
+            .setPreferredAudioLanguages(*audio.toTypedArray())
+            .setTunnelingEnabled(s.tunneling)
+        when {
+            remembered == "off" || (remembered == null && s.subtitles == SubtitleMode.OFF) ->
+                p.setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true)
+            remembered != null ->
+                p.setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false).setPreferredTextLanguage(remembered)
+                    .setSelectUndeterminedTextLanguage(true).setIgnoredTextSelectionFlags(0)
+            // Always: the subtitle language, else captions (which carry no language), else any.
+            s.subtitles == SubtitleMode.ALWAYS ->
+                p.setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
+                    .setPreferredTextLanguage(s.subtitleLanguage ?: java.util.Locale.getDefault().language)
+                    .setSelectUndeterminedTextLanguage(true).setIgnoredTextSelectionFlags(0)
+            // Forced only: tracks flagged forced, never ones merely flagged default.
+            else ->
+                p.setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false).setPreferredTextLanguage(s.subtitleLanguage)
+                    .setSelectUndeterminedTextLanguage(false).setIgnoredTextSelectionFlags(C.SELECTION_FLAG_DEFAULT)
+        }
+        trackSelector.setParameters(p)
+    }
 
     // When play() was called, and the stages since: the time to first frame for PLAN §10 (zap under 1 s).
     private var playStartedAt = 0L
@@ -152,16 +263,30 @@ class ExoVideoPlayer(context: Context) : VideoPlayer {
     }
 
     override fun play(request: PlayRequest) {
+        retriesLeft = settings.retries
+        start(request)
+    }
+
+    private fun start(request: PlayRequest) {
         this.request = request
-        autoRetried = false
+        // Another decoder, passthrough or buffer than this ExoPlayer has: build a new one (PLAN §4.3.15 → 5).
+        val wanted = engineFor(request.isLive)
+        if (wanted != engine) {
+            android.util.Log.i("Signal", "Player: rebuilding for ${if (request.isLive) "live" else "on-demand"} (${wanted.decoder}, passthrough ${wanted.passthrough}, buffer ${wanted.minMs / 1000}-${wanted.maxMs / 1000} s)")
+            exo.release()
+            engine = wanted
+            exo = build(wanted)
+            viewGeneration++
+        }
+        applyTrackPreferences(request)
         playStartedAt = android.os.SystemClock.elapsedRealtime()
         stages.clear()
         fpsMeter = FrameRateMeter()
         measuredFps = null
         val http = DefaultHttpDataSource.Factory()
             .setAllowCrossProtocolRedirects(true)
-            .setConnectTimeoutMs(20_000)
-            .setReadTimeoutMs(20_000)
+            .setConnectTimeoutMs(settings.timeoutSeconds * 1000)
+            .setReadTimeoutMs(settings.timeoutSeconds * 1000)
             .setUserAgent(request.headers["User-Agent"] ?: DEFAULT_USER_AGENT)
             .setDefaultRequestProperties(request.headers - "User-Agent")
             .setTransferListener(transferTiming)
@@ -292,6 +417,7 @@ class ExoVideoPlayer(context: Context) : VideoPlayer {
                 },
                 update = { view ->
                     view.player = exo
+                    applyStyle(view, subtitleStyle)
                     view.resizeMode = when (aspect) {
                         AspectMode.FIT -> AspectRatioFrameLayout.RESIZE_MODE_FIT
                         AspectMode.FILL -> AspectRatioFrameLayout.RESIZE_MODE_ZOOM
@@ -302,6 +428,20 @@ class ExoVideoPlayer(context: Context) : VideoPlayer {
                 modifier = if (ratio != null) Modifier.aspectRatio(ratio) else Modifier.fillMaxSize(),
             ) }
         }
+    }
+
+    /** Settings → Playback → Subtitle style: the size, color and background, over the stream's own styling. */
+    private fun applyStyle(view: PlayerView, style: Style) {
+        val sub = view.subtitleView ?: return
+        sub.setApplyEmbeddedStyles(false)
+        sub.setApplyEmbeddedFontSizes(false)
+        sub.setFractionalTextSize(SubtitleView.DEFAULT_TEXT_SIZE_FRACTION * style.size)
+        val (background, edge) = when (style.background) {
+            SubtitleBackground.OUTLINE -> android.graphics.Color.TRANSPARENT to CaptionStyleCompat.EDGE_TYPE_OUTLINE
+            SubtitleBackground.SHADED -> 0xAA000000.toInt() to CaptionStyleCompat.EDGE_TYPE_NONE
+            SubtitleBackground.BLACK -> android.graphics.Color.BLACK to CaptionStyleCompat.EDGE_TYPE_NONE
+        }
+        sub.setStyle(CaptionStyleCompat(style.color, background, android.graphics.Color.TRANSPARENT, edge, android.graphics.Color.BLACK, null))
     }
 
     private inner class Listener : Player.Listener {
@@ -321,10 +461,11 @@ class ExoVideoPlayer(context: Context) : VideoPlayer {
         }
 
         override fun onPlayerError(error: PlaybackException) {
-            // One automatic retry, then the message (PLAN §4.3.3 → Stream failure).
-            if (!autoRetried) {
-                autoRetried = true
-                main.postDelayed({ request?.let { r -> val keep = autoRetried; play(r); autoRetried = keep } }, 1000)
+            // Retries (one by default, Settings → Playback), then the message (PLAN §4.3.3 → Stream failure).
+            if (retriesLeft > 0) {
+                retriesLeft--
+                val failed = request
+                main.postDelayed({ if (request === failed) failed?.let(::start) }, 1000)
                 return
             }
             _state.update { it.copy(status = PlaybackState.Status.ERROR, error = map(error)) }
@@ -396,6 +537,9 @@ class ExoVideoPlayer(context: Context) : VideoPlayer {
 
     companion object {
         const val DEFAULT_USER_AGENT = "Signal/1.0 (Android TV)"
+
+        /** The Large on-demand buffer's cap in bytes: about two minutes of 1080p within the Shield's 192 MB heap. */
+        private const val LARGE_VOD_BYTES = 64 * 1024 * 1024
 
         /** The captions [mediaSource] looks for in every live and on-demand stream. */
         val EMBEDDED_CAPTIONS: List<Format> = listOf(

@@ -65,6 +65,7 @@ export const deletePlaylist = (id: string, profile: string) => del(`/api/playlis
 export const movePlaylist = (id: string, profile: string, toIndex: number) => post(`/api/playlists/${enc(id)}/move`, { profile, toIndex });
 export const addToPlaylist = (id: string, profile: string, streamIds: string[]) => post(`/api/playlists/${enc(id)}/add`, { profile, streamIds });
 export const removeFromPlaylist = (id: string, profile: string, userChannelIds: string[]) => post(`/api/playlists/${enc(id)}/remove`, { profile, userChannelIds });
+export const setPlaylistSort = (id: string, profile: string, sort: string | null) => put(`/api/playlists/${enc(id)}/sort?${q(profile)}`, { sort });
 export const movePlaylistItem = (id: string, uc: string, profile: string, toIndex: number) => post(`/api/playlists/${enc(id)}/items/${enc(uc)}/move`, { profile, toIndex });
 
 // ---- Groups ----

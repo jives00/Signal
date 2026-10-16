@@ -34,6 +34,12 @@ interface VideoPlayer {
 
     fun setPaused(paused: Boolean) {}
 
+    /**
+     * Settings → Playback (PLAN §4.3.15 → 5). Languages, subtitles, tunneling and retries apply at once;
+     * the decoder, passthrough and buffers from the next [play].
+     */
+    fun configure(settings: PlayerSettings) {}
+
     /** Frees the decoder and the stream connection: the app is going to the background (PLAN §4.2). */
     fun release()
 }
@@ -44,6 +50,10 @@ data class PlayRequest(
     val isLive: Boolean = true,
     /** On-demand: where to start, for Resume (PLAN §4.3.8). */
     val startPositionMs: Long = 0,
+    /** The audio language remembered for this channel (PLAN §4.3.3 → Remembered choices); it beats the setting. */
+    val audioLanguage: String? = null,
+    /** The subtitle choice remembered for this channel: "off", or a language. */
+    val subtitle: String? = null,
     /** For logs and diagnostics only; never the URL, which may embed credentials (PLAN §1). */
     val label: String,
 )

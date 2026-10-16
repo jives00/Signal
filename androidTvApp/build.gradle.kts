@@ -89,6 +89,28 @@ android {
     }
 }
 
+// Nothing GPL may ship in the APK (PLAN §1, §13): GPL doesn't allow CC BY-NC on top of it. vlcj is
+// GPLv3 and allowed in devApp/ only, and Jellyfin's prebuilt FFmpeg decoder is GPLv3. Part of
+// `check`, so CI and every release run it. release.yml also scans the APK's native libraries.
+val checkLicenses by tasks.registering {
+    group = "verification"
+    description = "Fails if a GPL-only library is in the release APK's dependencies."
+    val root = configurations.named("releaseRuntimeClasspath").flatMap { it.incoming.resolutionResult.rootComponent }
+    doLast {
+        val seen = HashSet<String>()
+        fun walk(c: org.gradle.api.artifacts.result.ResolvedComponentResult) {
+            if (!seen.add(c.id.displayName)) return
+            c.dependencies.filterIsInstance<org.gradle.api.artifacts.result.ResolvedDependencyResult>().forEach { walk(it.selected) }
+        }
+        walk(root.get())
+        val banned = Regex("""vlcj|uk\.co\.caprica|org\.videolan|jellyfin""", RegexOption.IGNORE_CASE)
+        val found = seen.filter { banned.containsMatchIn(it) }
+        if (found.isNotEmpty()) throw GradleException("GPL libraries in the release APK (PLAN §1): ${found.joinToString()}")
+        logger.lifecycle("License check: ${seen.size - 1} release dependencies, none GPL-only")
+    }
+}
+tasks.named("check") { dependsOn(checkLicenses) }
+
 dependencies {
     implementation(project(":shared"))
     implementation(libs.androidx.activity.compose)

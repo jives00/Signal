@@ -357,6 +357,12 @@ class GuideTest {
 }
 
 class UserDatabaseMigrationTest {
+    /** What 9.sqm adds: older schemas don't have it. */
+    private fun dropVersion10(d: JdbcSqliteDriver) {
+        d.execute(null, "ALTER TABLE source DROP COLUMN provider_connections", 0)
+        d.execute(null, "ALTER TABLE playlist DROP COLUMN channel_sort", 0)
+    }
+
     /** A 0.1.x user.db (schema version 1) gains the milestone 2 tables and keeps its data. */
     @Test fun version1MigratesToTheGuideTables() {
         val file = java.io.File.createTempFile("user-v1", ".db").apply { delete(); deleteOnExit() }
@@ -366,6 +372,7 @@ class UserDatabaseMigrationTest {
             listOf("guide_mapping", "reminder", "epg_source", "sync_base", "sync_state", "alias", "match_reject", "vod_item", "vod_category", "library_item", "resume_position", "watched", "continue_hidden", "vod_info", "vod_tmdb", "vod_shelf", "vod_item_staging", "vod_fts").forEach { d.execute(null, "DROP TABLE $it", 0) }
             d.execute(null, "DROP INDEX IF EXISTS reminder_start", 0)
             d.execute(null, "ALTER TABLE channel_profile DROP COLUMN voice_names", 0)
+            dropVersion10(d)
             d.execute(null, "INSERT INTO source(id, name, kind, url, created_at) VALUES ('s', 'Kept', 'M3U', 'http://x', 1)", 0)
             d.execute(null, "PRAGMA user_version = 1", 0)
         }
@@ -385,6 +392,7 @@ class UserDatabaseMigrationTest {
             UserDatabase.Schema.create(d)
             listOf("sync_base", "sync_state", "alias", "match_reject", "vod_item", "vod_category", "library_item", "resume_position", "watched", "continue_hidden", "vod_info", "vod_tmdb", "vod_shelf", "vod_item_staging", "vod_fts").forEach { d.execute(null, "DROP TABLE $it", 0) }
             d.execute(null, "ALTER TABLE channel_profile DROP COLUMN voice_names", 0)
+            dropVersion10(d)
             d.execute(null, "INSERT INTO favorite(profile_id, user_channel_id, sort_key) VALUES ('main', 'uc', 'a0')", 0)
             d.execute(null, "PRAGMA user_version = 2", 0)
         }
@@ -396,6 +404,27 @@ class UserDatabaseMigrationTest {
         }
     }
 
+    /** A 0.2.33 user.db (schema version 9) gains the provider's connection limit and playlist sort, and keeps its data. */
+    @Test fun version9GainsConnectionsAndPlaylistSort() {
+        val file = java.io.File.createTempFile("user-v9", ".db").apply { delete(); deleteOnExit() }
+        val url = "jdbc:sqlite:${file.absolutePath}"
+        JdbcSqliteDriver(url).use { d ->
+            UserDatabase.Schema.create(d)
+            dropVersion10(d)
+            d.execute(null, "INSERT INTO source(id, name, kind, url, connection_limit, created_at) VALUES ('s', 'Kept', 'XTREAM', 'http://x', 3, 1)", 0)
+            d.execute(null, "INSERT INTO playlist(id, profile_id, name, sort_key) VALUES ('p', 'main', 'Mix', 'a0')", 0)
+            d.execute(null, "PRAGMA user_version = 9", 0)
+        }
+        JdbcSqliteDriver(url, java.util.Properties(), UserDatabase.Schema).use { d ->
+            val db = UserDatabase(d)
+            val source = db.sourceQueries.byId("s").executeAsOne()
+            assertEquals(3, source.connection_limit)
+            assertNull(source.provider_connections)
+            db.listsQueries.setPlaylistSort("A_Z", "p")
+            assertEquals("A_Z", db.listsQueries.playlistSort("p").executeAsOne().channel_sort)
+        }
+    }
+
     /** A 0.2.15 user.db (schema version 8) gains voice names and keeps its channels' custom names. */
     @Test fun version8GainsVoiceNames() {
         val file = java.io.File.createTempFile("user-v8", ".db").apply { delete(); deleteOnExit() }
@@ -403,6 +432,7 @@ class UserDatabaseMigrationTest {
         JdbcSqliteDriver(url).use { d ->
             UserDatabase.Schema.create(d)
             d.execute(null, "ALTER TABLE channel_profile DROP COLUMN voice_names", 0)
+            dropVersion10(d)
             d.execute(null, "INSERT INTO channel_profile(user_channel_id, profile_id, custom_name) VALUES ('uc', 'main', 'Local FOX')", 0)
             d.execute(null, "PRAGMA user_version = 8", 0)
         }

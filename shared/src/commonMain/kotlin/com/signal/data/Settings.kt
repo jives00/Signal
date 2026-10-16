@@ -64,6 +64,24 @@ class Settings(private val db: UserDatabase, private val io: CoroutineDispatcher
         // The speech model on this device (PLAN §4.3.14 → Speech model): unset picks by the device's
         // processor, ACCURATE is the large model, FAST the small one.
         SPEECH_MODEL(Scope.DEVICE, "speech_model"),
+        // Settings → Playback (PLAN §4.3.15 → 5). Languages are the profile's: audio as a comma list of
+        // ISO 639 codes, best first; subtitles OFF, FORCED (unset) or ALWAYS.
+        AUDIO_LANGUAGES(Scope.PROFILE, "audio_languages"),
+        SUBTITLE_LANGUAGE(Scope.PROFILE, "subtitle_language"),
+        SUBTITLES(Scope.PROFILE, "subtitles"),
+        // Subtitle style and the technical settings are the device's: they depend on the TV and network.
+        // Unset is each one's default (PlayerSettings).
+        SUBTITLE_SIZE(Scope.DEVICE, "subtitle_size"),
+        SUBTITLE_COLOR(Scope.DEVICE, "subtitle_color"),
+        SUBTITLE_BACKGROUND(Scope.DEVICE, "subtitle_background"),
+        VIDEO_DECODER(Scope.DEVICE, "video_decoder"),
+        FRAME_RATE_MATCH(Scope.DEVICE, "frame_rate_match"),
+        AUDIO_PASSTHROUGH(Scope.DEVICE, "audio_passthrough"),
+        TUNNELING(Scope.DEVICE, "tunneling"),
+        LIVE_BUFFER(Scope.DEVICE, "live_buffer"),
+        VOD_BUFFER(Scope.DEVICE, "vod_buffer"),
+        STREAM_TIMEOUT(Scope.DEVICE, "stream_timeout"),
+        STREAM_RETRIES(Scope.DEVICE, "stream_retries"),
         RECENT_SEARCHES(Scope.DEVICE, "recent_searches"),
         SEARCH_FILTER(Scope.DEVICE, "search_filter"),
         // The NAS companion (PLAN §5.7). The key is encrypted with the SecretBox and never synced.
@@ -187,6 +205,30 @@ class Settings(private val db: UserDatabase, private val io: CoroutineDispatcher
         return synchronized(this) {
             vodFilterCache.takeIf { it.first == raw }?.second ?: VodCategoryFilter.parse(raw).also { vodFilterCache = raw to it }
         }
+    }
+
+    private inline fun <reified E : Enum<E>> enumOf(key: Key, default: E): E =
+        raw(key)?.let { v -> enumValues<E>().firstOrNull { it.name == v } } ?: default
+
+    /** Settings → Playback, as the player takes them (PLAN §4.3.15 → 5). */
+    fun playerSettings(): com.signal.player.PlayerSettings {
+        val d = com.signal.player.PlayerSettings()
+        return com.signal.player.PlayerSettings(
+            audioLanguages = raw(Key.AUDIO_LANGUAGES)?.split(',')?.map { it.trim() }?.filter { it.isNotEmpty() }.orEmpty(),
+            subtitleLanguage = raw(Key.SUBTITLE_LANGUAGE)?.takeIf { it.isNotBlank() },
+            subtitles = enumOf(Key.SUBTITLES, d.subtitles),
+            subtitleSize = enumOf(Key.SUBTITLE_SIZE, d.subtitleSize),
+            subtitleColor = enumOf(Key.SUBTITLE_COLOR, d.subtitleColor),
+            subtitleBackground = enumOf(Key.SUBTITLE_BACKGROUND, d.subtitleBackground),
+            decoder = enumOf(Key.VIDEO_DECODER, d.decoder),
+            frameRate = enumOf(Key.FRAME_RATE_MATCH, d.frameRate),
+            passthrough = bool(Key.AUDIO_PASSTHROUGH, d.passthrough),
+            tunneling = bool(Key.TUNNELING, d.tunneling),
+            liveBuffer = enumOf(Key.LIVE_BUFFER, d.liveBuffer),
+            vodBuffer = enumOf(Key.VOD_BUFFER, d.vodBuffer),
+            timeoutSeconds = raw(Key.STREAM_TIMEOUT)?.toIntOrNull()?.takeIf { it in com.signal.player.PlayerSettings.TIMEOUTS } ?: d.timeoutSeconds,
+            retries = raw(Key.STREAM_RETRIES)?.toIntOrNull()?.takeIf { it in com.signal.player.PlayerSettings.RETRIES } ?: d.retries,
+        )
     }
 
     fun groupSort(): GroupSort = raw(Key.GROUP_SORT)?.let { runCatching { GroupSort.valueOf(it) }.getOrNull() } ?: GroupSort.PROVIDER

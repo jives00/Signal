@@ -119,7 +119,7 @@ upsertFavorite:
 INSERT OR REPLACE INTO favorite(profile_id, user_channel_id, sort_key) VALUES (?, ?, ?);
 
 upsertPlaylist:
-INSERT OR REPLACE INTO playlist(id, profile_id, name, sort_key) VALUES (?, ?, ?, ?);
+INSERT OR REPLACE INTO playlist(id, profile_id, name, sort_key, channel_sort) VALUES (?, ?, ?, ?, ?);
 
 upsertPlaylistItem:
 INSERT OR REPLACE INTO playlist_item(playlist_id, user_channel_id, sort_key) VALUES (?, ?, ?);

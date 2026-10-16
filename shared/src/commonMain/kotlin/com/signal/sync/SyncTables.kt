@@ -63,7 +63,7 @@ class SyncTables(private val db: UserDatabase, private val settings: Settings, p
             )
         }
         db.syncQueries.allFavorites(profile).executeAsList().forEach { f -> out += item(SyncType.FAVORITE, p, f.user_channel_id, fields("sort_key" to f.sort_key)) }
-        db.syncQueries.allPlaylists(profile).executeAsList().forEach { pl -> out += item(SyncType.PLAYLIST, p, pl.id, fields("name" to pl.name, "sort_key" to pl.sort_key)) }
+        db.syncQueries.allPlaylists(profile).executeAsList().forEach { pl -> out += item(SyncType.PLAYLIST, p, pl.id, fields("name" to pl.name, "sort_key" to pl.sort_key, "channel_sort" to pl.channel_sort)) }
         db.syncQueries.allPlaylistItems(profile).executeAsList().forEach { pi ->
             out += item(
                 SyncType.PLAYLIST_ITEM, p, "${pi.playlist_id}|${pi.user_channel_id}",
@@ -138,6 +138,7 @@ class SyncTables(private val db: UserDatabase, private val settings: Settings, p
                         live_format = f.str("live_format") ?: "TS",
                         connection_limit = f.long("connection_limit") ?: existing?.connection_limit ?: 2,
                         expires_at = existing?.expires_at,
+                        provider_connections = existing?.provider_connections,
                         last_refreshed_at = existing?.last_refreshed_at ?: 0,
                         last_error = existing?.last_error,
                         created_at = f.long("created_at") ?: existing?.created_at ?: 0,
@@ -175,7 +176,7 @@ class SyncTables(private val db: UserDatabase, private val settings: Settings, p
                 ),
             )
             SyncType.FAVORITE -> db.syncQueries.upsertFavorite(profile, id, f.str("sort_key").orEmpty())
-            SyncType.PLAYLIST -> db.syncQueries.upsertPlaylist(id, profile, f.str("name") ?: "Playlist", f.str("sort_key").orEmpty())
+            SyncType.PLAYLIST -> db.syncQueries.upsertPlaylist(id, profile, f.str("name") ?: "Playlist", f.str("sort_key").orEmpty(), f.str("channel_sort"))
             SyncType.PLAYLIST_ITEM -> db.syncQueries.upsertPlaylistItem(f.str("playlist_id") ?: return true, f.str("user_channel_id") ?: return true, f.str("sort_key").orEmpty())
             SyncType.GROUP_OVERRIDE -> db.syncQueries.upsertGroupOverride(
                 com.signal.db.user.Group_override(

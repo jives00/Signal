@@ -92,6 +92,8 @@ export const SourceView = z.object({
   lastError: z.string().nullable(),
   streams: z.number(),
   refreshing: z.boolean(),
+  providerConnections: z.number().nullable().default(null),
+  expiresAt: z.number().nullable().default(null),
 });
 export const EpgSourceView = z.object({
   id: z.string(),
@@ -123,7 +125,7 @@ export const GroupsView = z.object({ groupSort: z.string(), channelSort: z.strin
 
 export const ListsView = z.object({
   favorites: z.array(ChannelRow),
-  playlists: z.array(z.object({ id: z.string(), name: z.string(), channels: z.array(ChannelRow) })),
+  playlists: z.array(z.object({ id: z.string(), name: z.string(), channels: z.array(ChannelRow), sort: z.enum(["A_Z", "NUMBER"]).nullable().optional() })),
   favoritesSort: z.enum(["A_Z", "NUMBER"]).nullable().optional(),
 });
 

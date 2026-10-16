@@ -63,6 +63,25 @@ jobs:
           "$ANDROID_HOME"/build-tools/$(ls "$ANDROID_HOME"/build-tools | sort -V | tail -1)/apksigner verify --print-certs "$apk"
           cp "$apk" "signal-${GITHUB_REF_NAME#apk-}.apk"
 
+      # Nothing GPL in the APK (PLAN §1, §13). `check` already refused GPL dependencies; this looks at
+      # what actually shipped: no VLC or Jellyfin files, and the committed FFmpeg's build record (written
+      # by ffmpeg.yml, which refuses a GPL configure) saying LGPL with no GPL or nonfree parts. FFmpeg's
+      # static build doesn't keep its configure line in the .so, so the record is what can be checked.
+      - name: Check the APK has nothing GPL
+        run: |
+          apk=androidTvApp/build/outputs/apk/release/androidTvApp-release.apk
+          if unzip -l "$apk" | grep -Ei 'libvlc|vlcj|jellyfin'; then
+            echo "::error::The APK contains VLC or Jellyfin libraries, which are GPL (PLAN §1)."
+            exit 1
+          fi
+          if unzip -l "$apk" | grep -q 'libffmpegJNI.so'; then
+            if ! grep -q '#define CONFIG_GPL 0' ffmpeg/BUILD-INFO.md || ! grep -q '#define CONFIG_NONFREE 0' ffmpeg/BUILD-INFO.md; then
+              echo "::error::The bundled FFmpeg isn't recorded as LGPL-only in ffmpeg/BUILD-INFO.md (PLAN §1, §5.3)."
+              exit 1
+            fi
+          fi
+          echo "No GPL libraries in the APK."
+
       # The app's update panel shows these notes. They come from the annotated tag's message: a few
       # short, plain-English bullets written at release time. A lightweight tag falls back to the
       # commit subjects since the previous release.

@@ -61,7 +61,8 @@ fun SourceForm(existing: Source?, onDone: () -> Unit, onCancel: () -> Unit) {
         referrer = existing?.referrer,
         enabled = existing?.enabled ?: true,
         liveFormat = existing?.liveFormat ?: com.signal.model.LiveFormat.TS,
-        connectionLimit = existing?.connectionLimit ?: 2,
+        // New Xtream sources follow the provider's limit (0); M3U defaults to 2 (PLAN §4.3.15).
+        connectionLimit = existing?.connectionLimit ?: if (kind == SourceKind.XTREAM) 0 else 2,
     )
 
     LaunchedEffect(Unit) { first.requestFocusWhenReady() }

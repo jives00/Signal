@@ -12,8 +12,7 @@ import kotlinx.coroutines.launch
 
 /**
  * The item menus opened by long-press OK (PLAN §4.2 → What long-press OK opens). Only actions that
- * apply are shown. Features from later milestones (multi-view, the logo
- * picker) join these menus when they land.
+ * apply are shown. The logo picker joins these menus when it lands.
  */
 class ItemMenus(private val app: AppController) {
     private fun launch(block: suspend () -> Unit) {
@@ -64,9 +63,13 @@ class ItemMenus(private val app: AppController) {
             if (currentGroup is ChannelGroup.Playlist && channel.userChannelId != null) {
                 add(PanelAction("Remove from this playlist") { launch { app.channels.removeFromPlaylist(channel.userChannelId, currentGroup.id) }; null })
             }
-            // Sorted Favorites have no manual order to move within.
-            val sortedFavorites = currentGroup == ChannelGroup.Favorites && app.settings.favoritesSort() != null
-            if (onMove != null && !sortedFavorites) add(PanelAction("Move") { onMove(); null })
+            // Sorted Favorites and playlists have no manual order to move within.
+            val sorted = when (currentGroup) {
+                ChannelGroup.Favorites -> app.settings.favoritesSort() != null
+                is ChannelGroup.Playlist -> app.channels.playlistSort(currentGroup.id) != null
+                else -> false
+            }
+            if (onMove != null && !sorted) add(PanelAction("Move") { onMove(); null })
             add(PanelAction("Rename") {
                 PanelPage.TextInput("Rename ${channel.displayName}", channel.displayName) { name -> launch { app.channels.rename(channel, name) } }
             })
@@ -187,10 +190,17 @@ class ItemMenus(private val app: AppController) {
         }, subtitle = "Overrides the default sort for this group only.")
     }
 
-    fun playlistMenu(playlist: ChannelGroup.Playlist, onReorder: () -> Unit, onMovePlaylist: () -> Unit): PanelPage.Actions =
-        PanelPage.Actions("Playlist: ${playlist.title}", listOf(
+    fun playlistMenu(playlist: ChannelGroup.Playlist, onReorder: () -> Unit, onMovePlaylist: () -> Unit): PanelPage.Actions {
+        val sort = app.channels.playlistSort(playlist.id)
+        return PanelPage.Actions("Playlist: ${playlist.title}", listOfNotNull(
             PanelAction("Rename") { PanelPage.TextInput("Rename playlist", playlist.title) { n -> launch { app.channels.renamePlaylist(playlist.id, n) } } },
-            PanelAction("Reorder channels") { onReorder(); null },
+            PanelAction("Sort", detail = favoritesSortLabel(sort)) {
+                PanelPage.Actions("Sort ${playlist.title}", listOf(null, ChannelSort.A_Z, ChannelSort.NUMBER).map { option ->
+                    PanelAction(favoritesSortLabel(option), selected = option == sort) { launch { app.channels.setPlaylistSort(playlist.id, option) }; null }
+                }, subtitle = "Manual keeps your own order, which A–Z and number sort on top of.")
+            },
+            // Reordering is the manual order; while sorted there's nothing to drag.
+            if (sort == null) PanelAction("Reorder channels") { onReorder(); null } else null,
             PanelAction("Move playlist") { onMovePlaylist(); null },
             PanelAction("New playlist") {
                 PanelPage.TextInput("New playlist", "", confirmLabel = "Create") { n -> if (n.isNotBlank()) launch { app.channels.createPlaylist(n) } }
@@ -201,6 +211,7 @@ class ItemMenus(private val app: AppController) {
                 }
             },
         ))
+    }
 
     fun favoritesMenu(onReorder: () -> Unit): PanelPage.Actions {
         val sort = app.settings.favoritesSort()

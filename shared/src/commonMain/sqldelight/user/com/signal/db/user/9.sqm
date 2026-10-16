@@ -1,0 +1,7 @@
+-- Connection limit (PLAN §4.3.15 → Sources): what the provider allows, read at each refresh and kept on
+-- this device like expires_at. connection_limit is the user's own, synced; on Xtream it can only be lower,
+-- and 0 means "the provider's".
+ALTER TABLE source ADD COLUMN provider_connections INTEGER;
+
+-- Playlist sort (PLAN §4.2 → Playlist menu): unset is the manual order; A_Z or NUMBER sort on top of it.
+ALTER TABLE playlist ADD COLUMN channel_sort TEXT;

@@ -120,6 +120,21 @@ class PairingTest {
         assertEquals(1, store.all().size)
     }
 
+    @Test fun aDevicesLogsAreKeptForTheWebAdmin() = testApplication {
+        application { signalModule(companion()) }
+        val started = client.startPairing("dev-logs")
+        client.approve(started.code)
+        val key = json.decodeFromString<PairStatus>(client.get(NasPaths.pairStatus(started.pairingId)).bodyAsText()).apiKey!!
+        assertEquals(HttpStatusCode.Unauthorized, client.post(NasPaths.LOGS) { setBody("no key") }.status)
+        assertEquals(HttpStatusCode.NoContent, client.post(NasPaths.LOGS) { header(HttpHeaders.Authorization, bearer(key)); setBody("I Tune ESPN") }.status)
+        val logs = client.get("/api/devices/dev-logs/logs")
+        assertEquals(HttpStatusCode.OK, logs.status)
+        assertEquals("I Tune ESPN", logs.bodyAsText())
+        assertEquals(HttpStatusCode.NotFound, client.get("/api/devices/someone-else/logs").status)
+        // Device IDs never become paths.
+        assertEquals(HttpStatusCode.NotFound, client.get("/api/devices/..%2F..%2Fbuild.gradle/logs").status)
+    }
+
     @Test fun forgettingADeviceRevokesItsKey() = testApplication {
         application { signalModule(companion()) }
         val started = client.startPairing()

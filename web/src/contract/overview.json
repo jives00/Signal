@@ -15,7 +15,9 @@
             "lastRefreshedAt": 1791828000000,
             "lastError": null,
             "streams": 57000,
-            "refreshing": false
+            "refreshing": false,
+            "providerConnections": null,
+            "expiresAt": null
         }
     ],
     "coverage": {

@@ -17,12 +17,27 @@ data class Source(
     val enabled: Boolean = true,
     /** Xtream live format: TS (default) or HLS (PLAN §5.6). */
     val liveFormat: LiveFormat = LiveFormat.TS,
-    /** Streams the provider allows at once; M3U is set by hand, Xtream comes from user_info (PLAN §4.3.15). */
+    /**
+     * The user's limit on streams at once (PLAN §4.3.15 → Connection limit). M3U: set by hand. Xtream:
+     * only lower than the provider's, and 0 means "the provider's".
+     */
     val connectionLimit: Int = 2,
     /** Last refresh, epoch millis; 0 = never. */
     val lastRefreshedAt: Long = 0,
     val lastError: String? = null,
+    /** What the provider allows (Xtream `user_info.max_connections`), as of the last refresh; this device only. */
+    val providerConnections: Int? = null,
+    /** When the provider account expires, epoch seconds (Xtream `exp_date`); this device only. */
+    val expiresAt: Long? = null,
 ) {
+    /** Streams this source may play at once: the user's limit, never above the provider's. Null when neither is known. */
+    val connections: Int?
+        get() {
+            val provider = providerConnections?.takeIf { it > 0 }
+            val own = connectionLimit.takeIf { it > 0 }
+            return if (provider != null && own != null) minOf(provider, own) else provider ?: own
+        }
+
     /** Headers sent with every request and stream for this source. */
     val headers: Map<String, String>
         get() = buildMap {
