@@ -81,8 +81,8 @@ object GitHubReleases {
             .replace(Regex("\n{3,}"), "\n\n")
             .trim()
 
-    /** The recent releases, newest first: enough to cover a TV that skipped a few. */
-    const val RELEASES_URL = "https://api.github.com/repos/$REPO/releases?per_page=30"
+    /** Recent releases, as many as one page holds: GitHub doesn't list them in version order (0.2.31 came 10th). */
+    const val RELEASES_URL = "https://api.github.com/repos/$REPO/releases?per_page=100"
 
     /** Each release in a list response, its notes as [changelog] gives them. The APK URL is empty where there's none. */
     fun parseReleases(json: String): List<Release> {

@@ -43,7 +43,7 @@ class Releases(private val http: HttpClient, private val token: () -> String?) {
 
     suspend fun list(): ReleasesView {
         val tokenSet = token() != null
-        val response = runCatching { http.get("$API/releases?per_page=$COUNT") { github() } }
+        val response = runCatching { http.get("$API/releases?per_page=$FETCH") { github() } }
             .getOrElse { return ReleasesView(emptyList(), tokenSet, "GitHub couldn't be reached: ${it.message}") }
         if (!response.status.isSuccess()) return ReleasesView(emptyList(), tokenSet, "GitHub answered ${response.status.value}")
         val releases = (json.parseToJsonElement(response.bodyAsText()) as? JsonArray).orEmpty().mapNotNull { e ->
@@ -59,7 +59,9 @@ class Releases(private val http: HttpClient, private val token: () -> String?) {
                 notes = o.str("body").orEmpty(),
             )
         }
-        return ReleasesView(releases, tokenSet)
+        // GitHub doesn't list releases in version order (0.2.31 came 10th, 2026-10-16): sorted here.
+        val newest = releases.sortedWith { a, b -> compareVersions(b.tag, a.tag) }.take(SHOWN)
+        return ReleasesView(newest, tokenSet)
     }
 
     /** Marks [tag] stable or back to testing. Returns an error for people, or null. */
@@ -87,7 +89,21 @@ class Releases(private val http: HttpClient, private val token: () -> String?) {
     companion object {
         const val REPO = "jives00/Signal"
         private const val API = "https://api.github.com/repos/$REPO"
-        private const val COUNT = 15
+        /** As many as GitHub gives in one page, so the newest is always among them. */
+        private const val FETCH = 100
+        private const val SHOWN = 15
+
+        /** "apk-v0.2.31" against "apk-v0.2.9", by number. */
+        fun compareVersions(a: String, b: String): Int {
+            fun parts(t: String) = t.removePrefix("apk-").removePrefix("v").split('.').map { it.toIntOrNull() ?: 0 }
+            val x = parts(a)
+            val y = parts(b)
+            for (i in 0 until maxOf(x.size, y.size)) {
+                val d = x.getOrElse(i) { 0 }.compareTo(y.getOrElse(i) { 0 })
+                if (d != 0) return d
+            }
+            return 0
+        }
     }
 }
 
