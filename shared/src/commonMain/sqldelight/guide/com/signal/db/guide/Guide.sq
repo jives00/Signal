@@ -91,8 +91,16 @@ channelsForSource:
 SELECT id, normalized_name FROM guide_channel WHERE epg_source_id = ?;
 
 -- Guide channels with at least one program, per source: a channel with no programs counts as no data.
+-- A skip scan: one seek on program_channel per channel (the next one after the last), not a read of
+-- every program. SELECT DISTINCT read them all, 870k on the Shield, before the guide's first row could
+-- show (user, 2026-10-16: 5-10 s after opening).
 channelsWithPrograms:
-SELECT DISTINCT guide_channel_id FROM program WHERE epg_source_id = ?;
+WITH RECURSIVE c(id) AS (
+    SELECT min(guide_channel_id) FROM program WHERE epg_source_id = :epgSourceId
+    UNION ALL
+    SELECT (SELECT min(guide_channel_id) FROM program WHERE epg_source_id = :epgSourceId AND guide_channel_id > c.id) FROM c WHERE c.id IS NOT NULL
+)
+SELECT id AS guide_channel_id FROM c WHERE id IS NOT NULL;
 
 countsBySource:
 SELECT epg_source_id, count(DISTINCT guide_channel_id) AS channels, count(*) AS programs FROM program GROUP BY epg_source_id;

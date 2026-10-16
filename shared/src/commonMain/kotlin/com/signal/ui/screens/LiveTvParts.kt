@@ -298,7 +298,15 @@ internal fun NumberJump(channels: List<Channel>, onJump: (Channel) -> Unit) {
 @Composable
 internal fun channelsOf(app: AppController, group: ChannelGroup?): List<Channel>? {
     val loaded by produceState<Pair<ChannelGroup, List<Channel>>?>(null, group) {
-        group?.let { g -> app.channels.channels(g).collect { value = g to it } }
+        val started = kotlin.time.TimeSource.Monotonic.markNow()
+        var first = true
+        group?.let { g ->
+            app.channels.channels(g).collect {
+                // Timing (user, 2026-10-16): the guide's rows wait for this list.
+                if (first) { first = false; app.log.info("Guide: ${it.size} channels in ${g.title} in ${started.elapsedNow().inWholeMilliseconds} ms") }
+                value = g to it
+            }
+        }
     }
     return loaded?.takeIf { it.first == group }?.second
 }

@@ -85,7 +85,7 @@ class AppController(val platform: Platform, val log: Log) {
     private val guideIo = Dispatchers.IO
     val guideStore = GuideStore(platform, guideIo, scope, log)
     val epg = EpgRepository(db, settings, platform.io)
-    val guide = GuideRepository(guideStore, epg, settings, guideIo, scope)
+    val guide = GuideRepository(guideStore, epg, settings, guideIo, scope) { log.info(it) }
     private val guideBuilder = GuideBuilder(http, { sources.byId(it) }, guideIo, log)
     val reminders = ReminderRepository(db, settings, channels, platform.io)
     val search = SearchRepository(db, settings, channels, guide, platform.io, scope) { log.info(it) }
@@ -186,7 +186,9 @@ class AppController(val platform: Platform, val log: Log) {
 
     init {
         scope.launch {
+            val opening = kotlin.time.TimeSource.Monotonic.markNow()
             withContext(guideIo) { guideStore.open() }
+            log.info("Guide: opened in ${opening.elapsedNow().inWholeMilliseconds} ms")
             if (sources.count() == 0L) navigator.resetTo(Route.Setup) else openStartPage()
             ready = true
             // Titles cached before Search and matching keys existed (user.db 7 → 8) get them now.

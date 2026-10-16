@@ -136,7 +136,7 @@ fun LiveTvPage() {
             behind = GuideGeometry.ROW_HEIGHT.dp,
         ),
     )
-    val rows = remember(guideState) { GuideRows(app, scope) }
+    val rows = remember(guideState) { GuideRows(app, scope, "guide v${guideState.version}, ${guideState.mappings.size} mappings") }
     val reminderList by app.reminderList.collectAsState()
     val reminderKeys = remember(reminderList) { reminderList.mapTo(HashSet()) { "${it.userChannelId}|${it.title}|${it.start}" } }
 
@@ -438,10 +438,14 @@ fun LiveTvPage() {
 
 /** Each row's programs from the grid's start to 7 days out, loaded as rows appear. A bounded cache: the grid can be 2,000 rows deep. */
 @Stable
-internal class GuideRows(private val app: AppController, private val scope: CoroutineScope) {
+internal class GuideRows(private val app: AppController, private val scope: CoroutineScope, private val why: String = "") {
     private val cache = mutableStateMapOf<String, List<Program>>()
     private val order = ArrayDeque<String>()
     private val loading = HashSet<String>()
+    // Timings (user, 2026-10-16: 5-10 s before the guide's rows filled in after opening). A new set of
+    // rows is made whenever the guide's state changes, so each reload logs its own.
+    private val created = kotlin.time.TimeSource.Monotonic.markNow()
+    private var loaded = 0
 
     fun get(ch: Channel): List<Program>? = cache[ch.stream.id]
 
@@ -454,11 +458,17 @@ internal class GuideRows(private val app: AppController, private val scope: Coro
             cache[key] = programs
             order.addLast(key)
             while (order.size > MAX_ROWS) cache.remove(order.removeFirst())
+            loaded++
+            if (loaded == 1 || loaded == SCREENFUL) {
+                app.log.info("Guide: $loaded row${if (loaded == 1) "" else "s"} in ${created.elapsedNow().inWholeMilliseconds} ms ($why)")
+            }
         }
     }
 
     private companion object {
         const val MAX_ROWS = 300
+        /** About what the grid shows at once. */
+        const val SCREENFUL = 10
     }
 }
 

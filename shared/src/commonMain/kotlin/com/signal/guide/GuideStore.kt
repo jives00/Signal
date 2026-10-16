@@ -30,6 +30,8 @@ class GuideStore(
     private class Opened(val path: String, val driver: SqlDriver, val db: GuideDatabase)
 
     @kotlin.concurrent.Volatile private var live: Opened? = null
+    /** The live guide's driver, for tests that compare raw queries. */
+    internal val liveDriver: SqlDriver? get() = live?.driver
     private val buildLock = Mutex()
 
     private val _version = MutableStateFlow(0)

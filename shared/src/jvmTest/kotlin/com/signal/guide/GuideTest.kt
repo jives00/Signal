@@ -113,6 +113,34 @@ class GuideTest {
         assertNotNull(store.builtAt())
     }
 
+    /**
+     * The skip scan behind each source's index (Guide.sq channelsWithPrograms) finds exactly the
+     * channels SELECT DISTINCT did, without reading every program: that read was the 5-10 s before
+     * the guide's first rows on the Shield (2026-10-16).
+     */
+    @Test fun channelsWithProgramsMatchesADistinctScan() = runBlocking<Unit> {
+        sources.save(Source(id = "demo", name = "Demo", kind = SourceKind.DEMO, url = "demo:"))
+        sources.refresh("demo").getOrThrow()
+        epg.ensureForSource(sources.byId("demo")!!)
+        assertTrue(build())
+        val db = store.db!!
+        val source = epg.all().first().id
+        val t0 = System.nanoTime()
+        val skip = db.guideQueries.channelsWithPrograms(source).executeAsList().toSet()
+        val skipMs = (System.nanoTime() - t0) / 1_000_000
+        val driver = store.liveDriver!!
+        val t1 = System.nanoTime()
+        val distinct = driver.executeQuery(null, "SELECT DISTINCT guide_channel_id FROM program WHERE epg_source_id = ?", { c ->
+            val out = HashSet<String>()
+            while (c.next().value) out += c.getString(0)!!
+            app.cash.sqldelight.db.QueryResult.Value(out)
+        }, 1) { bindString(0, source) }.value
+        val distinctMs = (System.nanoTime() - t1) / 1_000_000
+        println("channelsWithPrograms: ${skip.size} channels by skip scan in $skipMs ms, by DISTINCT in $distinctMs ms")
+        assertTrue(skip.size > 100, "the Demo guide has its channels")
+        assertEquals(distinct, skip)
+    }
+
     @Test fun xmltvPlainAndGzippedWithTimeShiftAndPruning() = runBlocking<Unit> {
         val list = m3u("#EXTM3U\n#EXTINF:-1 tvg-id=\"a.us\" group-title=\"G\",US: Alpha HD\nhttp://p/1.ts\n#EXTINF:-1 group-title=\"G\",Bravo ᴴᴰ\nhttp://p/2.ts\n")
         served["http://g/one.xml"] = xmltv(

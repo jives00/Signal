@@ -26,6 +26,8 @@ class GuideRepository(
     settings: Settings,
     private val io: CoroutineDispatcher,
     scope: CoroutineScope,
+    /** For timings: building a source's index is the slow part of a guide's first rows. */
+    private val log: ((String) -> Unit)? = null,
 ) {
     /** Everything resolution depends on. A new value means cached guide data is stale. */
     data class State(val version: Int, val sources: List<EpgSource>, val defaultId: String?, val mappings: Map<String, EpgRepository.Mapping>)
@@ -71,7 +73,12 @@ class GuideRepository(
 
     private fun compute(userChannelId: String?, rawTvgId: String?, rawName: String, s: State, db: GuideDatabase): GuideRef? {
         val mapping = userChannelId?.let { s.mappings[it] }?.let { GuideResolver.Mapping(it.epgSourceId, it.guideChannelId) }
-        return GuideResolver.resolve(mapping, rawTvgId, rawName, s.sources, s.defaultId) { id -> indexes.getOrPut(id) { GuideResolver.buildIndex(db, id) } }
+        return GuideResolver.resolve(mapping, rawTvgId, rawName, s.sources, s.defaultId) { id ->
+            indexes.getOrPut(id) {
+                val started = kotlin.time.TimeSource.Monotonic.markNow()
+                GuideResolver.buildIndex(db, id).also { log?.invoke("Guide: index for $id built in ${started.elapsedNow().inWholeMilliseconds} ms") }
+            }
+        }
     }
 
     /** [channel]'s programs overlapping [from, to), in shifted (displayed) time. */
