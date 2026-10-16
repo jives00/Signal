@@ -9,6 +9,8 @@ import com.signal.update.GitHubReleases
 import com.signal.update.UpdateState
 import com.signal.update.Updater
 import io.ktor.client.HttpClient
+import io.ktor.client.plugins.HttpTimeoutConfig
+import io.ktor.client.plugins.timeout
 import io.ktor.client.request.get
 import io.ktor.client.request.prepareGet
 import io.ktor.client.statement.bodyAsChannel
@@ -17,6 +19,7 @@ import io.ktor.http.contentLength
 import io.ktor.http.isSuccess
 import io.ktor.utils.io.readAvailable
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -71,35 +74,72 @@ class AndroidUpdater(
             _state.value = UpdateState.Failed(r.tag, "Allow Signal to install apps, then press OK again")
             return
         }
-        scope.launch {
-            runCatching {
-                _state.value = UpdateState.Downloading(r.tag, 0f)
-                val dir = File(context.cacheDir, "updates").apply { mkdirs() }
-                val file = File(dir, "signal.apk").apply { delete() }
-                http.prepareGet(r.apkUrl).execute { response ->
-                    if (!response.status.isSuccess()) error("HTTP ${response.status.value}")
-                    val total = response.contentLength() ?: -1L
-                    val channel = response.bodyAsChannel()
-                    val buffer = ByteArray(64 * 1024)
-                    var written = 0L
-                    file.outputStream().use { out ->
-                        while (true) {
-                            val n = channel.readAvailable(buffer)
-                            if (n <= 0) { if (channel.isClosedForRead) break else continue }
-                            out.write(buffer, 0, n)
-                            written += n
-                            if (total > 0) _state.value = UpdateState.Downloading(r.tag, written.toFloat() / total)
-                        }
-                    }
+        // A second press while one downloads does nothing: two downloads into one file broke both.
+        if (downloading?.isActive == true) return
+        downloading = scope.launch {
+            _state.value = UpdateState.Downloading(r.tag, 0f)
+            val dir = File(context.cacheDir, "updates").apply { mkdirs() }
+            val file = File(dir, "signal.apk")
+            // One retry: a download cut short (a Wi-Fi blip) used to leave the panel on Downloading
+            // until Install was pressed again (user, 2026-10-16).
+            var result = runCatching { download(r, file) }
+            if (result.isFailure) {
+                android.util.Log.w(TAG, "Update: download failed (${result.exceptionOrNull()?.message}), trying once more")
+                result = runCatching { download(r, file) }
+            }
+            result.onSuccess {
+                runCatching {
+                    val uri = FileProvider.getUriForFile(context, "${context.packageName}.updates", file)
+                    context.startActivity(
+                        Intent(Intent.ACTION_VIEW)
+                            .setDataAndType(uri, "application/vnd.android.package-archive")
+                            .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK),
+                    )
+                    android.util.Log.i(TAG, "Update: opened the installer for ${r.tag}")
+                    _state.value = UpdateState.Available(r.tag, r.body)
+                }.onFailure { e ->
+                    android.util.Log.e(TAG, "Update: couldn't open the installer", e)
+                    _state.value = UpdateState.Failed(r.tag, "Couldn't open the installer: ${e.message}")
                 }
-                val uri = FileProvider.getUriForFile(context, "${context.packageName}.updates", file)
-                context.startActivity(
-                    Intent(Intent.ACTION_VIEW)
-                        .setDataAndType(uri, "application/vnd.android.package-archive")
-                        .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK),
-                )
-                _state.value = UpdateState.Available(r.tag, r.body)
-            }.onFailure { e -> _state.value = UpdateState.Failed(r.tag, e.message ?: "Download failed") }
+            }.onFailure { e ->
+                android.util.Log.w(TAG, "Update: download failed again: ${e.message}")
+                _state.value = UpdateState.Failed(r.tag, "Download failed (${e.message ?: "no reason given"}). Press Install to try again")
+            }
+        }
+    }
+
+    private var downloading: Job? = null
+
+    /**
+     * The APK, written to [file]. No overall time limit: it's tens of MB, and the client's 2-minute
+     * request timeout cut slow downloads short. A stall (30 s without data) fails it instead.
+     */
+    private suspend fun download(r: GitHubReleases.Release, file: File) {
+        val started = System.currentTimeMillis()
+        file.delete()
+        http.prepareGet(r.apkUrl) {
+            timeout {
+                requestTimeoutMillis = HttpTimeoutConfig.INFINITE_TIMEOUT_MS
+                socketTimeoutMillis = 30_000
+            }
+        }.execute { response ->
+            if (!response.status.isSuccess()) error("HTTP ${response.status.value}")
+            val total = response.contentLength() ?: -1L
+            val channel = response.bodyAsChannel()
+            val buffer = ByteArray(64 * 1024)
+            var written = 0L
+            file.outputStream().use { out ->
+                while (true) {
+                    val n = channel.readAvailable(buffer)
+                    if (n < 0) break
+                    if (n == 0) { if (channel.isClosedForRead) break else continue }
+                    out.write(buffer, 0, n)
+                    written += n
+                    if (total > 0) _state.value = UpdateState.Downloading(r.tag, written.toFloat() / total)
+                }
+            }
+            if (total > 0 && written != total) error("got $written of $total bytes")
+            android.util.Log.i(TAG, "Update: downloaded ${r.tag}, $written bytes in ${System.currentTimeMillis() - started} ms")
         }
     }
 
@@ -110,5 +150,6 @@ class AndroidUpdater(
 
     private companion object {
         const val KEY_DISMISSED = "dismissed_tag"
+        const val TAG = "Signal"
     }
 }
