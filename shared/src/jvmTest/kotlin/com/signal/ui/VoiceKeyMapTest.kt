@@ -169,6 +169,28 @@ class VoiceKeyMapTest {
         assertTrue(shows("“Play The Office Season 2 Episode 3” will play that specific episode."))
     }
 
+    // The Chromecast took 6–10 s a press with the accurate model: Settings picks the fast one.
+    @Test fun speechModelIsChosenInSettings() {
+        var changes = 0
+        val slow = object : com.signal.platform.VoiceSetup by voiceReady {
+            override val slowDevice = true
+            override fun speechModelChanged() { changes++ }
+        }
+        keyMapTest(start = Route.Settings, voice = slow) {
+            focusedStartsWith("Sources")
+            while (focusedText() != "Voice commands") press(RemoteAction.Down)
+            press(RemoteAction.Right)
+            while (focusedText()?.startsWith("Speech model") != true || focusedText()?.startsWith("Speech model status") == true) press(RemoteAction.Down)
+            assertTrue(shows("Automatic · Fast on this device"))
+            press(RemoteAction.Select)
+            eventually("the choice") { panelTitle == "Speech model" }
+            while (focusedText()?.startsWith("Accurate") != true) press(RemoteAction.Down)
+            press(RemoteAction.Select)
+            eventually("saved") { app.settings.raw(com.signal.data.Settings.Key.SPEECH_MODEL) == com.signal.platform.SPEECH_ACCURATE }
+            assertEquals(1, changes)
+        }
+    }
+
     // 0.2.23 on the Shield: the grammar forced "play matrix" into channel words ("play me truckers"),
     // and a title by those words came up. With the free recognizer's words, its title wins.
     @Test fun theFreeRecognizersTitleBeatsTheGrammarsWords() = keyMapTest {

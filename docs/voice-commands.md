@@ -27,9 +27,8 @@ While Signal is the assistant, Google Assistant doesn't answer the mic button on
      TV OS build** seven times.
 2. **Turn on debugging over the network.**
    - **Shield:** Settings → Device Preferences → Developer options → **Network debugging**.
-   - **Chromecast with Google TV:** Settings → System → Developer options → **USB debugging**. It
-     allows network connections too.
-   - **Google TV Streamer:** Developer options → **Wireless debugging**. If it asks you to pair,
+   - **Chromecast with Google TV (Android 14) and Google TV Streamer:** turn on **USB debugging**, then
+     Developer options → **Wireless debugging**. If it asks you to pair,
      choose "Pair device with pairing code", then run `adb pair <address>:<port>` with the address
      and code it shows. Use the port it lists under Wireless debugging in step 3 instead of 5555.
 3. **Connect** from the computer:

@@ -1,5 +1,7 @@
 package com.signal.ui.screens
 
+import com.signal.platform.SPEECH_ACCURATE
+import com.signal.platform.SPEECH_FAST
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -453,7 +455,7 @@ private fun VoiceSection(app: AppController, voice: com.signal.platform.VoiceSet
     }
     val model = when (status.model) {
         com.signal.platform.VoiceStatus.Model.READY -> "Ready"
-        com.signal.platform.VoiceStatus.Model.DOWNLOADING -> "Downloading (130 MB, once)…"
+        com.signal.platform.VoiceStatus.Model.DOWNLOADING -> if (status.fastModel) "Downloading (40 MB, once)…" else "Downloading (130 MB, once)…"
         com.signal.platform.VoiceStatus.Model.LOADING -> "Loading…"
         com.signal.platform.VoiceStatus.Model.FAILED -> "Download failed · tries again on the next mic press"
         com.signal.platform.VoiceStatus.Model.NOT_DOWNLOADED -> "Downloads once Signal is the assistant"
@@ -474,7 +476,20 @@ private fun VoiceSection(app: AppController, voice: com.signal.platform.VoiceSet
             detail = if (status.hasMicrophone) "Allowed" else "Not allowed · OK to allow",
             onSelect = if (status.hasMicrophone) null else ({ voice.requestMicrophone() }),
         )
-        ListRow("Speech model", detail = model, onSelect = null)
+        ListRow("Speech model status", detail = model, onSelect = null)
+        // Accurate or fast (PLAN §4.3.14 → Speech model): the accurate model decodes slower than
+        // speech on a Chromecast with Google TV, 6–10 s a press (2026-10-16).
+        var speechTick by remember { mutableStateOf(0) }
+        val chosen = remember(speechTick) { app.settings.raw(Settings.Key.SPEECH_MODEL) }
+        val auto = if (voice.slowDevice) "Fast on this device" else "Accurate on this device"
+        ListRow("Speech model", detail = when (chosen) { SPEECH_ACCURATE -> "Accurate"; SPEECH_FAST -> "Fast"; else -> "Automatic · $auto" }, onSelect = {
+            fun pick(value: String?) { app.settings.put(Settings.Key.SPEECH_MODEL, value); speechTick++; voice.speechModelChanged() }
+            app.panel.open(PanelPage.Actions("Speech model", listOf(
+                PanelAction("Automatic", detail = auto, selected = chosen == null) { pick(null); null },
+                PanelAction("Accurate", detail = "Hears best · needs a fast device like the Shield", selected = chosen == SPEECH_ACCURATE) { pick(SPEECH_ACCURATE); null },
+                PanelAction("Fast", detail = "About six times faster · may mishear spelled-out letters", selected = chosen == SPEECH_FAST) { pick(SPEECH_FAST); null },
+            ), subtitle = "The accurate model can take several seconds a command on slower devices. Changing it loads the new model in the background."), returnTo)
+        })
         // Which channels a spoken name can match (PLAN §4.3.14 → Voice commands): fewer is more accurate.
         var channelsTick by remember { mutableStateOf(0) }
         val all = remember(channelsTick) { app.settings.raw(Settings.Key.VOICE_CHANNELS) == com.signal.search.SearchRepository.VOICE_ALL }
@@ -492,6 +507,7 @@ private fun VoiceSection(app: AppController, voice: com.signal.platform.VoiceSet
         SectionTitle("Turning it on")
         text("Android TV has no setting for this, so it's done once from a computer with adb. Every step is in the web admin under Devices → Voice commands. In short: turn on network debugging in the TV's Developer options, then run:")
         text("adb connect <the TV's address>:5555")
+        text("On a Chromecast or Google TV Streamer, pair under Developer options → Wireless debugging and use the port it shows.")
         text("adb shell cmd role add-role-holder android.app.role.ASSISTANT ${voice.packageName}")
         text("adb shell pm grant ${voice.packageName} android.permission.WRITE_SECURE_SETTINGS")
         text("The mic button then talks to Signal everywhere, instead of Google Assistant. The second command lets Signal take the mic back after it's force-stopped, the next time it opens.")

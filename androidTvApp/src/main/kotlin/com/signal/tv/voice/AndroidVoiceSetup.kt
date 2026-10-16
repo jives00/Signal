@@ -19,7 +19,15 @@ class AndroidVoiceSetup(private val context: Context, private val activity: () -
         hasMicrophone = context.checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED,
         model = VoskModel.state(context),
         keepsAssistant = AssistantKeeper.canKeep(context),
+        fastModel = VoskModel.fast(context),
     )
+
+    override val slowDevice: Boolean get() = VoskModel.slowDevice
+
+    // Only when Signal is the assistant: otherwise the model loads once it is.
+    override fun speechModelChanged() {
+        if (AssistantKeeper.isAssistant(context) || context.getSystemService(RoleManager::class.java)?.isRoleHeld(RoleManager.ROLE_ASSISTANT) == true) VoskModel.prepare(context)
+    }
 
     override fun requestMicrophone() {
         activity()?.requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), REQUEST_MICROPHONE)

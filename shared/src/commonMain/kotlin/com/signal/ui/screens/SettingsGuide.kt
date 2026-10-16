@@ -130,11 +130,16 @@ internal fun LiveTvGuideSection(app: AppController, returnTo: FocusRequester) {
 internal fun GuideDataSection(app: AppController) {
     val state by app.guide.state.collectAsState()
     val counts by produceState(emptyMap<String, Pair<Long, Long>>(), state) { value = app.guide.counts() }
-    val built = remember(state) { app.guideStore.builtAt() }
+    // Off the main thread: a guide install holds guide.db's connection, and reading it here during
+    // composition froze the Chromecast until Android killed the app (ANR, 2026-10-16).
+    val meta by produceState<Pair<Long?, String?>>(null to null, state) {
+        value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { app.guideStore.builtAt() to app.guideStore.origin() }
+    }
+    val built = meta.first
     LazyColumn(Modifier.width(1100.dp)) {
         item { SectionTitle("Guide data") }
         item {
-            val from = if (app.guideStore.origin() == com.signal.guide.GuideStore.ORIGIN_NAS) "From the NAS" else "Built on this device"
+            val from = if (meta.second == com.signal.guide.GuideStore.ORIGIN_NAS) "From the NAS" else "Built on this device"
             val age = built?.let { "$from, ${refreshedLabel(app, it).removePrefix("refreshed ")}" } ?: "No guide yet"
             ListRow("Guide", detail = age, onSelect = null)
         }

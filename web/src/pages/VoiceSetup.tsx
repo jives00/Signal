@@ -34,10 +34,10 @@ export default function VoiceSetup({ title = "Voice commands" }: { title?: strin
       </p>
       <ol>
         <li><b>Developer options:</b> on a Shield, Settings → Device Preferences → About, and select Build seven times. On a Chromecast with Google TV, Settings → System → About, and select Android TV OS build seven times.</li>
-        <li><b>Network debugging:</b> on a Shield, Developer options → Network debugging. On a Chromecast with Google TV, Developer options → USB debugging.</li>
-        <li><b>Connect</b> with the TV's address (Settings → Network &amp; Internet), and choose Always allow on the TV: <Command text="adb connect <the TV's address>:5555" /></li>
+        <li><b>Network debugging:</b> on a Shield, Developer options → Network debugging. On a Chromecast with Google TV or Google TV Streamer, turn on USB debugging, then Wireless debugging → Pair device with pairing code, and run <code>adb pair &lt;address&gt;:&lt;port&gt; &lt;code&gt;</code> with what it shows. Port 5555 refuses connections there.</li>
+        <li><b>Connect</b> with the TV's address (Settings → Network &amp; Internet), and choose Always allow on the TV: <Command text="adb connect <the TV's address>:5555" /> On Google TV, use the address and port listed under Wireless debugging instead.</li>
         <li><b>Make Signal the assistant:</b> <Command text={ON} /> To check, this should print <code>com.signal.tv/.voice.SignalAssistantService</code>: <Command text={CHECK} /></li>
-        <li><b>On the TV, open Signal</b> and allow the microphone. It downloads its speech model once (130 MB); Settings → Voice commands says <b>On</b> when it's ready.</li>
+        <li><b>On the TV, open Signal</b> and allow the microphone. It downloads its speech model once (130 MB, or 40 MB on a slower device like a Chromecast); Settings → Voice commands says <b>On</b> when it's ready.</li>
         <li><b>Let Signal take the mic back after a force stop</b> (0.2.24 or later). A force stop hands the mic button back to Google Assistant; with this, Signal takes it back the next time it opens: <Command text={KEEP} /></li>
       </ol>
       <p className="detail">Signal stays the assistant through updates; a factory reset or a reinstall needs steps 3–6 again. To give the mic button back to Google Assistant, with Signal open so it knows it was on purpose:</p>

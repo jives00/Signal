@@ -25,6 +25,7 @@ internal object ReadyRecognizer {
     private val background = Executors.newSingleThreadExecutor { Thread(it, "voice-grammar").apply { priority = Thread.MIN_PRIORITY } }
     private var recognizer: Recognizer? = null
     private var phrasesKey = 0
+    private var recognizerModel: Model? = null
 
     @Volatile private var following = false
 
@@ -44,7 +45,7 @@ internal object ReadyRecognizer {
     /** Builds or refreshes the recognizer in the background, once the model is loaded. */
     fun warm(app: SignalApplication) {
         background.execute {
-            val model = VoskModel.loaded() ?: return@execute
+            val model = VoskModel.loaded(app) ?: return@execute
             runCatching { refresh(app, model) }.onFailure { Log.e(TAG, "Voice: preparing the recognizer failed", it) }
             // The free one too, so the first press that needs it doesn't wait for it to be built.
             synchronized(this) { freeFor(model) }
@@ -93,7 +94,8 @@ internal object ReadyRecognizer {
         val phrases = kotlinx.coroutines.runBlocking { app.controller.voicePhrases() }
         val key = phrases.hashCode()
         synchronized(this) {
-            recognizer?.takeIf { key == phrasesKey }?.let { return it }
+            // A new model (Settings → Speech model) rebuilds it even with the same phrases.
+            recognizer?.takeIf { key == phrasesKey && model === recognizerModel }?.let { return it }
         }
         // Only the commands' phrases and the channels' names, so a near miss like "nbt" can't win
         // over "nbc". "[unk]" takes everything else.
@@ -104,8 +106,12 @@ internal object ReadyRecognizer {
             recognizer?.close()
             recognizer = rec
             phrasesKey = key
+            recognizerModel = model
         }
         Log.i(TAG, "Voice: recognizer built with ${phrases.size} phrases in ${System.currentTimeMillis() - started} ms")
+        // On the fast setting, the accurate model is no longer needed (a change of setting, or files
+        // from before it): let it go. Nothing to do otherwise.
+        VoskModel.retire(app)
         return rec
     }
 }

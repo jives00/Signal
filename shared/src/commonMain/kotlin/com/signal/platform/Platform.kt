@@ -52,7 +52,15 @@ interface VoiceSetup {
     fun requestMicrophone()
     /** The package to name in the adb commands. */
     val packageName: String
+    /** Whether the fast speech model is this device's default: its processor is too slow for the accurate one. */
+    val slowDevice: Boolean get() = false
+    /** Loads the model [com.signal.data.Settings.Key.SPEECH_MODEL] now names. */
+    fun speechModelChanged() {}
 }
+
+/** [com.signal.data.Settings.Key.SPEECH_MODEL]'s values; unset is automatic. */
+const val SPEECH_ACCURATE = "ACCURATE"
+const val SPEECH_FAST = "FAST"
 
 data class VoiceStatus(
     val isAssistant: Boolean,
@@ -60,6 +68,8 @@ data class VoiceStatus(
     val model: Model,
     /** Signal can put itself back as the assistant after a force stop (a permission granted with adb). */
     val keepsAssistant: Boolean = false,
+    /** The model in use is the fast one. */
+    val fastModel: Boolean = false,
 ) {
     enum class Model { NOT_DOWNLOADED, DOWNLOADING, LOADING, READY, FAILED }
     val ready: Boolean get() = isAssistant && hasMicrophone && model == Model.READY

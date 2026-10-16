@@ -61,6 +61,9 @@ class Settings(private val db: UserDatabase, private val io: CoroutineDispatcher
         // Which channels voice commands match (PLAN §4.3.14 → Voice commands): unset is favorites,
         // playlists and channels with voice names; ALL is every visible channel.
         VOICE_CHANNELS(Scope.PROFILE, "voice_channels"),
+        // The speech model on this device (PLAN §4.3.14 → Speech model): unset picks by the device's
+        // processor, ACCURATE is the large model, FAST the small one.
+        SPEECH_MODEL(Scope.DEVICE, "speech_model"),
         RECENT_SEARCHES(Scope.DEVICE, "recent_searches"),
         SEARCH_FILTER(Scope.DEVICE, "search_filter"),
         // The NAS companion (PLAN §5.7). The key is encrypted with the SecretBox and never synced.
