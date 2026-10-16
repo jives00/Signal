@@ -24,6 +24,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import org.json.JSONObject
 import org.vosk.Recognizer
+import java.util.concurrent.LinkedBlockingQueue
 import kotlin.concurrent.thread
 
 /*
@@ -41,6 +42,52 @@ private const val TAG = "Signal"
 private const val SAMPLE_RATE = 16000
 /** Longest a press listens, in case the end of speech is never detected. */
 private const val MAX_LISTEN_MS = 8000L
+
+/** What the grammar recognizer writes for speech outside its vocabulary. */
+private const val UNKNOWN = "[unk]"
+
+private fun joined(a: String, b: String) = listOf(a, b).filter { it.isNotBlank() }.joinToString(" ")
+
+/**
+ * The free recognizer on its own thread, fed audio through a queue (PLAN §4.3.14 → Voice commands,
+ * phase 2), so its decoding never holds up the grammar recognizer's end of speech. It starts with
+ * the audio recorded before it was needed.
+ */
+private class FreeListener(private val free: Recognizer, earlier: List<ShortArray>, private val onPartial: (String) -> Unit) {
+    private val queue = LinkedBlockingQueue<ShortArray>(earlier)
+    @Volatile private var text = ""
+    /** Time spent decoding, for the log. */
+    @Volatile var ms = 0L
+        private set
+    private val worker = thread(name = "voice-free") {
+        while (true) {
+            val chunk = queue.take()
+            if (chunk === END) break
+            val t = System.currentTimeMillis()
+            // It may end an utterance early, on a pause mid-title: keep each piece.
+            if (free.acceptWaveForm(chunk, chunk.size)) text = joined(text, JSONObject(free.result).optString("text"))
+            else onPartial(joined(text, JSONObject(free.partialResult).optString("partial")))
+            ms += System.currentTimeMillis() - t
+        }
+        val t = System.currentTimeMillis()
+        text = joined(text, JSONObject(free.finalResult).optString("text"))
+        ms += System.currentTimeMillis() - t
+    }
+
+    fun feed(chunk: ShortArray) = queue.put(chunk)
+
+    /** Waits for the rest of the audio to be decoded, and returns all it heard. */
+    fun finish(): String {
+        queue.put(END)
+        // In full: the recognizer is reset after this, which must not happen mid-decode.
+        worker.join()
+        return text
+    }
+
+    private companion object {
+        val END = ShortArray(0)
+    }
+}
 
 class SignalAssistantService : VoiceInteractionService() {
     override fun onReady() {
@@ -142,48 +189,48 @@ private class ListenSession(context: Context) : VoiceInteractionSession(context)
     }
 
     /**
-     * Feeds the recording to both recognizers until the grammar one hears the end of speech,
-     * typing out partials as it goes: the free one's, which has the real words where the grammar's
-     * has "?". Both run on every press for now (PLAN §4.3.14 → Voice commands, phase 2); the log
-     * line has the time each took, to judge the cost on the Shield.
+     * Feeds the recording to the grammar recognizer until it hears the end of speech, typing out
+     * partials as it goes. The free recognizer starts only when the grammar one hears a word it
+     * doesn't know ("[unk]"): a title outside the grammar. Commands, channels and likely titles never
+     * start it. Running it on every press made every press slower (user, 0.2.22), so it runs on its
+     * own thread, catching up on the audio so far, and this waits for it only at the end
+     * (PLAN §4.3.14 → Voice commands, phase 2).
      */
     private fun recognize(record: AudioRecord, rec: Recognizer, free: Recognizer?, onPartial: (String) -> Unit): Heard {
         val started = System.currentTimeMillis()
         val buffer = ShortArray(1600) // 100 ms
+        val heardSoFar = ArrayList<ShortArray>()
+        var freeListener: FreeListener? = null
+        fun startFree() {
+            if (free != null && freeListener == null) freeListener = FreeListener(free, heardSoFar, onPartial)
+        }
         var guesses = emptyList<String>()
         var partial = ""
-        var freeText = ""
-        var freeMs = 0L
         while (listening && System.currentTimeMillis() - started < MAX_LISTEN_MS) {
             val n = record.read(buffer, 0, buffer.size)
             if (n <= 0) break
-            if (free != null) {
-                val t = System.currentTimeMillis()
-                // The free one may end an utterance early, on a pause mid-title: keep each piece.
-                if (free.acceptWaveForm(buffer, n)) freeText = joined(freeText, JSONObject(free.result).optString("text"))
-                freeMs += System.currentTimeMillis() - t
-            }
+            val chunk = buffer.copyOf(n)
+            freeListener?.feed(chunk) ?: heardSoFar.add(chunk)
             if (rec.acceptWaveForm(buffer, n)) {
                 guesses = guesses(rec.result)
                 // An end detected in the silence before speaking: keep listening.
                 if (guesses.isNotEmpty()) break
             } else {
-                val now = free?.let { joined(freeText, JSONObject(it.partialResult).optString("partial")) }?.ifBlank { null }
-                    ?: JSONObject(rec.partialResult).optString("partial")
-                if (now != partial) { partial = now; onPartial(now) }
+                val now = JSONObject(rec.partialResult).optString("partial")
+                if (UNKNOWN in now) startFree()
+                // Once the free one runs, its partials show instead: they have the real words.
+                if (now != partial && freeListener == null) { partial = now; onPartial(now) }
             }
         }
         if (guesses.isEmpty()) guesses = guesses(rec.finalResult)
-        if (free != null) {
-            val t = System.currentTimeMillis()
-            freeText = joined(freeText, JSONObject(free.finalResult).optString("text"))
-            freeMs += System.currentTimeMillis() - t
-        }
-        Log.i(TAG, "Voice: heard ${guesses.joinToString(" | ") { "\"$it\"" }}, free \"$freeText\" in ${System.currentTimeMillis() - started} ms (free recognizer ${freeMs} ms)")
-        return Heard(guesses, freeText.ifBlank { null })
+        // An unknown word heard only in the final result: the free one still gets the whole recording.
+        if (guesses.any { UNKNOWN in it }) startFree()
+        val listened = System.currentTimeMillis() - started
+        val freeText = freeListener?.finish()
+        Log.i(TAG, "Voice: heard ${guesses.joinToString(" | ") { "\"$it\"" }} in $listened ms" +
+            (freeListener?.let { ", free \"$freeText\" (${it.ms} ms decoding, ${System.currentTimeMillis() - started - listened} ms waited)" } ?: ", free recognizer not needed"))
+        return Heard(guesses, freeText?.ifBlank { null })
     }
-
-    private fun joined(a: String, b: String) = listOf(a, b).filter { it.isNotBlank() }.joinToString(" ")
 
     /** A result's guesses, best first, without blanks: `{"alternatives": [{"text": …}, …]}`. */
     private fun guesses(json: String): List<String> {

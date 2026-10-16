@@ -45,6 +45,8 @@ internal object ReadyRecognizer {
         background.execute {
             val model = VoskModel.loaded() ?: return@execute
             runCatching { refresh(app, model) }.onFailure { Log.e(TAG, "Voice: preparing the recognizer failed", it) }
+            // The free one too, so the first press that needs it doesn't wait for it to be built.
+            synchronized(this) { freeFor(model) }
         }
     }
 
@@ -63,10 +65,7 @@ internal object ReadyRecognizer {
     @Synchronized
     fun <T> use(app: SignalApplication, model: Model, block: (Recognizer, Recognizer?) -> T): T {
         val rec = recognizer ?: refresh(app, model)
-        val open = free?.takeIf { freeModel === model } ?: runCatching {
-            free?.close()
-            Recognizer(model, SAMPLE_RATE).also { free = it; freeModel = model }
-        }.onFailure { Log.e(TAG, "Voice: the free recognizer failed", it) }.getOrNull()
+        val open = freeFor(model)
         try {
             return block(rec, open)
         } finally {
@@ -74,6 +73,12 @@ internal object ReadyRecognizer {
             open?.reset()
         }
     }
+
+    /** The free recognizer for [model], built once. Called holding the lock. */
+    private fun freeFor(model: Model): Recognizer? = free?.takeIf { freeModel === model } ?: runCatching {
+        free?.close()
+        Recognizer(model, SAMPLE_RATE).also { free = it; freeModel = model }
+    }.onFailure { Log.e(TAG, "Voice: the free recognizer failed", it) }.getOrNull()
 
     /** The slow part, the phrases, is outside the lock; only the swap holds it. */
     private fun refresh(app: SignalApplication, model: Model): Recognizer {
