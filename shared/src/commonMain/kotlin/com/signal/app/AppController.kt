@@ -599,20 +599,23 @@ class AppController(val platform: Platform, val log: Log) {
                         tunes += heard to name
                         val hits = search.channelHits(name, limit = VOICE_HITS)
                         if (hits.isEmpty()) continue
-                        // Not one clear channel: a title said in full wins ("play seinfeld").
+                        // Not one clear channel: a title wins. The free recognizer's, when it ran (it
+                        // only runs for "play …" and the like), with any match; the grammar's only
+                        // exactly, since it forces any title into channel words ("the me tribeca").
                         val pick = com.signal.voice.VoiceChoice.choose(hits, { it.channel.displayName }, { it.exact }, { it.favorite })
                         if (!(pick is com.signal.voice.VoiceChoice.Pick.One && pick.hit.exact)) {
-                            for (title in listOf(freeTitle, name).filter { it.isNotBlank() }.distinct()) {
-                                val titles = titleHits(title, null)
-                                val clear = titleChoice(titles)
-                                if (clear is com.signal.voice.VoiceChoice.Pick.One && clear.hit.exact) return voicePlay(heard, clear.hit.item, null, null, ::result)
+                            if (freeTitle.isNotBlank() && titleHits(freeTitle, null).isNotEmpty()) {
+                                return voiceTitle(heardFree!!, com.signal.voice.VoiceCommand.PlayTitle(freeTitle), ::result)
                             }
+                            exactTitle(name)?.let { return voicePlay(heard, it, null, null, ::result) }
                         }
                         return voiceChannel(heard, hits, "", ::result)
                     }
                 }
                 is com.signal.voice.VoiceCommand.WhatsOn -> return voiceWhatsOn(heard, command.channel, ::result)
-                else -> if (whole) {
+                // A title command in the grammar's words, when the free recognizer heard it too: its
+                // title, not the grammar's channel words, and that was handled above.
+                else -> if (whole && !(command.isTitleCommand && heardFree != null)) {
                     // The first guess that's a command is taken as said.
                     return if (command.isTitleCommand) voiceTitle(heard, command, ::result)
                     else withContext(Dispatchers.Main) { voiceCommand(heard, command, ::result) }
@@ -627,11 +630,12 @@ class AppController(val platform: Platform, val log: Log) {
                 if (hits.isNotEmpty()) return voiceChannel(heard, hits, " by sound (\"$like\")", ::result)
             }
         }
-        // No channel: a movie or series by that name.
-        for ((heard, title) in listOfNotNull(heardFree?.let { it to freeTitle }) + tunes) {
-            if (title.replace(" ", "").length < 2) continue
-            if (titleHits(title, null).isNotEmpty()) return voiceTitle(heard, com.signal.voice.VoiceCommand.PlayTitle(title), ::result)
+        // No channel: a movie or series by that name. Any match for what the free recognizer heard;
+        // only an exact one for the grammar's guesses, which were "play me truckers" for "play matrix".
+        if (heardFree != null && freeTitle.replace(" ", "").length >= 2 && titleHits(freeTitle, null).isNotEmpty()) {
+            return voiceTitle(heardFree, com.signal.voice.VoiceCommand.PlayTitle(freeTitle), ::result)
         }
+        for ((heard, title) in tunes) exactTitle(title)?.let { return voicePlay(heard, it, null, null, ::result) }
         // A command only the free recognizer caught.
         when (freeCommand) {
             null, is com.signal.voice.VoiceCommand.Tune -> {}
@@ -674,6 +678,13 @@ class AppController(val platform: Platform, val log: Log) {
             }.sortedBy { !it.exact }
         }
         return emptyList()
+    }
+
+    /** The one title named exactly [title], if there's exactly one. */
+    private suspend fun exactTitle(title: String): com.signal.model.VodItem? {
+        if (title.replace(" ", "").length < 2) return null
+        val pick = titleChoice(titleHits(title, null))
+        return (pick as? com.signal.voice.VoiceChoice.Pick.One)?.hit?.takeIf { it.exact }?.item
     }
 
     private fun titleChoice(hits: List<TitleHit>) = com.signal.voice.VoiceChoice.choose(hits, { it.name }, { it.exact }, { it.saved })

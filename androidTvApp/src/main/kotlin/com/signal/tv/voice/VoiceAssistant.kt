@@ -43,9 +43,6 @@ private const val SAMPLE_RATE = 16000
 /** Longest a press listens, in case the end of speech is never detected. */
 private const val MAX_LISTEN_MS = 8000L
 
-/** What the grammar recognizer writes for speech outside its vocabulary. */
-private const val UNKNOWN = "[unk]"
-
 private fun joined(a: String, b: String) = listOf(a, b).filter { it.isNotBlank() }.joinToString(" ")
 
 /**
@@ -190,9 +187,9 @@ private class ListenSession(context: Context) : VoiceInteractionSession(context)
 
     /**
      * Feeds the recording to the grammar recognizer until it hears the end of speech, typing out
-     * partials as it goes. The free recognizer starts only when the grammar one hears a word it
-     * doesn't know ("[unk]"): a title outside the grammar. Commands, channels and likely titles never
-     * start it. Running it on every press made every press slower (user, 0.2.22), so it runs on its
+     * partials as it goes. The free recognizer starts only when the grammar one's words so far ask
+     * for a title ([com.signal.voice.VoiceCommand.wantsTitle]: "play …", "search …"). Channels and
+     * commands never start it. Running it on every press made every press slower (user, 0.2.22), so it runs on its
      * own thread, catching up on the audio so far, and this waits for it only at the end
      * (PLAN §4.3.14 → Voice commands, phase 2).
      */
@@ -217,14 +214,14 @@ private class ListenSession(context: Context) : VoiceInteractionSession(context)
                 if (guesses.isNotEmpty()) break
             } else {
                 val now = JSONObject(rec.partialResult).optString("partial")
-                if (UNKNOWN in now) startFree()
+                if (com.signal.voice.VoiceCommand.wantsTitle(now)) startFree()
                 // Once the free one runs, its partials show instead: they have the real words.
                 if (now != partial && freeListener == null) { partial = now; onPartial(now) }
             }
         }
         if (guesses.isEmpty()) guesses = guesses(rec.finalResult)
-        // An unknown word heard only in the final result: the free one still gets the whole recording.
-        if (guesses.any { UNKNOWN in it }) startFree()
+        // A title heard only in the final result: the free one still gets the whole recording.
+        if (guesses.any(com.signal.voice.VoiceCommand::wantsTitle)) startFree()
         val listened = System.currentTimeMillis() - started
         val freeText = freeListener?.finish()
         Log.i(TAG, "Voice: heard ${guesses.joinToString(" | ") { "\"$it\"" }} in $listened ms" +

@@ -287,6 +287,21 @@ sealed interface VoiceCommand {
         private val playKind = Regex("""^(?:play|watch|put on|start)\s+(?:the\s+)?(movie|film|show|series|tv show)\s+(.+)$""")
 
         /**
+         * Whether a press needs the free recognizer, from the grammar recognizer's words so far: a
+         * title's lead-in with something after it ("play the …", "search …", "continue …"), or a word
+         * it doesn't know. The unknown word alone wasn't enough: with every channel's words to choose
+         * from, the grammar recognizer forces a title into them ("the matrix" as "the me tribeca") and
+         * hardly ever says "[unk]" (0.2.23 on the Shield). "Watch" alone isn't a lead-in, so "watch
+         * ESPN" stays fast.
+         */
+        fun wantsTitle(partial: String): Boolean {
+            val text = partial.lowercase().trim()
+            return "[unk]" in text || titleLead.containsMatchIn(text.removePrefix(fillers))
+        }
+
+        private val titleLead = Regex("""^(play|search|find|look up|look for|continue|resume|keep watching|watch the (movie|show|film|series))\s+\S""")
+
+        /**
          * What a free guess says after any lead-in, as heard ("play seinfeld" → "seinfeld", true), for
          * matching a title. The flag says it began with a lead-in, so a miss can still open Search.
          */

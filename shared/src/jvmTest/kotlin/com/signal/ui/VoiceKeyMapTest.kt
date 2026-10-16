@@ -169,6 +169,24 @@ class VoiceKeyMapTest {
         assertTrue(shows("Plays that episode."))
     }
 
+    // 0.2.23 on the Shield: the grammar forced "play matrix" into channel words ("play me truckers"),
+    // and a title by those words came up. With the free recognizer's words, its title wins.
+    @Test fun theFreeRecognizersTitleBeatsTheGrammarsWords() = keyMapTest {
+        val title = uniqueTitle(com.signal.model.VodKind.MOVIE)
+        val r = app.voice(listOf("play golf", "play the news"), free = "play $title")
+        assertTrue(r.acted, r.message)
+        route(Route.VodPlayer)
+        assertEquals(title, com.signal.match.VodTitles.query(app.vodPlayback.current.value!!.item.name).lowercase())
+    }
+
+    // Without the free recognizer, the grammar's words name a title only exactly: "golden" is part of
+    // several Demo titles, and it isn't a title of its own.
+    @Test fun grammarWordsNameATitleOnlyExactly() = keyMapTest(start = Route.Settings) {
+        val r = app.voice(listOf("play golden"))
+        assertFalse(r.acted, r.message)
+        assertEquals(null, panelTitle)
+    }
+
     @Test fun nothingPlayingSaysSo() = keyMapTest(start = Route.Settings) {
         val r = app.voice(listOf("pause"))
         assertFalse(r.acted)

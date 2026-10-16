@@ -97,6 +97,14 @@ class VoiceCommandTest {
         assertEquals(VoiceCommand.Tune("seinfeld"), parse("play seinfeld"))
     }
 
+    // What starts the free recognizer, from the grammar's words so far (0.2.23 on the Shield).
+    @Test fun whatWantsATitle() {
+        for (s in listOf("play the me tribeca", "play me", "ok play the", "search the off", "continue the office", "keep watching lost", "watch the movie make", "[unk]", "the [unk] show"))
+            assert(VoiceCommand.wantsTitle(s)) { s }
+        for (s in listOf("watch e s p n", "espn", "play", "pause", "continue", "guide", "channel up", "back thirty seconds", "fox sports one"))
+            assert(!VoiceCommand.wantsTitle(s)) { s }
+    }
+
     @Test fun spokenTitlesKeepTheirWords() {
         assertEquals("apollo thirteen" to true, VoiceCommand.spokenTitle("ok play apollo thirteen please"))
         assertEquals("seinfeld" to false, VoiceCommand.spokenTitle("seinfeld"))
