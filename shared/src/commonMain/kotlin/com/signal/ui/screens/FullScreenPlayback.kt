@@ -62,13 +62,11 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 
-/** [PEEK] is the info bar shown after a channel change: it takes no keys, so the screen's own still work. */
-private enum class Overlay { NONE, INFO, PEEK, CHANNEL_LIST }
+private enum class Overlay { NONE, INFO, CHANNEL_LIST }
 
 /**
  * Full-screen live playback (PLAN §4.3.3). Video only by default; UI appears on OK (info bar), Left
- * (channel list), and for 5 seconds after any channel change, without taking keys (user, 2026-10-16;
- * it was a slimmer zap banner).
+ * (channel list) or briefly after a channel change (zap banner).
  */
 @Composable
 fun FullScreenPlayback(route: Route.FullScreen) {
@@ -79,7 +77,7 @@ fun FullScreenPlayback(route: Route.FullScreen) {
     val aspect by app.playback.aspect.collectAsState()
     var overlay by remember { mutableStateOf(Overlay.NONE) }
     var infoFocusOptions by remember { mutableStateOf(false) }
-
+    var bannerTick by remember { mutableStateOf(0) }
     var lastInput by remember { mutableStateOf(0) }
 
     fun zap(step: Int) {
@@ -114,14 +112,11 @@ fun FullScreenPlayback(route: Route.FullScreen) {
         }
     }
 
-    // Every channel change shows the info bar for 5 seconds (user, 2026-10-16): Up/Down, the channel
-    // buttons, a number, recall, the channel list, a voice command, and opening full screen. It takes
-    // no keys; OK makes it the interactive one. An open info bar or channel list stays as it is.
+    // The zap banner after every channel change (user, 2026-10-16): Up/Down, the channel buttons, a
+    // number, recall, the channel list, a voice command, and opening full screen. It used to follow
+    // only the keys; 0.2.28's full info bar here was too much. An open info bar or list stays as it is.
     LaunchedEffect(current?.stream?.id) {
-        if (current == null || overlay == Overlay.INFO || overlay == Overlay.CHANNEL_LIST) return@LaunchedEffect
-        infoFocusOptions = false
-        overlay = Overlay.PEEK
-        lastInput++
+        if (current != null && overlay == Overlay.NONE) bannerTick++
     }
 
     val groupChannels by remember(app.playback.currentGroup, current) { app.channels.channels(app.playback.currentGroup) }.collectAsState(emptyList())
@@ -152,7 +147,7 @@ fun FullScreenPlayback(route: Route.FullScreen) {
                 }
             }
             when (overlay) {
-                Overlay.INFO, Overlay.PEEK -> InfoBar(
+                Overlay.INFO -> InfoBar(
                     channel = ch,
                     state = playerState,
                     focusOptions = infoFocusOptions,
@@ -160,10 +155,9 @@ fun FullScreenPlayback(route: Route.FullScreen) {
                     onClose = { overlay = Overlay.NONE },
                     onZap = ::zap,
                     onRecall = { app.playback.recall() },
-                    interactive = overlay == Overlay.INFO,
                 )
                 Overlay.CHANNEL_LIST -> {} // Kept, above.
-                Overlay.NONE -> {}
+                Overlay.NONE -> if (bannerTick > 0) ZapBanner(ch, bannerTick, onOpenInfo = { overlay = Overlay.INFO })
             }
         }
     }
@@ -182,6 +176,38 @@ internal fun OverlayBackground(
     }
 }
 
+/** A slim strip after a channel change, about 3 seconds, no focus (PLAN §4.3.3 → Zap banner). */
+@Composable
+private fun ZapBanner(channel: Channel, tick: Int, onOpenInfo: () -> Unit) {
+    var visible by remember { mutableStateOf(true) }
+    LaunchedEffect(tick) {
+        visible = true
+        delay(3000)
+        visible = false
+    }
+    if (!visible) return
+    RemoteHandler(priority = RemoteDispatcher.Priority.OVERLAY) { action ->
+        if (action == RemoteAction.Select) { onOpenInfo(); true } else false
+    }
+    val c = SignalTheme.colors
+    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.BottomStart) {
+        OverlayBackground {
+            Row(Modifier.padding(horizontal = SignalSizes.EDGE_MARGIN.dp, vertical = 24.dp), verticalAlignment = Alignment.CenterVertically) {
+                val numbers = showNumbers()
+                if (numbers) SText(channel.number.toString(), 48, weight = FontWeight.ExtraBold)
+                LogoTile(channel.displayName, channel.logoUrl, 96, 56, if (numbers) Modifier.padding(start = 32.dp) else Modifier)
+                Column(Modifier.padding(start = 32.dp)) {
+                    val app = LocalApp.current
+                    val now = rememberNow()
+                    val on = rememberNowAndNext(channel, now).first
+                    SText(channel.displayName, 32, weight = FontWeight.ExtraBold)
+                    SText(on?.let { "${it.title} · ${programTime(app, it, now)}" } ?: "No guide information", 24, color = c.muted)
+                }
+            }
+        }
+    }
+}
+
 /** The info bar (PLAN §4.3.3): full width along the bottom, about 40% of the height. */
 @Composable
 private fun InfoBar(
@@ -192,8 +218,6 @@ private fun InfoBar(
     onClose: () -> Unit,
     onZap: (Int) -> Unit,
     onRecall: () -> Unit,
-    /** False after a channel change: shown, but it takes no focus or keys (Overlay.PEEK). */
-    interactive: Boolean = true,
 ) {
     val app = LocalApp.current
     val c = SignalTheme.colors
@@ -207,10 +231,10 @@ private fun InfoBar(
         delay(5000)
         onClose()
     }
-    LaunchedEffect(interactive) { if (interactive) firstOption.requestFocusWhenReady() }
-    LaunchedEffect(focusOptions, interactive) { if (focusOptions && interactive) optionsRow.requestFocusWhenReady() }
+    LaunchedEffect(Unit) { firstOption.requestFocusWhenReady() }
+    LaunchedEffect(focusOptions) { if (focusOptions) optionsRow.requestFocusWhenReady() }
 
-    RemoteHandler(enabled = interactive, priority = RemoteDispatcher.Priority.OVERLAY) { action ->
+    RemoteHandler(priority = RemoteDispatcher.Priority.OVERLAY) { action ->
         when (action) {
             RemoteAction.Back -> { onClose(); true }
             // Up/Down still change channel, and the bar updates for the new channel.

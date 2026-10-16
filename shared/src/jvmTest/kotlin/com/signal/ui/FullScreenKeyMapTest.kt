@@ -38,7 +38,7 @@ class FullScreenKeyMapTest {
         toFullScreen()
         press(RemoteAction.Right)
         assertFalse(shows("Groups"))
-        // The info bar shown on tuning takes no keys: Left still opens the channel list.
+        assertFalse(shows("Aspect ratio"))
         press(RemoteAction.Left)
         eventually("channel list") { shows("Groups") }
     }
@@ -132,23 +132,28 @@ class FullScreenKeyMapTest {
         eventually("recalled") { current?.key == start.key }
     }
 
-    // ---- The info bar on a channel change (user, 2026-10-16; it was a zap banner) ----------
+    // ---- Zap banner --------------------------------------------------------------------
 
-    @Test fun aChannelChangeShowsTheInfoBarWithoutTakingKeys() = keyMapTest {
+    @Test fun zapBannerOkOpensTheInfoBar() = keyMapTest {
         toFullScreen()
         val start = current!!
         press(RemoteAction.Down)
-        eventually("the info bar for the new channel") { current?.key != start.key && shows("Aspect ratio") && shows(current!!.displayName) }
-        // It takes no focus: Down changes channel again, rather than moving within it.
-        val second = current!!
-        press(RemoteAction.Down)
-        eventually("the next channel") { current?.key != second.key }
-        // OK makes it the interactive one, on its first option.
+        eventually("banner") { current?.key != start.key && shows(current!!.displayName) }
+        assertFalse(shows("Aspect ratio"))
         press(RemoteAction.Select)
-        eventually("the info bar's options") { focusedText() == "Audio" }
-        // It hides after 5 seconds.
-        ui.mainClock.advanceTimeBy(6_000)
-        eventually("hidden") { !shows("Aspect ratio") }
+        eventually("info bar") { shows("Aspect ratio") }
+    }
+
+    // Any channel change shows it, not only the keys: here a voice command (user, 2026-10-16).
+    @Test fun zapBannerAfterAVoiceChannelChange() = keyMapTest {
+        toFullScreen()
+        val start = current!!
+        app.voice(listOf("watch tennis tv"))
+        eventually("the banner for Tennis TV") { current?.key != start.key && current?.displayName == "Tennis TV" && shows("Tennis TV") }
+        assertFalse(shows("Aspect ratio"))
+        // It takes no keys but OK: Left still opens the channel list.
+        press(RemoteAction.Left)
+        eventually("channel list") { shows("Groups") }
     }
 
     // ---- Channel list ------------------------------------------------------------------
