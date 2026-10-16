@@ -52,10 +52,19 @@ While Signal is the assistant, Google Assistant doesn't answer the mic button on
    **Settings → Voice commands** says **On** when everything's ready. Press the mic button anywhere
    and say a channel.
 
+7. **Let Signal take the mic back after a force stop** (recommended, Signal 0.2.24 or later):
+   ```
+   adb shell pm grant com.signal.tv android.permission.WRITE_SECURE_SETTINGS
+   ```
+   Force-stopping Signal (Settings → Apps → Force stop, or an app that closes apps) makes Android
+   hand the mic button back to Google Assistant. With this permission, Signal takes it back the
+   next time it opens, with no adb needed. **Settings → Voice commands → After a force stop** says
+   whether it's allowed.
+
 Network debugging can be turned off again afterwards; Signal stays the assistant.
 
 Signal stays the assistant through its own updates. A factory reset, or uninstalling and
-reinstalling Signal, needs steps 3–5 again.
+reinstalling Signal, needs steps 3–5 and 7 again.
 
 ## Turning it off
 
@@ -63,7 +72,9 @@ reinstalling Signal, needs steps 3–5 again.
 adb shell cmd role add-role-holder android.app.role.ASSISTANT com.google.android.katniss
 ```
 
-This gives the mic button back to Google Assistant.
+This gives the mic button back to Google Assistant. Signal sees the change and doesn't take the mic
+back, even with step 7's permission. Run it while Signal is running (open Signal first), or Signal
+can't tell it apart from a force stop.
 
 ## Using it
 
@@ -128,7 +139,8 @@ episodes, and the newest movies and series.
 
 ## When it doesn't work
 
-- **The mic button still opens Google Assistant:** Signal isn't the assistant. Check with the
+- **The mic button opens Google Assistant again:** Signal was probably force-stopped. With step 7's
+  permission, open Signal once and the mic is Signal's again. Without it, check with the
   `settings get` command in step 4, and run the role command again.
 - **"Allow the microphone to use voice commands":** open Signal and allow it, or go to Settings →
   Voice commands → Microphone. If Android stopped asking, allow it in the TV's Settings → Apps →

@@ -13,9 +13,12 @@ class AndroidVoiceSetup(private val context: Context, private val activity: () -
     override val packageName: String get() = context.packageName
 
     override fun status() = VoiceStatus(
-        isAssistant = context.getSystemService(RoleManager::class.java)?.isRoleHeld(RoleManager.ROLE_ASSISTANT) == true,
+        // The role, or the setting the system binds from: after AssistantKeeper restores Signal, the
+        // role still names Google but Signal is the one that answers the mic.
+        isAssistant = context.getSystemService(RoleManager::class.java)?.isRoleHeld(RoleManager.ROLE_ASSISTANT) == true || AssistantKeeper.isAssistant(context),
         hasMicrophone = context.checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED,
         model = VoskModel.state(context),
+        keepsAssistant = AssistantKeeper.canKeep(context),
     )
 
     override fun requestMicrophone() {

@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
 
     <!-- Android TV only: leanback required, no touchscreen (PLAN §5.3). -->
     <uses-feature android:name="android.software.leanback" android:required="true" />
@@ -10,6 +11,10 @@
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <!-- Voice commands when Signal is the device's assistant (PLAN §4.3.14 → Voice commands). -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <!-- Staying the assistant after a force stop: granted once with adb, never by the user (voice/AssistantKeeper.kt). -->
+    <uses-permission android:name="android.permission.WRITE_SECURE_SETTINGS" tools:ignore="ProtectedPermissions" />
+    <!-- Starts the process after a reboot, which re-syncs the assistant settings to the role holder. -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
     <!-- Settings files (PLAN §9.2): to see whether a real file picker exists, or only Android TV's stub. -->
     <queries>
@@ -71,6 +76,16 @@
                 <action android:name="android.speech.RecognitionService" />
             </intent-filter>
         </service>
+
+        <!-- After a reboot or an update: starting the process is what matters (SignalApplication). -->
+        <receiver
+            android:name=".voice.AssistantStartReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </receiver>
 
         <provider
             android:name="androidx.core.content.FileProvider"

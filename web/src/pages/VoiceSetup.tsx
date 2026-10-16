@@ -9,6 +9,7 @@ const DOC = "https://github.com/jives00/Signal/blob/main/docs/voice-commands.md"
 const ON = "adb shell cmd role add-role-holder android.app.role.ASSISTANT com.signal.tv";
 const OFF = "adb shell cmd role add-role-holder android.app.role.ASSISTANT com.google.android.katniss";
 const CHECK = "adb shell settings get secure voice_interaction_service";
+const KEEP = "adb shell pm grant com.signal.tv android.permission.WRITE_SECURE_SETTINGS";
 
 function Command({ text }: { text: string }) {
   const [copied, setCopied] = useState(false);
@@ -37,8 +38,9 @@ export default function VoiceSetup() {
         <li><b>Connect</b> with the TV's address (Settings → Network &amp; Internet), and choose Always allow on the TV: <Command text="adb connect <the TV's address>:5555" /></li>
         <li><b>Make Signal the assistant:</b> <Command text={ON} /> To check, this should print <code>com.signal.tv/.voice.SignalAssistantService</code>: <Command text={CHECK} /></li>
         <li><b>On the TV, open Signal</b> and allow the microphone. It downloads its speech model once (130 MB); Settings → Voice commands says <b>On</b> when it's ready.</li>
+        <li><b>Let Signal take the mic back after a force stop</b> (0.2.24 or later). A force stop hands the mic button back to Google Assistant; with this, Signal takes it back the next time it opens: <Command text={KEEP} /></li>
       </ol>
-      <p className="detail">Signal stays the assistant through updates; a factory reset or a reinstall needs steps 3–5 again. To give the mic button back to Google Assistant:</p>
+      <p className="detail">Signal stays the assistant through updates; a factory reset or a reinstall needs steps 3–6 again. To give the mic button back to Google Assistant, with Signal open so it knows it was on purpose:</p>
       <Command text={OFF} />
       <p className="detail">Give hard-to-say channels easier names with <b>Voice names</b> on the Channels page.</p>
     </section>

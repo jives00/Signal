@@ -54,7 +54,13 @@ interface VoiceSetup {
     val packageName: String
 }
 
-data class VoiceStatus(val isAssistant: Boolean, val hasMicrophone: Boolean, val model: Model) {
+data class VoiceStatus(
+    val isAssistant: Boolean,
+    val hasMicrophone: Boolean,
+    val model: Model,
+    /** Signal can put itself back as the assistant after a force stop (a permission granted with adb). */
+    val keepsAssistant: Boolean = false,
+) {
     enum class Model { NOT_DOWNLOADED, DOWNLOADING, LOADING, READY, FAILED }
     val ready: Boolean get() = isAssistant && hasMicrophone && model == Model.READY
 }

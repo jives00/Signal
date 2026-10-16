@@ -472,11 +472,17 @@ private fun VoiceSection(voice: com.signal.platform.VoiceSetup) {
             onSelect = if (status.hasMicrophone) null else ({ voice.requestMicrophone() }),
         )
         ListRow("Speech model", detail = model, onSelect = null)
+        ListRow(
+            "After a force stop",
+            detail = if (status.keepsAssistant) "Signal takes the mic back when it next opens" else "Google Assistant takes the mic · allow Signal to take it back, below",
+            onSelect = null,
+        )
         SectionTitle("Turning it on")
         text("Android TV has no setting for this, so it's done once from a computer with adb. Every step is in the web admin under Devices → Voice commands. In short: turn on network debugging in the TV's Developer options, then run:")
         text("adb connect <the TV's address>:5555")
         text("adb shell cmd role add-role-holder android.app.role.ASSISTANT ${voice.packageName}")
-        text("The mic button then talks to Signal everywhere, instead of Google Assistant.")
+        text("adb shell pm grant ${voice.packageName} android.permission.WRITE_SECURE_SETTINGS")
+        text("The mic button then talks to Signal everywhere, instead of Google Assistant. The second command lets Signal take the mic back after it's force-stopped, the next time it opens.")
         SectionTitle("Turning it off")
         text("adb shell cmd role add-role-holder android.app.role.ASSISTANT com.google.android.katniss")
         SectionTitle("Voice names")

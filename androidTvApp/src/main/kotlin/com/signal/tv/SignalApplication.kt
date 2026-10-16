@@ -21,6 +21,8 @@ class SignalApplication : Application() {
     override fun onCreate() {
         super.onCreate()
         platform = AndroidPlatform(this)
+        // Back as the assistant after a force stop, when allowed (voice/AssistantKeeper.kt).
+        com.signal.tv.voice.AssistantKeeper.start(this)
     }
 
     private companion object {
