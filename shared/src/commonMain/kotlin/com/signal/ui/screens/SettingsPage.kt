@@ -516,23 +516,12 @@ private fun WhatToSaySection() {
             Box(Modifier.fillMaxWidth().background(if (focused) c.surface else androidx.compose.ui.graphics.Color.Transparent).padding(horizontal = 40.dp, vertical = 10.dp)) { content(focused) }
         }
     LazyColumn(Modifier.width(1100.dp)) {
-        item {
-            row { SText("Press the mic button and say a channel, a title or a command. The panel at the bottom shows what was heard, then what Signal did.", 24, color = c.secondaryText, maxLines = 3) }
-        }
+        item { row { SText(help.intro, 24, color = c.secondaryText, maxLines = 3) } }
         for (g in help.groups) {
             item { SectionTitle(g.title) }
-            g.intro?.let { intro -> item { row { SText(intro, 22, color = c.secondaryText, maxLines = 3) } } }
-            items(g.commands) { cmd ->
-                row { focused ->
-                    Column {
-                        SText(cmd.say.joinToString("  ·  ") { "\"$it\"" }, 24, weight = FontWeight.SemiBold, color = c.text, maxLines = 2)
-                        SText(cmd.does, 22, Modifier.padding(top = 4.dp), color = if (focused) c.text else c.secondaryText, maxLines = 4)
-                    }
-                }
-            }
+            g.intro?.let { intro -> item { row { SText(intro, 22, weight = FontWeight.SemiBold, color = c.text, maxLines = 3) } } }
+            items(g.items) { line -> row { focused -> SText("•  $line", 22, color = if (focused) c.text else c.secondaryText, maxLines = 4) } }
         }
-        item { SectionTitle("Tips") }
-        items(help.tips) { tip -> row { focused -> SText(tip, 22, color = if (focused) c.text else c.secondaryText, maxLines = 4) } }
         item { Box(Modifier.height(48.dp)) }
     }
 }

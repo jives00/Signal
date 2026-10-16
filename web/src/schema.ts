@@ -339,9 +339,8 @@ export type TmdbCandidate = z.infer<typeof TmdbCandidate>;
 export type LibraryRow = z.infer<typeof LibraryRow>;
 
 /** server/Server.kt /api/voice/commands: what can be said to Signal (shared/voice/VoiceHelp.kt). */
-export const VoiceHelpCommand = z.object({ say: z.array(z.string()), does: z.string() });
-export const VoiceHelpGroup = z.object({ title: z.string(), intro: z.string().nullable(), commands: z.array(VoiceHelpCommand), since: z.string().nullable() });
-export const VoiceHelp = z.object({ groups: z.array(VoiceHelpGroup), tips: z.array(z.string()) });
+export const VoiceHelpGroup = z.object({ title: z.string(), intro: z.string().nullable(), items: z.array(z.string()) });
+export const VoiceHelp = z.object({ intro: z.string(), groups: z.array(VoiceHelpGroup) });
 export type VoiceHelp = z.infer<typeof VoiceHelp>;
 
 /** server/Releases.kt /api/releases (PLAN §4.3.15 → Release channels): recent app releases. */

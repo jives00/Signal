@@ -1,34 +1,19 @@
 {
+    "intro": "Press the mic button and say a channel.",
     "groups": [
         {
-            "title": "Playback",
-            "intro": "What's playing.",
-            "commands": [
-                {
-                    "say": [
-                        "pause",
-                        "resume"
-                    ],
-                    "does": "Pauses or resumes."
-                }
-            ],
-            "since": null
+            "title": "Live TV",
+            "intro": "The keyword is “Watch”.",
+            "items": [
+                "“ESPN” switches to that channel."
+            ]
         },
         {
-            "title": "Movies",
+            "title": "Other",
             "intro": null,
-            "commands": [
-                {
-                    "say": [
-                        "search Seinfeld"
-                    ],
-                    "does": "Opens Search."
-                }
-            ],
-            "since": "Signal 0.2.21 or later"
+            "items": [
+                "“Captions on” turns on captions."
+            ]
         }
-    ],
-    "tips": [
-        "Voice names help."
     ]
 }

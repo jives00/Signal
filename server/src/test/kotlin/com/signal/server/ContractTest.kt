@@ -61,11 +61,11 @@ class ContractTest {
         check(
             "voice-help", com.signal.voice.VoiceHelp.serializer(),
             com.signal.voice.VoiceHelp(
+                "Press the mic button and say a channel.",
                 listOf(
-                    com.signal.voice.VoiceHelp.Group("Playback", "What's playing.", listOf(com.signal.voice.VoiceHelp.Command(listOf("pause", "resume"), "Pauses or resumes."))),
-                    com.signal.voice.VoiceHelp.Group("Movies", commands = listOf(com.signal.voice.VoiceHelp.Command(listOf("search Seinfeld"), "Opens Search.")), since = "Signal 0.2.21 or later"),
+                    com.signal.voice.VoiceHelp.Group("Live TV", "The keyword is “Watch”.", listOf("“ESPN” switches to that channel.")),
+                    com.signal.voice.VoiceHelp.Group("Other", items = listOf("“Captions on” turns on captions.")),
                 ),
-                listOf("Voice names help."),
             ),
         )
         check(

@@ -163,10 +163,10 @@ class VoiceKeyMapTest {
         focusedStartsWith("Sources")
         while (focusedText() != "What to say") press(RemoteAction.Down)
         press(RemoteAction.Right)
-        eventually("the list") { focusedText()?.startsWith("Press the mic button") == true }
+        eventually("the list") { focusedText()?.startsWith("Press or hold the mic button") == true }
         screenshot("what-to-say")
-        repeat(40) { if (!shows("\"play The Office season two episode five\"")) press(RemoteAction.Down) }
-        assertTrue(shows("Plays that episode."))
+        repeat(40) { if (!shows("Saying “Go to Guide”")) press(RemoteAction.Down) }
+        assertTrue(shows("“Play The Office Season 2 Episode 3” will play that specific episode."))
     }
 
     // 0.2.23 on the Shield: the grammar forced "play matrix" into channel words ("play me truckers"),
