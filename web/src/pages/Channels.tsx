@@ -4,6 +4,7 @@ import {
   type ChannelAction, type ChannelColumn, type ChannelQuery,
 } from "../admin";
 import { ApplyTo, profileNames, store, stored, useProfiles, useToast } from "../context";
+import Drawer from "../Drawer";
 import { SortHeader } from "../sort";
 import type { ChannelPage, ChannelRow, GroupView, GuideChannelInfo, LinkView, ProgramBrief, SourcesView } from "../schema";
 
@@ -231,8 +232,7 @@ function ChannelDrawer({ initial, onClose, onChanged, sources }: { initial: Chan
   const epgSources = useMemo(() => sources?.epgSources.filter((e) => e.enabled) ?? [], [sources]);
 
   return (
-    <aside className="drawer" aria-label={`${row.name} details`}>
-      <button className="link close" onClick={onClose}>Close</button>
+    <Drawer label={`${row.name} details`} onClose={onClose}>
       <h2>{row.name}</h2>
       <p className="detail">{row.sourceName} · {row.group} · No. {row.number}</p>
       <ApplyTo />
@@ -282,7 +282,7 @@ function ChannelDrawer({ initial, onClose, onChanged, sources }: { initial: Chan
       <h3>Raw name</h3>
       <p className="mono">{revealHidden(row.rawName)}</p>
       {row.tvgId && <p className="detail">tvg-id <span className="mono">{row.tvgId}</span></p>}
-    </aside>
+    </Drawer>
   );
 }
 

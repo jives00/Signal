@@ -210,6 +210,8 @@ img.logo.big { width: 96px; height: 56px; padding: 4px; }
   position: fixed; top: 0; right: 0; bottom: 0; width: 480px; z-index: 40; overflow-y: auto;
   background: var(--bg); border-left: 2px solid var(--divider); padding: 24px; box-shadow: -8px 0 32px rgba(0, 0, 0, 0.35);
 }
+/* Behind a drawer: a click on it closes the drawer (Drawer.tsx). Clear, so the page still shows. */
+.drawer-backdrop { position: fixed; inset: 0; z-index: 39; background: transparent; }
 .drawer h2 { margin: 0 0 4px; font-weight: 800; }
 .drawer h3 { margin: 24px 0 8px; font-size: 13px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }
 .drawer .close { float: right; }
