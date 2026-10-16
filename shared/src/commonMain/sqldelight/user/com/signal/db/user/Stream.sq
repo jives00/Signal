@@ -42,7 +42,8 @@ ORDER BY src.created_at, first_position;
 channelsInGroup:
 SELECT s.*, cl.user_channel_id,
        cp.custom_name, cp.custom_logo, cp.custom_number, coalesce(cp.hidden, 0) AS hidden,
-       (f.user_channel_id IS NOT NULL) AS is_favorite
+       (f.user_channel_id IS NOT NULL) AS is_favorite,
+       EXISTS (SELECT 1 FROM playlist_item pi JOIN playlist p ON p.id = pi.playlist_id AND p.profile_id = :profileId WHERE pi.user_channel_id = cl.user_channel_id) AS in_playlist
 FROM stream s
 LEFT JOIN channel_link cl ON cl.stream_id = s.id
 LEFT JOIN channel_profile cp ON cp.user_channel_id = cl.user_channel_id AND cp.profile_id = :profileId
@@ -54,7 +55,8 @@ ORDER BY s.position;
 channelByIdWithUser:
 SELECT s.*, cl.user_channel_id,
        cp.custom_name, cp.custom_logo, cp.custom_number, coalesce(cp.hidden, 0) AS hidden,
-       (f.user_channel_id IS NOT NULL) AS is_favorite
+       (f.user_channel_id IS NOT NULL) AS is_favorite,
+       EXISTS (SELECT 1 FROM playlist_item pi JOIN playlist p ON p.id = pi.playlist_id AND p.profile_id = :profileId WHERE pi.user_channel_id = cl.user_channel_id) AS in_playlist
 FROM stream s
 LEFT JOIN channel_link cl ON cl.stream_id = s.id
 LEFT JOIN channel_profile cp ON cp.user_channel_id = cl.user_channel_id AND cp.profile_id = :profileId
@@ -67,7 +69,8 @@ WHERE s.id = :streamId;
 searchIndex:
 SELECT s.id, s.raw_name, s.display_name, s.tvg_id, cl.user_channel_id, cp.custom_name, cp.voice_names,
        coalesce(cp.hidden, 0) AS hidden, coalesce(go.hidden, 0) AS group_hidden,
-       (f.user_channel_id IS NOT NULL) AS is_favorite
+       (f.user_channel_id IS NOT NULL) AS is_favorite,
+       EXISTS (SELECT 1 FROM playlist_item pi JOIN playlist p ON p.id = pi.playlist_id AND p.profile_id = :profileId WHERE pi.user_channel_id = cl.user_channel_id) AS in_playlist
 FROM stream s
 JOIN source src ON src.id = s.source_id AND src.enabled = 1
 LEFT JOIN channel_link cl ON cl.stream_id = s.id

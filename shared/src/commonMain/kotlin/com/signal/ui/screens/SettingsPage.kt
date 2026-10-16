@@ -120,7 +120,7 @@ fun SettingsPage() {
                     section == Section.APPEARANCE -> AppearanceSection(app, contentFocus)
                     section == Section.NAS -> NasSection(app, onForm = { nasForm = it }, returnTo = contentFocus)
                     section == Section.GUIDE_DATA -> GuideDataSection(app)
-                    section == Section.VOICE -> app.platform.voice?.let { VoiceSection(it) }
+                    section == Section.VOICE -> app.platform.voice?.let { VoiceSection(app, it, contentFocus) }
                     section == Section.WHAT_TO_SAY -> WhatToSaySection()
                     section == Section.ABOUT -> AboutSection(app)
                 }
@@ -438,7 +438,7 @@ fun updatePanel(app: AppController, state: UpdateState.Available): PanelPage {
  * off. Android TV has no setting for the assistant, so that part is an adb command, shown here.
  */
 @Composable
-private fun VoiceSection(voice: com.signal.platform.VoiceSetup) {
+private fun VoiceSection(app: AppController, voice: com.signal.platform.VoiceSetup, returnTo: FocusRequester) {
     val c = SignalTheme.colors
     var status by remember { mutableStateOf(voice.status()) }
     // The assistant and the permission change outside the app (adb, the system prompt).
@@ -472,6 +472,15 @@ private fun VoiceSection(voice: com.signal.platform.VoiceSetup) {
             onSelect = if (status.hasMicrophone) null else ({ voice.requestMicrophone() }),
         )
         ListRow("Speech model", detail = model, onSelect = null)
+        // Which channels a spoken name can match (PLAN §4.3.14 → Voice commands): fewer is more accurate.
+        var channelsTick by remember { mutableStateOf(0) }
+        val all = remember(channelsTick) { app.settings.raw(Settings.Key.VOICE_CHANNELS) == com.signal.search.SearchRepository.VOICE_ALL }
+        ListRow("Channels to match", detail = if (all) "All visible channels" else "Favorites, playlists and voice names", onSelect = {
+            app.panel.open(PanelPage.Actions("Channels to match", listOf(
+                PanelAction("Favorites, playlists and voice names", selected = !all) { app.settings.put(Settings.Key.VOICE_CHANNELS, null); channelsTick++; null },
+                PanelAction("All visible channels", selected = all) { app.settings.put(Settings.Key.VOICE_CHANNELS, com.signal.search.SearchRepository.VOICE_ALL); channelsTick++; null },
+            ), subtitle = "Fewer channels are understood better: with every channel, the recognizer can hear a title or team as channel words. Games are found on every channel either way."), returnTo)
+        })
         ListRow(
             "After a force stop",
             detail = if (status.keepsAssistant) "Signal takes the mic back when it next opens" else "Google Assistant takes the mic · allow Signal to take it back, below",

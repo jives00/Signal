@@ -246,6 +246,30 @@ class VoiceKeyMapTest {
         for (p in listOf("steelers game", "pittsburgh steelers game", "cleveland", "browns")) assertTrue(p in phrases, p)
     }
 
+    // ---- Channels to match ----
+
+    // By default, with favorites set, only they (and playlists and voice names) are matched.
+    @Test fun favoritesAreWhatVoiceMatches() = keyMapTest(favorites = 3) {
+        val favorite = app.channels.channelsNow(com.signal.model.ChannelGroup.Favorites).first()
+        val r = app.voice(listOf("watch ${favorite.displayName.lowercase()}"))
+        assertTrue(r.acted, r.message)
+        eventually("the favorite") { current?.stream?.id == favorite.stream.id }
+        // Tennis TV is visible but not a favorite.
+        app.navigator.resetTo(Route.Home)
+        assertFalse(app.voice(listOf("watch tennis tv")).acted)
+        assertFalse("tennis" in app.voicePhrases())
+        // All visible channels: it's matched again.
+        app.settings.put(com.signal.data.Settings.Key.VOICE_CHANNELS, com.signal.search.SearchRepository.VOICE_ALL)
+        eventually("the setting saved") { app.settings.raw(com.signal.data.Settings.Key.VOICE_CHANNELS) != null }
+        assertTrue(app.voice(listOf("watch tennis tv")).acted)
+        assertTrue("tennis" in app.voicePhrases())
+    }
+
+    // With no favorites, playlists or voice names yet, every visible channel counts.
+    @Test fun withNoFavoritesEveryChannelCounts() = keyMapTest {
+        assertTrue(app.voice(listOf("watch tennis tv")).acted)
+    }
+
     @Test fun nothingPlayingSaysSo() = keyMapTest(start = Route.Settings) {
         val r = app.voice(listOf("pause"))
         assertFalse(r.acted)
