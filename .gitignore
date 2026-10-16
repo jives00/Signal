@@ -28,3 +28,6 @@ dist/
 .vscode/
 .DS_Store
 Thumbs.db
+
+# TypeScript's incremental build cache: rewritten by every typecheck, regenerated in CI.
+*.tsbuildinfo
