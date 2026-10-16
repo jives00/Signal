@@ -36,8 +36,18 @@ internal object AssistantKeeper {
     private const val ASSISTANT = "assistant"
     private const val VOICE_RECOGNITION_SERVICE = "voice_recognition_service"
 
-    private fun service(context: Context) = ComponentName(context, SignalAssistantService::class.java).flattenToString()
-    private fun recognizer(context: Context) = ComponentName(context, SignalRecognitionService::class.java).flattenToString()
+    // The short form, as the system writes them ("com.signal.tv/.voice.SignalAssistantService").
+    private fun service(context: Context) = ComponentName(context, SignalAssistantService::class.java).flattenToShortString()
+    private fun recognizer(context: Context) = ComponentName(context, SignalRecognitionService::class.java).flattenToShortString()
+
+    /**
+     * Whether a setting names Signal's service. Compared as components: the system writes the short
+     * form, and 0.2.24 compared it as text with the long one, so on the Shield Signal never saw
+     * itself as the assistant and never took it back. The debug build's package hid it: there the
+     * two forms are the same.
+     */
+    private fun isSignal(context: Context, setting: String?) =
+        setting?.let(ComponentName::unflattenFromString) == ComponentName(context, SignalAssistantService::class.java)
     private fun prefs(context: Context) = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
 
     /** The permission to write the settings, granted with adb. */
@@ -46,7 +56,7 @@ internal object AssistantKeeper {
 
     /** Whether the system binds Signal as the voice interaction service now (the role may still name Google). */
     fun isAssistant(context: Context) =
-        Settings.Secure.getString(context.contentResolver, VOICE_INTERACTION_SERVICE) == service(context)
+        isSignal(context, Settings.Secure.getString(context.contentResolver, VOICE_INTERACTION_SERVICE))
 
     /**
      * On process start: remembers that Signal is the assistant, or, when it was and lost it to a
@@ -91,7 +101,7 @@ internal object AssistantKeeper {
             override fun onChange(selfChange: Boolean) {
                 val now = Settings.Secure.getString(context.contentResolver, VOICE_INTERACTION_SERVICE).orEmpty()
                 when {
-                    now == service(context) -> prefs(context).edit().putBoolean(WAS_ASSISTANT, true).apply()
+                    isSignal(context, now) -> prefs(context).edit().putBoolean(WAS_ASSISTANT, true).apply()
                     // A role change passes through an empty value on its way: only another app counts.
                     now.isEmpty() -> Unit
                     prefs(context).getBoolean(WAS_ASSISTANT, false) -> {

@@ -119,7 +119,7 @@ These work on what's showing. Each one says so in the panel when it can't apply.
 | "remind me about the Steelers game", "remind me about Jeopardy" | Sets a reminder on the next airing. When several programs match, a panel lists up to three. |
 
 Games need their teams in the guide's title, which the NAS companion's guide adds for most
-big-league games. Teams playing in the next day are recognized best, since Signal learns their
+big-league games. Teams playing in the next four days are recognized best, since Signal learns their
 names from the guide.
 
 ### Movies and series

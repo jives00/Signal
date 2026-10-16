@@ -53,6 +53,9 @@ private fun joined(a: String, b: String) = listOf(a, b).filter { it.isNotBlank()
 private class FreeListener(private val free: Recognizer, earlier: List<ShortArray>, private val onPartial: (String) -> Unit) {
     private val queue = LinkedBlockingQueue<ShortArray>(earlier)
     @Volatile private var text = ""
+    /** It heard words and then the end of speech: the press can stop listening. */
+    @Volatile var ended = false
+        private set
     /** Time spent decoding, for the log. */
     @Volatile var ms = 0L
         private set
@@ -62,8 +65,10 @@ private class FreeListener(private val free: Recognizer, earlier: List<ShortArra
             if (chunk === END) break
             val t = System.currentTimeMillis()
             // It may end an utterance early, on a pause mid-title: keep each piece.
-            if (free.acceptWaveForm(chunk, chunk.size)) text = joined(text, JSONObject(free.result).optString("text"))
-            else onPartial(joined(text, JSONObject(free.partialResult).optString("partial")))
+            if (free.acceptWaveForm(chunk, chunk.size)) {
+                text = joined(text, JSONObject(free.result).optString("text"))
+                if (text.isNotBlank()) ended = true
+            } else onPartial(joined(text, JSONObject(free.partialResult).optString("partial")))
             ms += System.currentTimeMillis() - t
         }
         val t = System.currentTimeMillis()
@@ -208,10 +213,14 @@ private class ListenSession(context: Context) : VoiceInteractionSession(context)
             if (n <= 0) break
             val chunk = buffer.copyOf(n)
             freeListener?.feed(chunk) ?: heardSoFar.add(chunk)
+            // While the free one runs, its end of speech ends the press: the grammar one, not knowing
+            // the words, can decide a title is over halfway through ("remind me about" … "jeopardy").
+            if (freeListener?.ended == true) break
             if (rec.acceptWaveForm(buffer, n)) {
-                guesses = guesses(rec.result)
+                val heard = guesses(rec.result)
+                if (guesses.isEmpty()) guesses = heard
                 // An end detected in the silence before speaking: keep listening.
-                if (guesses.isNotEmpty()) break
+                if (guesses.isNotEmpty() && freeListener == null) break
             } else {
                 val now = JSONObject(rec.partialResult).optString("partial")
                 if (com.signal.voice.VoiceCommand.wantsTitle(now)) startFree()

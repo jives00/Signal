@@ -1131,12 +1131,12 @@ class AppController(val platform: Platform, val log: Log) {
     @kotlin.concurrent.Volatile private var voicePhrasesCache: Pair<Triple<Int, Int, Int>, Set<String>>? = null
 
     /**
-     * Teams in the next day's games, folded, each as it's said (PLAN §4.3.14 → Voice commands, phase
+     * Teams in the next few days' games ([VOICE_TEAM_HOURS]), folded, each as it's said (PLAN §4.3.14 → Voice commands, phase
      * 2): full name, nickname and place. In the grammar, "watch the Steelers game" needs no free
      * recognizer.
      */
     suspend fun voiceTeams(): Set<String> {
-        val titles = runCatching { guide.gameTitles(Clock.System.now().toEpochMilliseconds()) }.getOrDefault(emptyList())
+        val titles = runCatching { guide.gameTitles(Clock.System.now().toEpochMilliseconds(), VOICE_TEAM_HOURS) }.getOrDefault(emptyList())
         return titles.mapNotNull(com.signal.guide.GameTitles::matchup)
             .flatMap { listOf(it.away, it.home) }
             .flatMap(com.signal.guide.GameTitles::spokenNames)
@@ -1244,6 +1244,8 @@ class AppController(val platform: Platform, val log: Log) {
         const val VOICE_RECENT_TITLES = 100
         /** Titles a voice command looks through for an exact one. */
         const val VOICE_TITLE_HITS = 20
+        /** Games whose teams the voice grammar knows: four days, so Sunday's games are known by Friday (a day missed the Bears). */
+        const val VOICE_TEAM_HOURS = 96
         /** A burst of edits (a move, a rename) goes as one sync. */
         const val SYNC_DEBOUNCE_MS = 2_000L
         /** While the event stream is down (PLAN §9.2). */
