@@ -142,7 +142,11 @@ class SearchRepository(
                     .map { Triple(it.first.streamId, it.second <= 0, it.first.favorite) }
             }
         }
-        return hits.mapNotNull { (id, exact, favorite) -> channels.channelByStream(id)?.let { ChannelHit(it, exact, favorite) } }
+        // The index has the names as stored; name cleanup applies when a channel is read, so the name
+        // shown ("Golf Channel" from "Golf Channel ᴴᴰ") counts as exact too.
+        return hits.mapNotNull { (id, exact, favorite) ->
+            channels.channelByStream(id)?.let { ChannelHit(it, exact || SearchText.fold(it.displayName) == folded, favorite) }
+        }
     }
 
     /**

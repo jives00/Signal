@@ -45,6 +45,7 @@ class PlaybackController(
 
     /** For last-channel recall (Play/Pause in full screen). */
     private var previous: Channel? = null
+    val previousChannel: Channel? get() = previous
 
     val playerState get() = player.state
 

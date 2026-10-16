@@ -75,8 +75,30 @@ This gives the mic button back to Google Assistant.
   names) or in the web admin (Channels → the channel → Voice names). Separate names with commas.
   A voice name wins over everything else, so it's also how to choose which channel a short name
   goes to.
+- **When a name fits more than one channel,** Signal asks: a panel lists up to three, and OK picks
+  one. Back cancels. It goes straight to the channel when there's one clear match: the only channel
+  with exactly that name, or the only favorite among them. Channels with the same name count once,
+  so streams of one channel in several groups never ask.
 - **A panel shows what's going on** while it listens: the words as they're heard, then the channel.
 - **Only visible channels count.** Channels in hidden groups, or hidden themselves, aren't matched.
+
+### Commands
+
+These work on what's showing. Each one says so in the panel when it can't apply.
+
+| Say | What it does |
+|---|---|
+| "pause", "resume" / "play" | Pauses or resumes a movie or episode. On live TV, "pause" stops the channel, since live TV can't pause, and "play" starts it again. |
+| "stop" | Stops a movie or episode and goes back, or stops the live channel. |
+| "back thirty seconds", "skip ahead ten minutes", "rewind", "fast forward" | Skips back or ahead in a movie or episode. On its own, "rewind" or "fast forward" moves 30 seconds. |
+| "start over" | Plays a movie or episode from the beginning. |
+| "next episode", "next" | The next episode. On live TV, "next" is the next channel. |
+| "channel up", "channel down", "next channel" | Changes channel, as the remote's channel buttons do. |
+| "last channel", "previous channel" | Goes back to the channel before this one. |
+| "what's on ESPN", "what's on" | Shows the program on now, without changing channel. With no channel, it's the one playing. |
+| "guide", "home", "movies", "series", "search", "settings", "my favorites" | Opens the page. "Go to", "open" and "show me" work in front of them. |
+| "captions on", "turn off subtitles", "captions" | Turns captions on or off; "captions" alone switches them. |
+| "Spanish audio", "change the audio to French" | Picks the audio track in that language. |
 
 ## When it doesn't work
 

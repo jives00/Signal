@@ -12,7 +12,13 @@ class VoiceCommandTest {
     @Test fun watch() = assertEquals("espn", tune("watch e s p n"))
     @Test fun changeTheChannelTo() = assertEquals("fox news", tune("change the channel to fox news"))
     @Test fun bareName() = assertEquals("cnn", tune("c n n"))
-    @Test fun fillersAndTrailing() = assertEquals("abc", tune("ok please go to a b c channel please"))
+    @Test fun fillersAndTrailing() = assertEquals("abc channel", tune("ok please go to a b c channel please"))
+
+    // "Channel" is part of some names and a filler after others: both are searched, the name first.
+    @Test fun trailingChannelIsTriedBothWays() {
+        assertEquals(listOf("golf channel", "golf"), VoiceCommand.Tune("golf channel").names)
+        assertEquals(listOf("channel"), VoiceCommand.Tune("channel").names)
+    }
     @Test fun lettersInsideWords() = assertEquals("fox sports 1", tune("put on fox sports 1"))
     @Test fun nothing() = assertNull(VoiceCommand.parse("  "))
     @Test fun onlyAPrefix() = assertEquals("switch", tune("switch"))
@@ -40,6 +46,84 @@ class VoiceCommandTest {
     @Test fun initialsAreUnpronounceable() {
         for (w in listOf("espn", "cbs", "nbc", "abc", "hbo", "usa", "tnt", "fs", "hd")) assert(VoiceCommand.isInitials(w)) { w }
         for (w in listOf("ten", "bet", "fox", "east", "news", "fs1", "network")) assert(!VoiceCommand.isInitials(w)) { w }
+    }
+
+    // Phase 2 (PLAN §4.3.14 → Voice commands, phase 2).
+    private fun parse(heard: String) = VoiceCommand.parse(heard)
+
+    @Test fun playback() {
+        assertEquals(VoiceCommand.Pause, parse("pause"))
+        assertEquals(VoiceCommand.Pause, parse("ok pause it please"))
+        assertEquals(VoiceCommand.Resume, parse("play"))
+        assertEquals(VoiceCommand.Resume, parse("resume"))
+        assertEquals(VoiceCommand.Stop, parse("stop"))
+        assertEquals(VoiceCommand.StartOver, parse("start over"))
+        assertEquals(VoiceCommand.Next, parse("next"))
+        assertEquals(VoiceCommand.NextEpisode, parse("next episode"))
+        assertEquals(VoiceCommand.LastChannel, parse("last channel"))
+        assertEquals(VoiceCommand.LastChannel, parse("previous channel"))
+        assertEquals(VoiceCommand.ChannelStep(-1), parse("channel up"))
+        assertEquals(VoiceCommand.ChannelStep(1), parse("channel down"))
+        assertEquals(VoiceCommand.ChannelStep(1), parse("next channel"))
+    }
+
+    @Test fun seeks() {
+        assertEquals(VoiceCommand.Seek(-30_000), parse("back thirty seconds"))
+        assertEquals(VoiceCommand.Seek(-30_000), parse("rewind"))
+        assertEquals(VoiceCommand.Seek(600_000), parse("skip ahead ten minutes"))
+        assertEquals(VoiceCommand.Seek(60_000), parse("fast forward a minute"))
+        assertEquals(VoiceCommand.Seek(-45_000), parse("go back forty five seconds"))
+        assertEquals(VoiceCommand.Seek(-15_000), parse("back fifteen"))
+        assertEquals(VoiceCommand.Seek(VoiceCommand.DEFAULT_SEEK_MS), parse("skip ahead"))
+    }
+
+    // Without an amount, "back" isn't a seek: it could be a channel's name.
+    @Test fun bareBackIsNotASeek() = assertEquals(VoiceCommand.Tune("back"), parse("back"))
+
+    @Test fun pages() {
+        assertEquals(VoiceCommand.Open(VoiceCommand.Page.GUIDE), parse("guide"))
+        assertEquals(VoiceCommand.Open(VoiceCommand.Page.GUIDE), parse("go to the guide"))
+        assertEquals(VoiceCommand.Open(VoiceCommand.Page.HOME), parse("go home"))
+        assertEquals(VoiceCommand.Open(VoiceCommand.Page.MOVIES), parse("show me movies"))
+        assertEquals(VoiceCommand.Open(VoiceCommand.Page.SERIES), parse("open tv shows"))
+        assertEquals(VoiceCommand.Open(VoiceCommand.Page.FAVORITES), parse("my favorites"))
+        assertEquals(VoiceCommand.Open(VoiceCommand.Page.SETTINGS), parse("open settings"))
+        assertEquals(VoiceCommand.Open(VoiceCommand.Page.SEARCH), parse("search"))
+    }
+
+    // A name that starts like a page is still a channel.
+    @Test fun channelsThatStartLikePages() = assertEquals(VoiceCommand.Tune("home and garden"), parse("watch home and garden"))
+
+    @Test fun captionsAndAudio() {
+        assertEquals(VoiceCommand.Captions(true), parse("turn on captions"))
+        assertEquals(VoiceCommand.Captions(false), parse("subtitles off"))
+        assertEquals(VoiceCommand.Captions(false), parse("turn closed captions off"))
+        assertEquals(VoiceCommand.Captions(null), parse("captions"))
+        assertEquals(VoiceCommand.Audio(VoiceCommand.Language.SPANISH), parse("spanish audio"))
+        assertEquals(VoiceCommand.Audio(VoiceCommand.Language.FRENCH), parse("change the audio to french"))
+        // "Switch to Spanish" stays a channel: a channel can be called that.
+        assertEquals(VoiceCommand.Tune("spanish"), parse("switch to spanish"))
+    }
+
+    @Test fun languageMatchesCodesAndLabels() {
+        assert(VoiceCommand.Language.SPANISH.matches("spa", "Track 2"))
+        assert(VoiceCommand.Language.SPANISH.matches("es-419", ""))
+        assert(VoiceCommand.Language.SPANISH.matches(null, "Spanish (Stereo)"))
+        assert(!VoiceCommand.Language.SPANISH.matches("en", "English"))
+    }
+
+    @Test fun whatsOn() {
+        assertEquals(VoiceCommand.WhatsOn("espn"), parse("what's on e s p n"))
+        assertEquals(VoiceCommand.WhatsOn("fox 29"), parse("what is on fox twenty nine"))
+        assertEquals(VoiceCommand.WhatsOn("nbc"), parse("what's playing on n b c"))
+        assertEquals(VoiceCommand.WhatsOn(null), parse("what's on"))
+        assertEquals(VoiceCommand.WhatsOn(null), parse("what's on now"))
+    }
+
+    @Test fun commandPhrasesAreInTheGrammar() {
+        val phrases = VoiceCommand.phrases(emptyList(), emptySet())
+        for (p in listOf("pause", "next episode", "channel up", "back thirty seconds", "skip ahead ten minutes", "turn on captions", "spanish audio", "what's on", "the guide"))
+            assert(p in phrases) { p }
     }
 
     @Test fun twoLettersNeverBySound() = assert(VoiceCommand.soundsLike("vba", listOf("ca")).isEmpty())

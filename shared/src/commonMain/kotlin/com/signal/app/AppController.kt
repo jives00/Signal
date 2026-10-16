@@ -8,6 +8,8 @@ import com.signal.data.GroupEntry
 import com.signal.data.Log
 import com.signal.model.ChannelGroup
 import com.signal.ui.menus.ItemMenus
+import com.signal.ui.panel.PanelAction
+import com.signal.ui.panel.PanelPage
 import com.signal.ui.panel.SidePanelState
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -565,40 +567,250 @@ class AppController(val platform: Platform, val log: Log) {
 
     /**
      * Acts on what the assistant heard (PLAN §4.3.14 → Voice commands): the recognizer's guesses,
-     * best first. The first that names a channel wins, so a top guess of "a b d" loses to a
-     * second of "a b c". Returns what it did, for the log and the listening overlay.
+     * best first. A playback, page or player command acts on what's showing. Otherwise the first
+     * guess that names a channel wins, so a top guess of "a b d" loses to a second of "a b c". One
+     * clear channel is watched at once; several, or a weak match, open a choice of the top three.
+     * Returns what it did, for the log and the listening overlay.
      */
     suspend fun voice(guesses: List<String>): VoiceResult {
         val best = guesses.firstOrNull { it.isNotBlank() }.orEmpty()
-        val commands = guesses.mapNotNull { heard -> (com.signal.voice.VoiceCommand.parse(heard) as? com.signal.voice.VoiceCommand.Tune)?.let { heard to it.channel } }
-            // One letter is never enough to name a channel ("v" found VH1).
-            .filter { (_, name) -> name.replace(" ", "").length >= 2 }
-        val tried = commands.firstOrNull()?.second
-        suspend fun act(heard: String, ch: com.signal.model.Channel, how: String): VoiceResult {
-            withContext(Dispatchers.Main) {
-                // After startup's own start page, and after a return from the background, which
-                // would otherwise reset to it or resume the old channel.
-                androidx.compose.runtime.snapshotFlow { ready }.first { it }
-                if (inBackground) voiceChannel = ch else watch(ch)
+        val parsed = guesses.mapNotNull { heard -> com.signal.voice.VoiceCommand.parse(heard)?.let { heard to it } }
+        fun result(acted: Boolean, heard: String, shown: String, detail: String = shown) =
+            VoiceResult(acted, heard, best, "Voice: \"$heard\" → $detail (guesses: ${guesses.joinToString(" | ")})", shown).also { log.info(it.message) }
+        // After startup's own start page, on the main thread with the screens.
+        withContext(Dispatchers.Main) { androidx.compose.runtime.snapshotFlow { ready }.first { it } }
+
+        val tunes = ArrayList<Pair<String, String>>()
+        for ((heard, command) in parsed) {
+            when (command) {
+                is com.signal.voice.VoiceCommand.Tune -> {
+                    // One letter is never enough to name a channel ("v" found VH1).
+                    if (command.channel.replace(" ", "").length < 2) continue
+                    for (name in command.names) {
+                        tunes += heard to name
+                        val hits = search.channelHits(name, limit = VOICE_HITS)
+                        if (hits.isNotEmpty()) return voiceChannel(heard, hits, "", ::result)
+                    }
+                }
+                is com.signal.voice.VoiceCommand.WhatsOn -> return voiceWhatsOn(heard, command.channel, ::result)
+                // The first guess that's a command is taken as said.
+                else -> return withContext(Dispatchers.Main) { voiceCommand(heard, command, ::result) }
             }
-            return VoiceResult(true, heard, best, "Voice: \"$heard\" → ${ch.displayName}$how (guesses: ${guesses.joinToString(" | ")})", ch.displayName)
-                .also { log.info(it.message) }
-        }
-        // A guess that names a channel as heard.
-        for ((heard, name) in commands) {
-            search.channels(name, limit = 1).firstOrNull()?.let { return act(heard, it, "") }
         }
         // Else initials that sound like a guess's letters ("e a b t" → ABC).
-        val initials = if (commands.isEmpty()) emptySet() else search.voiceNames().second
-        for ((heard, name) in commands) {
+        val initials = if (tunes.isEmpty()) emptySet() else search.voiceNames().second
+        for ((heard, name) in tunes) {
             for (like in com.signal.voice.VoiceCommand.soundsLike(name, initials)) {
-                search.channels(like, limit = 1).firstOrNull()?.let { return act(heard, it, " by sound (\"$like\")") }
+                val hits = search.channelHits(like, limit = VOICE_HITS)
+                if (hits.isNotEmpty()) return voiceChannel(heard, hits, " by sound (\"$like\")", ::result)
             }
         }
-        return when (tried) {
-            null -> VoiceResult(false, best, best, "Voice: nothing heard", "Didn't catch that")
-            else -> VoiceResult(false, best, best, "Voice: no channel in ${guesses.joinToString(" | ")}", "No channel matches \"$tried\"")
-        }.also { log.info(it.message) }
+        return when (val tried = tunes.firstOrNull()?.second) {
+            null -> result(false, best, "Didn't catch that", "nothing")
+            else -> result(false, best, "No channel matches \"$tried\"", "no channel")
+        }
+    }
+
+    private suspend fun voiceChannel(
+        heard: String,
+        hits: List<SearchRepository.ChannelHit>,
+        how: String,
+        result: (Boolean, String, String, String) -> VoiceResult,
+    ): VoiceResult = withContext(Dispatchers.Main) {
+        when (val pick = com.signal.voice.VoiceChoice.choose(hits, { it.channel.displayName }, { it.exact }, { it.favorite })) {
+            is com.signal.voice.VoiceChoice.Pick.One -> {
+                val ch = pick.hit.channel
+                inFront { watch(ch) }
+                result(true, heard, ch.displayName, "${ch.displayName}$how")
+            }
+            is com.signal.voice.VoiceChoice.Pick.Several -> {
+                inFront { voiceAsk(heard, pick.hits.map { it.channel }) { ch -> watch(ch); null } }
+                result(true, heard, "Choose a channel", "a choice of ${pick.hits.joinToString { it.channel.displayName }}$how")
+            }
+            null -> result(false, heard, "No channel matches \"$heard\"", "no channel")
+        }
+    }
+
+    /** "What's on ESPN?": the channel's program now, in program details, without tuning. */
+    private suspend fun voiceWhatsOn(heard: String, name: String?, result: (Boolean, String, String, String) -> VoiceResult): VoiceResult {
+        val now = Clock.System.now().toEpochMilliseconds()
+        suspend fun details(ch: Channel): PanelPage? =
+            guide.programs(ch, now, now + 1).firstOrNull { it.isOn(now) }?.let { com.signal.ui.screens.programDetails(this, ch, it, now) }
+        if (name == null) {
+            val ch = withContext(Dispatchers.Main) { playback.current.value?.takeIf { navigator.current.showsVideo && !inBackground } }
+                ?: return result(false, heard, "No channel is playing", "nothing playing")
+            val page = details(ch) ?: return result(false, heard, "No guide for ${ch.displayName}", "no guide")
+            withContext(Dispatchers.Main) { panel.open(page, null) }
+            return result(true, heard, ch.displayName, "what's on ${ch.displayName}")
+        }
+        val hits = com.signal.voice.VoiceCommand.Tune(name).names
+            .firstNotNullOfOrNull { n -> search.channelHits(n, limit = VOICE_HITS).ifEmpty { null } }.orEmpty()
+        return withContext(Dispatchers.Main) {
+            when (val pick = com.signal.voice.VoiceChoice.choose(hits, { it.channel.displayName }, { it.exact }, { it.favorite })) {
+                null -> result(false, heard, "No channel matches \"$name\"", "no channel")
+                is com.signal.voice.VoiceChoice.Pick.One -> {
+                    val ch = pick.hit.channel
+                    val page = details(ch) ?: return@withContext result(false, heard, "No guide for ${ch.displayName}", "no guide")
+                    inFront { panel.open(page, null) }
+                    result(true, heard, ch.displayName, "what's on ${ch.displayName}")
+                }
+                is com.signal.voice.VoiceChoice.Pick.Several -> {
+                    // Looked up now, so a channel without a guide shows as such in the choice.
+                    val pages = pick.hits.associate { it.channel.key to details(it.channel) }
+                    inFront { voiceAsk(heard, pick.hits.map { it.channel }) { ch -> pages[ch.key] ?: PanelPage.Actions("No guide for ${ch.displayName}", emptyList()) } }
+                    result(true, heard, "Choose a channel", "what's on: a choice")
+                }
+            }
+        }
+    }
+
+    /** The choice of channels for a weak or shared match (PLAN §4.3.14 → Voice commands, phase 2). */
+    private fun voiceAsk(heard: String, channels: List<Channel>, onPick: (Channel) -> PanelPage?) {
+        panel.open(
+            PanelPage.Actions(
+                "Which channel?",
+                channels.map { ch -> PanelAction(channelLabel(ch), detail = ch.groupName) { onPick(ch) } },
+                subtitle = "Heard \"$heard\"",
+            ),
+            null,
+        )
+    }
+
+    /** Runs [block] now, or when Signal comes back to the front if a press reached it from another app. */
+    private fun inFront(block: () -> Unit) {
+        if (inBackground) voicePending = block else block()
+    }
+
+    /** A playback, page or player command, on the main thread. */
+    private fun voiceCommand(heard: String, command: com.signal.voice.VoiceCommand, result: (Boolean, String, String, String) -> VoiceResult): VoiceResult {
+        fun done(shown: String) = result(true, heard, shown, shown)
+        fun fail(shown: String) = result(false, heard, shown, shown)
+        val vod = vodPlayback.current.value?.takeIf { navigator.current == Route.VodPlayer && !inBackground }
+        val live = playback.current.value?.takeIf { navigator.current.showsVideo && !inBackground }
+        val nothing = "Nothing is playing"
+        val player = platform.player
+        return when (command) {
+            com.signal.voice.VoiceCommand.Pause -> when {
+                vod != null -> { vodPlayback.setPaused(true); done("Paused") }
+                // Live TV has no timeshift (PLAN §1 Out of scope): pausing stops it.
+                live != null -> { playback.stop(); done("Stopped ${live.displayName}") }
+                else -> fail(nothing)
+            }
+            com.signal.voice.VoiceCommand.Resume -> when {
+                vod != null -> { vodPlayback.setPaused(false); done("Playing") }
+                live != null -> { playback.resumeIfStopped(); done("Playing ${live.displayName}") }
+                else -> fail(nothing)
+            }
+            com.signal.voice.VoiceCommand.Stop -> when {
+                vod != null -> { vodPlayback.stop(); navigator.back(); done("Stopped") }
+                live != null -> { playback.stop(); done("Stopped ${live.displayName}") }
+                else -> fail(nothing)
+            }
+            com.signal.voice.VoiceCommand.StartOver -> when {
+                vod != null -> { player.seekTo(0); vodPlayback.setPaused(false); done("From the beginning") }
+                live != null -> fail("Live TV can't start over")
+                else -> fail(nothing)
+            }
+            is com.signal.voice.VoiceCommand.Seek -> when {
+                vod != null -> {
+                    val pos = player.position()
+                    player.seekTo((pos.positionMs + command.byMs).coerceIn(0, (pos.durationMs - 1_000).coerceAtLeast(0)))
+                    done("${if (command.byMs < 0) "Back" else "Ahead"} ${spokenDuration(kotlin.math.abs(command.byMs))}")
+                }
+                live != null -> fail("Live TV can't skip ${if (command.byMs < 0) "back" else "ahead"}")
+                else -> fail(nothing)
+            }
+            com.signal.voice.VoiceCommand.Next ->
+                if (vod != null) voiceCommand(heard, com.signal.voice.VoiceCommand.NextEpisode, result)
+                else voiceCommand(heard, com.signal.voice.VoiceCommand.ChannelStep(1), result)
+            com.signal.voice.VoiceCommand.NextEpisode -> {
+                val next = vod?.next
+                val series = vod?.series
+                when {
+                    vod == null -> fail("No episode is playing")
+                    next == null || series == null -> fail("No next episode")
+                    else -> {
+                        vodPlayback.finished()
+                        scope.launch { vodPlayback.playEpisode(vod.item, series, next) }
+                        done("${next.code} · ${next.title}")
+                    }
+                }
+            }
+            is com.signal.voice.VoiceCommand.ChannelStep -> {
+                if (navigator.current == Route.VodPlayer) return fail("Not on live TV")
+                if (playback.current.value == null) return fail("No channel is playing")
+                inFront {
+                    scope.launch {
+                        playback.zap(command.step)
+                        if (navigator.current !is Route.FullScreen) navigator.go(Route.FullScreen(playback.currentGroup))
+                    }
+                }
+                done(if (command.step < 0) "Channel up" else "Channel down")
+            }
+            com.signal.voice.VoiceCommand.LastChannel -> {
+                val ch = playback.previousChannel ?: return fail("No last channel")
+                inFront {
+                    if (navigator.current == Route.VodPlayer) vodPlayback.stop()
+                    playback.recall()
+                    if (navigator.current !is Route.FullScreen) navigator.go(Route.FullScreen(playback.currentGroup))
+                }
+                done(ch.displayName)
+            }
+            is com.signal.voice.VoiceCommand.Open -> {
+                val page = command.page
+                if (page == com.signal.voice.VoiceCommand.Page.MOVIES && movieCount.value == 0L) return fail("No movies")
+                if (page == com.signal.voice.VoiceCommand.Page.SERIES && seriesCount.value == 0L) return fail("No series")
+                inFront { voiceOpen(page) }
+                done(page.name.lowercase().replaceFirstChar { it.uppercase() })
+            }
+            is com.signal.voice.VoiceCommand.Captions -> {
+                if (vod == null && live == null) return fail(nothing)
+                val state = player.state.value
+                val on = command.on ?: (state.selectedSubtitleTrackId == null)
+                if (!on) {
+                    if (live != null) playback.selectSubtitle(live, null) else player.selectSubtitleTrack(null)
+                    return done("Captions off")
+                }
+                val track = state.subtitleTracks.firstOrNull { com.signal.voice.VoiceCommand.Language.ENGLISH.matches(it.language, it.label) }
+                    ?: state.subtitleTracks.firstOrNull()
+                    ?: return fail("No captions on this ${if (live != null) "channel" else "video"}")
+                if (live != null) playback.selectSubtitle(live, track.id) else player.selectSubtitleTrack(track.id)
+                done("Captions on")
+            }
+            is com.signal.voice.VoiceCommand.Audio -> {
+                if (vod == null && live == null) return fail(nothing)
+                val name = command.language.spoken.replaceFirstChar { it.uppercase() }
+                val track = player.state.value.audioTracks.firstOrNull { command.language.matches(it.language, it.label) }
+                    ?: return fail("No $name audio")
+                if (live != null) playback.selectAudio(live, track.id) else player.selectAudioTrack(track.id)
+                done("$name audio")
+            }
+            // Handled before this, off the main thread.
+            is com.signal.voice.VoiceCommand.Tune, is com.signal.voice.VoiceCommand.WhatsOn -> fail("Didn't catch that")
+        }
+    }
+
+    /** A page by name. Leaving a movie saves its place first; leaving live video stops it. */
+    private fun voiceOpen(page: com.signal.voice.VoiceCommand.Page) {
+        panel.close()
+        if (navigator.current == Route.VodPlayer) vodPlayback.stop()
+        val route = when (page) {
+            com.signal.voice.VoiceCommand.Page.HOME -> Route.Home
+            com.signal.voice.VoiceCommand.Page.GUIDE -> Route.LiveTv
+            com.signal.voice.VoiceCommand.Page.FAVORITES -> { liveTvGroup = ChannelGroup.Favorites; Route.LiveTv }
+            com.signal.voice.VoiceCommand.Page.MOVIES -> Route.Movies
+            com.signal.voice.VoiceCommand.Page.SERIES -> Route.Series
+            com.signal.voice.VoiceCommand.Page.SEARCH -> Route.Search
+            com.signal.voice.VoiceCommand.Page.SETTINGS -> Route.Settings
+        }
+        if (navigator.current.showsVideo && !route.showsVideo) playback.stop()
+        navigator.go(route)
+    }
+
+    /** "30 seconds", "1 minute", "10 minutes". */
+    private fun spokenDuration(ms: Long): String {
+        val s = ms / 1000
+        return if (s % 60 == 0L && s >= 60) "${s / 60} minute${if (s == 60L) "" else "s"}" else "$s seconds"
     }
 
     /** [heard] is the guess acted on (or the best), [best] the recognizer's first guess, and [shown] the outcome for the listening overlay. */
@@ -618,8 +830,8 @@ class AppController(val platform: Platform, val log: Log) {
     @kotlin.concurrent.Volatile private var voicePhrasesCache: Pair<Int, Set<String>>? = null
 
     private var inBackground = false
-    /** A channel a voice command asked for while the app was in the background: watched on return. */
-    private var voiceChannel: com.signal.model.Channel? = null
+    /** What a voice command asked for while the app was in the background: done on return. */
+    private var voicePending: (() -> Unit)? = null
 
     fun dismissReminder() {
         activeReminder = null
@@ -654,10 +866,10 @@ class AppController(val platform: Platform, val log: Log) {
         inBackground = false
         scope.launch { catchUpReminders() }
         scope.launch { refreshFollowedSeries() }
-        val voice = voiceChannel
-        voiceChannel = null
+        val voice = voicePending
+        voicePending = null
         if (voice != null) {
-            watch(voice)
+            voice()
         } else if (away != null && away > AWAY_RESETS_TO_HOME_MS && navigator.current != Route.Setup) {
             scope.launch { openStartPage() }
         } else if (away != null && navigator.current == Route.VodPlayer) {
@@ -683,6 +895,8 @@ class AppController(val platform: Platform, val log: Log) {
         const val NAS_GUIDE_CHECK_MS = 30 * 60_000L
         /** A refresh writes the catalog source by source: carry-over waits for it to settle. */
         const val CARRY_OVER_DEBOUNCE_MS = 5_000L
+        /** Channels a voice command looks through: enough that an exact name behind favorites' prefix matches is still seen. */
+        const val VOICE_HITS = 50
         /** A burst of edits (a move, a rename) goes as one sync. */
         const val SYNC_DEBOUNCE_MS = 2_000L
         /** While the event stream is down (PLAN §9.2). */

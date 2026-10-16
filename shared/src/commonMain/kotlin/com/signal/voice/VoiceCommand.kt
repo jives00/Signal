@@ -6,7 +6,13 @@ package com.signal.voice
  */
 sealed interface VoiceCommand {
     /** "Switch to NBC", "watch ESPN", or just a channel's name. */
-    data class Tune(val channel: String) : VoiceCommand
+    data class Tune(val channel: String) : VoiceCommand {
+        /**
+         * What to search for, in order: as said, then without a trailing "channel" ("a b c channel"),
+         * which is part of some names (Golf Channel) and only a filler after others.
+         */
+        val names: List<String> get() = listOf(channel) + listOfNotNull(channel.removeSuffix(" channel").takeIf { it != channel && it.isNotBlank() })
+    }
 
     // Playback (PLAN §4.3.14 → Voice commands, phase 2). What they do depends on what's playing.
     data object Pause : VoiceCommand
@@ -205,7 +211,7 @@ sealed interface VoiceCommand {
                 })
             }
             captions.matchEntire(text)?.let { m ->
-                val state = m.groupValues[1].ifEmpty { m.groupValues[3] }
+                val state = m.groupValues[1].ifEmpty { m.groupValues[2] }
                 return Captions(if (state.isEmpty()) null else state == "on")
             }
             (audioFirst.matchEntire(text) ?: audioLast.matchEntire(text))?.let { m ->
@@ -252,7 +258,8 @@ sealed interface VoiceCommand {
         private val spaces = Regex("""\s+""")
         private val fillers = Regex("""^((hey|ok|okay|please|signal)\s+)+""")
         private val tunePrefix = Regex("""^(switch|change|turn|flip|go|tune|move)( (it|over|the channel|channel))? (to|two|too)( |$)|^(watch|put on|tune|show me|play)( |$)""")
-        private val trailing = Regex("""(\s+(please|channel|on signal|now))+$""")
+        /** Fillers after a name. A trailing "channel" stays: see [Tune.names]. */
+        private val trailing = Regex("""(\s+(please|on signal|now))+$""")
         private val letters = Regex("""\b\p{L}( \p{L}\b)+""")
     }
 }
