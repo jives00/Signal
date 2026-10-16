@@ -91,7 +91,12 @@ can't tell it apart from a force stop.
   with exactly that name, or the only favorite among them. Channels with the same name count once,
   so streams of one channel in several groups never ask.
 - **A panel shows what's going on** while it listens: the words as they're heard, then the channel.
-- **Only visible channels count.** Channels in hidden groups, or hidden themselves, aren't matched.
+- **Which channels count:** your favorites, your playlists and any channel with a voice name. A
+  smaller list is understood much better. With every channel, the recognizer can hear a title or a
+  team as channel words. To match every visible channel instead, use Settings → Voice commands →
+  Channels to match. With no favorites, playlists or voice names yet, every visible channel counts.
+  Hidden channels and groups never do. Games ("watch the Bears game") are found on every channel
+  either way.
 
 ### Commands
 

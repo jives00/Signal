@@ -597,7 +597,7 @@ class AppController(val platform: Platform, val log: Log) {
                     if (command.channel.replace(" ", "").length < 2) continue
                     for (name in command.names) {
                         tunes += heard to name
-                        val hits = search.channelHits(name, limit = VOICE_HITS)
+                        val hits = search.channelHits(name, limit = VOICE_HITS, forVoice = true)
                         if (hits.isEmpty()) continue
                         // Not one clear channel: a title wins. The free recognizer's, when it ran (it
                         // only runs for "play …" and the like), with any match; the grammar's only
@@ -626,7 +626,7 @@ class AppController(val platform: Platform, val log: Log) {
         val initials = if (tunes.isEmpty()) emptySet() else search.voiceNames().second
         for ((heard, name) in tunes) {
             for (like in com.signal.voice.VoiceCommand.soundsLike(name, initials)) {
-                val hits = search.channelHits(like, limit = VOICE_HITS)
+                val hits = search.channelHits(like, limit = VOICE_HITS, forVoice = true)
                 if (hits.isNotEmpty()) return voiceChannel(heard, hits, " by sound (\"$like\")", ::result)
             }
         }
@@ -934,7 +934,7 @@ class AppController(val platform: Platform, val log: Log) {
             return result(true, heard, ch.displayName, "what's on ${ch.displayName}")
         }
         val hits = com.signal.voice.VoiceCommand.Tune(name).names
-            .firstNotNullOfOrNull { n -> search.channelHits(n, limit = VOICE_HITS).ifEmpty { null } }.orEmpty()
+            .firstNotNullOfOrNull { n -> search.channelHits(n, limit = VOICE_HITS, forVoice = true).ifEmpty { null } }.orEmpty()
         return withContext(Dispatchers.Main) {
             when (val pick = com.signal.voice.VoiceChoice.choose(hits, { it.channel.displayName }, { it.exact }, { it.favorite })) {
                 null -> result(false, heard, "No channel matches \"$name\"", "no channel")
@@ -1122,13 +1122,13 @@ class AppController(val platform: Platform, val log: Log) {
     suspend fun voicePhrases(): Set<String> {
         val titles = voiceTitles()
         val teams = voiceTeams()
-        val version = Triple(search.version, titles.hashCode(), teams.hashCode())
+        val version = listOf(search.version, titles.hashCode(), teams.hashCode(), settings.raw(Settings.Key.VOICE_CHANNELS))
         voicePhrasesCache?.takeIf { it.first == version }?.let { return it.second }
         val (names, initials) = search.voiceNames()
         return com.signal.voice.VoiceCommand.phrases(names, initials, titles, teams).also { voicePhrasesCache = version to it }
     }
 
-    @kotlin.concurrent.Volatile private var voicePhrasesCache: Pair<Triple<Int, Int, Int>, Set<String>>? = null
+    @kotlin.concurrent.Volatile private var voicePhrasesCache: Pair<List<Any?>, Set<String>>? = null
 
     /**
      * Teams in the next few days' games ([VOICE_TEAM_HOURS]), folded, each as it's said (PLAN §4.3.14 → Voice commands, phase
@@ -1167,7 +1167,7 @@ class AppController(val platform: Platform, val log: Log) {
     val voiceInputs: kotlinx.coroutines.flow.Flow<Any> get() =
         // The guide too: a new one brings the next day's games, whose teams the grammar knows.
         combine(
-            listOf(search.versions, continueWatching.map { c -> c.map { it.title } }, watchState.map { s -> s.library.map { it.title } }, newEpisodes, vodVersion, guideStore.version),
+            listOf(search.versions, continueWatching.map { c -> c.map { it.title } }, watchState.map { s -> s.library.map { it.title } }, newEpisodes, vodVersion, guideStore.version, settings.changes().map { settings.raw(Settings.Key.VOICE_CHANNELS).orEmpty() }),
         ) { it.toList() }.distinctUntilChanged()
 
     /** From the activity's onStop to the next onStart, whichever activity instance that is. */

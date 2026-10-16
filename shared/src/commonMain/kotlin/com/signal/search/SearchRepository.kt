@@ -49,6 +49,8 @@ class SearchRepository(
         val initials: List<String>,
         /** The voice names the user gave it, folded (PLAN §4.3.14 → Voice names). */
         val voiceNames: List<String>,
+        /** In one of the profile's playlists: with favorites, what voice commands match by default. */
+        val inPlaylist: Boolean,
     )
 
     private val lock = Mutex()
@@ -99,7 +101,7 @@ class SearchRepository(
             val voice = VoiceNames.parse(r.voice_names)
             // Initials: capitals in the names, and any letters-only word in a voice name ("fs1" → "fs").
             val initials = (raw.flatMap { it.initials } + voice.flatMap { v -> letterRuns.findAll(v).map { it.value.lowercase() } }.filter(VoiceCommand::isInitials)).distinct()
-            Entry(r.id, r.user_channel_id, r.tvg_id, r.raw_name, names, r.is_favorite, i, initials, voice.map(SearchText::fold).filter { it.isNotEmpty() })
+            Entry(r.id, r.user_channel_id, r.tvg_id, r.raw_name, names, r.is_favorite, i, initials, voice.map(SearchText::fold).filter { it.isNotEmpty() }, r.in_playlist)
         }
         // Only names still in use, so renamed and removed channels don't pile up.
         foldedNames = cache
@@ -120,7 +122,7 @@ class SearchRepository(
     data class ChannelHit(val channel: Channel, val exact: Boolean, val favorite: Boolean)
 
     /** [channels], with how each matched. */
-    suspend fun channelHits(query: String, limit: Int = 60): List<ChannelHit> {
+    suspend fun channelHits(query: String, limit: Int = 60, forVoice: Boolean = false): List<ChannelHit> {
         val words = SearchText.words(query)
         if (words.isEmpty()) return emptyList()
         val folded = words.joinToString(" ")
@@ -128,7 +130,7 @@ class SearchRepository(
         val compact = words.joinToString("")
         val hits = lock.withLock {
             withContext(io) {
-                index().mapNotNull { e ->
+                (if (forVoice) voicePool(index()) else index()).mapNotNull { e ->
                     val voice = e.voiceNames.any { it.replace(" ", "") == compact }
                     if (!voice && !words.all { w -> e.names.any { n -> hasWordPrefix(n, w) } }) return@mapNotNull null
                     val rank = when {
@@ -156,9 +158,26 @@ class SearchRepository(
      */
     suspend fun voiceNames(): Pair<Set<String>, Set<String>> = lock.withLock {
         withContext(io) {
-            val all = index()
+            val all = voicePool(index())
             all.flatMapTo(HashSet()) { it.names + it.voiceNames } to all.flatMapTo(HashSet()) { it.initials }
         }
+    }
+
+    /**
+     * The channels voice commands match (Settings → Voice commands → Channels to match): by default
+     * favorites, playlists and channels with voice names. A grammar of every visible channel's words
+     * (13,700 phrases for 2,400 channels) let the recognizer force anything into them ("the matrix"
+     * as "the me tribeca"). With none of those, every visible channel, so voice works before any are
+     * chosen.
+     */
+    private fun voicePool(all: List<Entry>): List<Entry> {
+        if (settings.raw(Settings.Key.VOICE_CHANNELS) == VOICE_ALL) return all
+        return all.filter { it.favorite || it.inPlaylist || it.voiceNames.isNotEmpty() }.ifEmpty { all }
+    }
+
+    companion object {
+        /** [Settings.Key.VOICE_CHANNELS]: every visible channel. Unset is favorites, playlists and voice names. */
+        const val VOICE_ALL = "ALL"
     }
 
     private val capitals = Regex("""\b\p{Lu}{2,5}\b""")
