@@ -23,10 +23,10 @@ function Command({ text }: { text: string }) {
   );
 }
 
-export default function VoiceSetup() {
+export default function VoiceSetup({ title = "Voice commands" }: { title?: string }) {
   return (
     <section className="section voice-setup">
-      <h2 className="section-title">Voice commands</h2>
+      <h2 className="section-title">{title}</h2>
       <p className="detail">
         The remote's mic button can talk to Signal from anywhere ("switch to NBC") instead of Google Assistant. Android TV has
         no setting for it, so it's turned on once per TV from a computer with <a href="https://developer.android.com/tools/releases/platform-tools" target="_blank" rel="noreferrer">adb</a>.
