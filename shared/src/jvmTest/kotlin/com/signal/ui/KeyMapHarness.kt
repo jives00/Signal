@@ -112,6 +112,12 @@ class TestPlatform : Platform {
     override fun exitApp() { exits++ }
 }
 
+/**
+ * CI's runners are a few times slower than a dev machine, and database work queues on one IO thread:
+ * 5 s waits on it (Home's "on now", the hero tuning) timed out now and then. Waits end as soon as they're met.
+ */
+private val slowdown = if (System.getenv("CI") != null) 4 else 1
+
 /** One screen under test: the real app, the Demo source, and remote actions sent through the key layer. */
 @OptIn(ExperimentalTestApi::class)
 class KeyMapScope(val ui: ComposeUiTest, val app: AppController, val platform: TestPlatform) {
@@ -130,7 +136,7 @@ class KeyMapScope(val ui: ComposeUiTest, val app: AppController, val platform: T
     }
 
     suspend fun eventually(what: String = "condition", timeoutMs: Long = 5_000, condition: () -> Boolean) {
-        val deadline = System.currentTimeMillis() + timeoutMs
+        val deadline = System.currentTimeMillis() + timeoutMs * slowdown
         while (true) {
             settle()
             if (condition()) return

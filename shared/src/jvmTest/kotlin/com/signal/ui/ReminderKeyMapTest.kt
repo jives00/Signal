@@ -32,7 +32,12 @@ class ReminderKeyMapTest {
         eventually("programs loaded") { focusedText()?.endsWith("No information") == false }
         val live = focusedText()
         press(RemoteAction.Right)
-        eventually("a future program") { focusedText() != live }
+        eventually("the next program") { focusedText() != live }
+        // The one after: the next can start within the reminder's minute of lead time (quarter hours
+        // in the Demo guide), and its prompt would take the OKs below.
+        val next = focusedText()
+        press(RemoteAction.Right)
+        eventually("a future program") { focusedText() != next }
         val future = focusedText()!!.split(" · ")[1]
         press(RemoteAction.Select)
         focusedStartsWith("Remind me")

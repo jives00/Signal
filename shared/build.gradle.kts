@@ -109,3 +109,11 @@ sqldelight {
         }
     }
 }
+
+// CI's log otherwise shows only where a test failed, not the message saying what it waited for.
+tasks.withType<Test>().configureEach {
+    testLogging {
+        events("failed")
+        exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
+    }
+}

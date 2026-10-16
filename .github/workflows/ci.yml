@@ -31,6 +31,17 @@ jobs:
       - name: Test, lint and build
         run: ./gradlew check :androidTvApp:assembleDebug :devApp:compileKotlin
 
+      # A failed test's message and the screen it saw, for telling a slow runner from a real bug.
+      - uses: actions/upload-artifact@v7
+        if: failure()
+        with:
+          name: test-reports
+          path: |
+            shared/build/reports/tests/
+            shared/build/screenshots/
+            server/build/reports/tests/
+          retention-days: 14
+
       - uses: pnpm/action-setup@v4
         with:
           version: 10.33.2

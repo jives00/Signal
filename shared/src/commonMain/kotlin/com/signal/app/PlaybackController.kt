@@ -12,6 +12,7 @@ import com.signal.player.AspectMode
 import com.signal.player.PlayRequest
 import com.signal.player.VideoPlayer
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -53,6 +54,11 @@ class PlaybackController(
     private val tried = HashSet<String>()
     /** The URL [start] last sent to the player, to tell its errors from a stale request's. */
     private var startedUrl: String? = null
+    /**
+     * The [start] in flight: it reads the database before the player gets the request. A newer tune
+     * replaces it, so a slow older one can't land last, and one already starting isn't started twice.
+     */
+    private var starting: Job? = null
 
     init {
         // Automatic failover (PLAN §4.5, milestone 5): when a stream fails for good (the player has
@@ -91,12 +97,12 @@ class PlaybackController(
             if (was != null) previous = was
             _current.value = channel
             tried.clear()
-            scope.launch { start(channel) }
-        } else if (player.state.value.status == com.signal.player.PlaybackState.Status.IDLE) {
+            launchStart(channel)
+        } else if (player.state.value.status == com.signal.player.PlaybackState.Status.IDLE && starting?.isActive != true) {
             // The same channel, perhaps after a failover: back to the stream it was tuned with.
             _current.value = channel
             tried.clear()
-            scope.launch { start(channel) }
+            launchStart(channel)
         }
         if (fullScreen) scope.launch { rememberLastPlayed(channel) }
     }
@@ -105,7 +111,12 @@ class PlaybackController(
     fun switchStream(channel: Channel) {
         _current.value = channel
         tried.clear()
-        scope.launch { start(channel) }
+        launchStart(channel)
+    }
+
+    private fun launchStart(channel: Channel) {
+        starting?.cancel()
+        starting = scope.launch { start(channel) }
     }
 
     private suspend fun failover(playing: Channel) {
@@ -169,6 +180,7 @@ class PlaybackController(
     /** Leaving a page with a player stops it (PLAN §4.3.1 → "Leaving Home stops the preview"). */
     fun stop() {
         log.info("Playback stop")
+        starting?.cancel()
         player.stop()
     }
 
@@ -185,7 +197,7 @@ class PlaybackController(
 
     /** Coming back: re-tunes the same channel (PLAN §4.2). */
     fun resume() {
-        _current.value?.let { scope.launch { start(it) } }
+        _current.value?.let { launchStart(it) }
     }
 
     /** "Last played" = last channel played full screen; it creates a user channel (PLAN §4.5). */
