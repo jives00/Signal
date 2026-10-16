@@ -669,12 +669,17 @@ class AppController(val platform: Platform, val log: Log) {
         panel.open(
             PanelPage.Actions(
                 "Which channel?",
-                channels.map { ch -> PanelAction(channelLabel(ch), detail = ch.groupName) { onPick(ch) } },
+                channels.map { ch -> PanelAction(channelLabel(ch), detail = groupTitle(ch)) { onPick(ch) } },
                 subtitle = "Heard \"$heard\"",
             ),
             null,
         )
     }
+
+    /** A channel's group as Live TV shows it: renamed, or with name cleanup applied. */
+    private fun groupTitle(ch: Channel): String = groups.value.firstNotNullOfOrNull { e ->
+        (e.group as? ChannelGroup.Provider)?.takeIf { it.sourceId == ch.stream.sourceId && it.name == ch.stream.groupName }?.title
+    } ?: ch.groupName
 
     /** Runs [block] now, or when Signal comes back to the front if a press reached it from another app. */
     private fun inFront(block: () -> Unit) {
@@ -692,8 +697,9 @@ class AppController(val platform: Platform, val log: Log) {
         return when (command) {
             com.signal.voice.VoiceCommand.Pause -> when {
                 vod != null -> { vodPlayback.setPaused(true); done("Paused") }
-                // Live TV has no timeshift (PLAN §1 Out of scope): pausing stops it.
-                live != null -> { playback.stop(); done("Stopped ${live.displayName}") }
+                // Live TV has no timeshift (PLAN §1 Out of scope). Stopping it only left a grey
+                // screen (user, 0.2.20), so it says so and carries on.
+                live != null -> fail("Live TV can't pause")
                 else -> fail(nothing)
             }
             com.signal.voice.VoiceCommand.Resume -> when {

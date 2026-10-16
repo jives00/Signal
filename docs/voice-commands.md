@@ -88,13 +88,13 @@ These work on what's showing. Each one says so in the panel when it can't apply.
 
 | Say | What it does |
 |---|---|
-| "pause", "resume" / "play" | Pauses or resumes a movie or episode. On live TV, "pause" stops the channel, since live TV can't pause, and "play" starts it again. |
+| "pause", "resume" / "play" | Pauses or resumes a movie or episode. Live TV can't pause, so on live TV Signal says so and keeps playing. |
 | "stop" | Stops a movie or episode and goes back, or stops the live channel. |
 | "back thirty seconds", "skip ahead ten minutes", "rewind", "fast forward" | Skips back or ahead in a movie or episode. On its own, "rewind" or "fast forward" moves 30 seconds. |
-| "start over" | Plays a movie or episode from the beginning. |
+| "start over", "start the movie over", "restart this" | Plays a movie or episode from the beginning. |
 | "next episode", "next" | The next episode. On live TV, "next" is the next channel. |
 | "channel up", "channel down", "next channel" | Changes channel, as the remote's channel buttons do. |
-| "last channel", "previous channel" | Goes back to the channel before this one. |
+| "last channel", "go to the last channel", "previous channel" | Goes back to the channel before this one. |
 | "what's on ESPN", "what's on" | Shows the program on now, without changing channel. With no channel, it's the one playing. |
 | "guide", "home", "movies", "series", "search", "settings", "my favorites" | Opens the page. "Go to", "open" and "show me" work in front of them. |
 | "captions on", "turn off subtitles", "captions" | Turns captions on or off; "captions" alone switches them. |

@@ -54,16 +54,27 @@ class VoiceKeyMapTest {
         route(Route.LiveTv)
     }
 
-    @Test fun liveTvCantSeekButStopsAndPlays() = keyMapTest {
+    // Live TV has no timeshift: pausing or seeking says so, and the channel plays on (user, 0.2.20).
+    @Test fun liveTvCantPauseOrSeek() = keyMapTest {
         toFullScreen()
         val playing = current!!
         val seek = app.voice(listOf("back thirty seconds"))
         assertFalse(seek.acted)
         assertEquals("Live TV can't skip back", seek.shown)
-        app.voice(listOf("pause"))
-        eventually("stopped") { player.state.value.request == null }
-        app.voice(listOf("resume"))
-        eventually("playing again") { player.state.value.request?.label == playing.displayName }
+        val pause = app.voice(listOf("pause"))
+        assertFalse(pause.acted)
+        assertEquals("Live TV can't pause", pause.shown)
+        settle()
+        assertEquals(playing.displayName, player.state.value.request?.label)
+    }
+
+    @Test fun theChoiceShowsRenamedGroups() = keyMapTest {
+        val local = app.groups.value.first { it.group.title == "Local" }.group as com.signal.model.ChannelGroup.Provider
+        app.channels.renameGroup(local, "My Locals")
+        eventually("renamed") { app.groups.value.any { it.group.title == "My Locals" } }
+        app.voice(listOf("fox"))
+        eventually("the choice") { panelTitle == "Which channel?" }
+        eventually("the renamed group") { shows("My Locals") }
     }
 
     @Test fun channelUpAndLastChannel() = keyMapTest(favorites = 3) {

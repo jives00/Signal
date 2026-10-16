@@ -67,6 +67,19 @@ class VoiceCommandTest {
         assertEquals(VoiceCommand.ChannelStep(1), parse("next channel"))
     }
 
+    // What the user said on 0.2.20 that wasn't understood, and its neighbors.
+    @Test fun moreWaysToSayThem() {
+        for (s in listOf("go to the last channel", "go back to the previous channel", "switch to the last channel", "the last channel", "flip back"))
+            assertEquals(VoiceCommand.LastChannel, parse(s), s)
+        for (s in listOf("start the movie over", "start it over", "restart the show", "play the episode from the beginning", "start from the beginning", "start over"))
+            assertEquals(VoiceCommand.StartOver, parse(s), s)
+        // A command after a channel's lead-in.
+        assertEquals(VoiceCommand.Captions(null), parse("put on captions"))
+        assertEquals(VoiceCommand.NextEpisode, parse("play the next episode"))
+        // Names that only start like one still tune.
+        assertEquals(VoiceCommand.Tune("start tv"), parse("watch start tv"))
+    }
+
     @Test fun seeks() {
         assertEquals(VoiceCommand.Seek(-30_000), parse("back thirty seconds"))
         assertEquals(VoiceCommand.Seek(-30_000), parse("rewind"))

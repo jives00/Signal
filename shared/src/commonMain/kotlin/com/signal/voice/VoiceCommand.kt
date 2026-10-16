@@ -73,6 +73,12 @@ sealed interface VoiceCommand {
                 for (state in listOf("on", "off")) { add("$thing $state"); add("turn $state $thing"); add("turn $thing $state"); add("turn $state the $thing") }
             }
             Language.entries.forEach { add(it.spoken); add("${it.spoken} audio") }
+            for (thing in listOf("it", "this", "the movie", "the show", "the episode", "the video")) {
+                add("start $thing over"); add("restart $thing"); add("play $thing from the beginning")
+            }
+            for (lead in listOf("go to the", "go back to the", "switch to the", "back to the", "the")) {
+                add("$lead last channel"); add("$lead previous channel")
+            }
             // Seeks as whole phrases, so a stray number never joins a channel's name.
             val amounts = listOf(5, 10, 15, 20, 30, 45).map { "${SpokenNumbers.say(it)} seconds" } +
                 listOf("a minute", "one minute") + listOf(2, 3, 4, 5, 10, 15, 20, 30).map { "${SpokenNumbers.say(it)} minutes" }
@@ -179,6 +185,8 @@ sealed interface VoiceCommand {
             command(text.replace(politeEnd, "").trim())?.let { return it }
             text = tunePrefix.find(text)?.let { text.substring(it.range.last + 1) } ?: text
             text = text.replace(trailing, "").trim()
+            // A command after a channel's lead-in: "go to the last channel", "put on captions".
+            command(text)?.let { return it }
             text = SpokenNumbers.toDigits(joinLetters(text))
             return if (text.isEmpty()) null else Tune(text)
         }
@@ -189,16 +197,17 @@ sealed interface VoiceCommand {
                 "pause", "pause it", "pause this", "pause the movie", "pause the show", "pause the video" -> return Pause
                 "resume", "unpause", "keep playing", "continue", "play", "play it" -> return Resume
                 "stop", "stop playing", "stop it" -> return Stop
-                "start over", "restart", "from the beginning", "play from the beginning", "start from the beginning" -> return StartOver
                 "next" -> return Next
                 "next episode", "play the next episode", "the next episode" -> return NextEpisode
                 "next channel", "channel down" -> return ChannelStep(1)
                 "channel up" -> return ChannelStep(-1)
-                "last channel", "previous channel", "flip back", "go back to the last channel", "the last channel" -> return LastChannel
+                "flip back" -> return LastChannel
                 "rewind" -> return Seek(-DEFAULT_SEEK_MS)
                 "fast forward", "skip ahead", "skip forward", "jump ahead" -> return Seek(DEFAULT_SEEK_MS)
                 "skip back", "jump back" -> return Seek(-DEFAULT_SEEK_MS)
             }
+            if (startOver.matches(text)) return StartOver
+            if (lastChannel.matches(text)) return LastChannel
             page.matchEntire(text)?.let { m ->
                 return Open(when (m.groupValues[1]) {
                     "home", "home screen" -> Page.HOME
@@ -235,6 +244,10 @@ sealed interface VoiceCommand {
 
         const val DEFAULT_SEEK_MS = 30_000L
 
+        /** What's playing, as people name it: "start the movie over", "restart this", "play it from the beginning". */
+        private const val PLAYING = """(?:it|this|the (?:movie|show|episode|video|program))"""
+        private val startOver = Regex("""^(?:(?:start|play)(?: $PLAYING)? (?:over|again|from the (?:beginning|start))|restart(?: $PLAYING)?|(?:start )?from the (?:beginning|start))$""")
+        private val lastChannel = Regex("""^(?:(?:go|switch|flip|jump|change)\s+)?(?:back\s+)?(?:to\s+)?(?:the\s+|my\s+)?(?:last|previous) channel$""")
         private val whats = Regex("""^(what s|what is)\b""")
         private val politeEnd = Regex("""(\s+(please|now))+$""")
         private val page = Regex("""^(?:(?:go|open|show me|show|take me)\s+)?(?:to\s+)?(?:the\s+|my\s+)?(home|home screen|guide|tv guide|live tv|favorites|favourites|movies|series|shows|tv shows|search|settings)(?:\s+(?:page|screen))?$""")
