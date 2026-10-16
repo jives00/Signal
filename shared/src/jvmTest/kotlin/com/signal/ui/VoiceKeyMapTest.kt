@@ -246,6 +246,39 @@ class VoiceKeyMapTest {
         for (p in listOf("steelers game", "pittsburgh steelers game", "cleveland", "browns")) assertTrue(p in phrases, p)
     }
 
+    // ---- 0.2.27 on the Shield ----
+
+    // A movie started from Live TV left a grey screen: the page stopped the player as it hid.
+    @Test fun aMovieFromLiveTvKeepsPlaying() = keyMapTest(start = Route.LiveTv) {
+        // On Live TV with its preview playing, as on the Shield: the page hides as the movie opens.
+        liveTvReady()
+        val title = uniqueTitle(com.signal.model.VodKind.MOVIE)
+        app.voice(listOf("play [unk]"), free = "play $title")
+        route(Route.VodPlayer)
+        settle()
+        assertEquals(false, player.state.value.request?.isLive, "the movie is still the player's")
+    }
+
+    // "Watch ___" is what's on now; "play ___" is the movie or series.
+    @Test fun watchAProgramOnNowTunesIt() = keyMapTest {
+        val ch = makeGame("Zebra Quartz Hour")
+        val r = app.voice(listOf("watch zebra quartz hour"))
+        assertTrue(r.acted, r.message)
+        eventually("full screen on its channel") { app.navigator.current is Route.FullScreen && current?.key == ch.key }
+    }
+
+    // A press cut short ("watch the") found The Weather Channel.
+    @Test fun aFillerAloneIsNoChannel() = keyMapTest {
+        assertFalse(app.voice(listOf("watch the")).acted)
+    }
+
+    // The grammar knows the teams; the free recognizer heard "bears team" for "bears game".
+    @Test fun theGrammarsGameBeatsTheFreeRecognizersWords() = keyMapTest {
+        makeGame("NFL Football - Chicago Bears vs. Detroit Lions", later = true)
+        val r = app.voice(listOf("remind me about the chicago bears game"), free = "remind me about the chicago bears team")
+        assertTrue(r.shown.startsWith("Reminder set: Chicago Bears vs. Detroit Lions"), r.message)
+    }
+
     // ---- Channels to match ----
 
     // By default, with favorites set, only they (and playlists and voice names) are matched.

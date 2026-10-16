@@ -581,10 +581,19 @@ class AppController(val platform: Platform, val log: Log) {
         // After startup's own start page, on the main thread with the screens.
         withContext(Dispatchers.Main) { androidx.compose.runtime.snapshotFlow { ready }.first { it } }
 
+        // A game, or a reminder for one, as the grammar heard it: it knows the teams, and the free
+        // recognizer doesn't ("the chicago bears game" came back as "the chicago bears team").
+        parsed.firstOrNull()?.let { (heard, c) ->
+            if ("[unk]" !in heard && (c is com.signal.voice.VoiceCommand.Game || (c is com.signal.voice.VoiceCommand.Remind && c.team != null))) {
+                return voiceTitle(heard, c, ::result)
+            }
+        }
         // A movie or series command, as the free recognizer heard it: the grammar knows few titles.
         val freeCommand = heardFree?.let { com.signal.voice.VoiceCommand.parse(it) }
         if (freeCommand != null && freeCommand.isTitleCommand) return voiceTitle(heardFree, freeCommand, ::result)
         val (freeTitle, freeLeadIn) = heardFree?.let { com.signal.voice.VoiceCommand.spokenTitle(it) } ?: ("" to false)
+        // "Play ___" means a movie or series first; "watch ___" or a bare name means what's on now first.
+        val plays = com.signal.voice.VoiceCommand.saysPlay(heardFree ?: best)
 
         val tunes = ArrayList<Pair<String, String>>()
         for ((heard, command) in parsed) {
@@ -594,16 +603,22 @@ class AppController(val platform: Platform, val log: Log) {
             when (command) {
                 is com.signal.voice.VoiceCommand.Tune -> {
                     // One letter is never enough to name a channel ("v" found VH1).
-                    if (command.channel.replace(" ", "").length < 2) continue
+                    // A filler alone ("watch the", cut short) is no name: it found The Weather Channel.
+                    if (command.channel.replace(" ", "").length < 2 || command.channel in com.signal.voice.VoiceCommand.FILLER_NAMES) continue
                     for (name in command.names) {
                         tunes += heard to name
                         val hits = search.channelHits(name, limit = VOICE_HITS, forVoice = true)
                         if (hits.isEmpty()) continue
-                        // Not one clear channel: a title wins. The free recognizer's, when it ran (it
-                        // only runs for "play …" and the like), with any match; the grammar's only
-                        // exactly, since it forces any title into channel words ("the me tribeca").
+                        // Not one clear channel: a program on now by that name, unless it was "play
+                        // ___" ("watch friends" is the airing, 0.2.27). Then a title: the free
+                        // recognizer's, when it ran (it only runs for "play …" and the like), with any
+                        // match; the grammar's only exactly, since it forces any title into channel
+                        // words ("the me tribeca").
                         val pick = com.signal.voice.VoiceChoice.choose(hits, { it.channel.displayName }, { it.exact }, { it.favorite })
                         if (!(pick is com.signal.voice.VoiceChoice.Pick.One && pick.hit.exact)) {
+                            if (!plays) for (title in listOf(freeTitle, name).filter { it.isNotBlank() }.distinct()) {
+                                onNow(title).takeIf { it.isNotEmpty() }?.let { return voiceOnNow(heard, it, ::result) }
+                            }
                             if (freeTitle.isNotBlank() && titleHits(freeTitle, null).isNotEmpty()) {
                                 return voiceTitle(heardFree!!, com.signal.voice.VoiceCommand.PlayTitle(freeTitle), ::result)
                             }
@@ -630,7 +645,11 @@ class AppController(val platform: Platform, val log: Log) {
                 if (hits.isNotEmpty()) return voiceChannel(heard, hits, " by sound (\"$like\")", ::result)
             }
         }
-        // No channel: a movie or series by that name. Any match for what the free recognizer heard;
+        // No channel: a program on now by that name ("watch friends"), unless it was "play ___".
+        if (!plays) for (title in (listOf(freeTitle) + tunes.map { it.second }).filter { it.replace(" ", "").length >= 2 }.distinct()) {
+            onNow(title).takeIf { it.isNotEmpty() }?.let { return voiceOnNow(heardFree ?: best, it, ::result) }
+        }
+        // Then a movie or series by that name. Any match for what the free recognizer heard;
         // only an exact one for the grammar's guesses, which were "play me truckers" for "play matrix".
         if (heardFree != null && freeTitle.replace(" ", "").length >= 2 && titleHits(freeTitle, null).isNotEmpty()) {
             return voiceTitle(heardFree, com.signal.voice.VoiceCommand.PlayTitle(freeTitle), ::result)
@@ -732,6 +751,33 @@ class AppController(val platform: Platform, val log: Log) {
             listOf(m.away, m.home).any { " ${com.signal.match.SearchText.fold(it)} ".contains(" $wanted ") }
         }
     }
+
+    /** Programs on now titled exactly [title] (teams aside), on visible channels: "watch friends" is the airing. */
+    private suspend fun onNow(title: String): List<SearchRepository.ProgramHit> {
+        val wanted = com.signal.match.SearchText.fold(title)
+        if (wanted.replace(" ", "").length < 2) return emptyList()
+        val now = Clock.System.now().toEpochMilliseconds()
+        return search.programs(title, now, limit = 40).filter {
+            it.program.isOn(now) && com.signal.match.SearchText.fold(com.signal.guide.GameTitles.withoutMatchup(it.program.title)) == wanted
+        }
+    }
+
+    /** Tunes a program on now: one channel at once, a favorite when it's on several, else a choice. */
+    private suspend fun voiceOnNow(heard: String, hits: List<SearchRepository.ProgramHit>, result: (Boolean, String, String, String) -> VoiceResult): VoiceResult =
+        withContext(Dispatchers.Main) {
+            when (val pick = com.signal.voice.VoiceChoice.choose(hits, { it.channel.displayName }, { true }, { it.channel.isFavorite })) {
+                null -> result(false, heard, "Nothing on now", "nothing on")
+                is com.signal.voice.VoiceChoice.Pick.One -> {
+                    val ch = pick.hit.channel
+                    inFront { watch(ch) }
+                    result(true, heard, "${pick.hit.program.title} on ${ch.displayName}", "on now on ${ch.displayName}")
+                }
+                is com.signal.voice.VoiceChoice.Pick.Several -> {
+                    inFront { voiceAsk(heard, pick.hits.map { it.channel }) { ch -> watch(ch); null } }
+                    result(true, heard, "Choose a channel", "on now: a choice")
+                }
+            }
+        }
 
     /** "Pittsburgh Steelers vs. Cleveland Browns", or the title when it names no teams. */
     private fun gameName(p: com.signal.model.Program) = com.signal.guide.GameTitles.matchup(p.title)?.text ?: p.title

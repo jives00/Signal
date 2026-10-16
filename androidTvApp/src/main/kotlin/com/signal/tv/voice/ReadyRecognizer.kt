@@ -74,11 +74,17 @@ internal object ReadyRecognizer {
         }
     }
 
-    /** The free recognizer for [model], built once. Called holding the lock. */
-    private fun freeFor(model: Model): Recognizer? = free?.takeIf { freeModel === model } ?: runCatching {
-        free?.close()
-        Recognizer(model, SAMPLE_RATE).also { free = it; freeModel = model }
-    }.onFailure { Log.e(TAG, "Voice: the free recognizer failed", it) }.getOrNull()
+    /**
+     * The free recognizer, built once per model: on the small title model once it's loaded
+     * (VoskModel.Free, fast enough for real time), else on [main]. Called holding the lock.
+     */
+    private fun freeFor(main: Model): Recognizer? {
+        val model = VoskModel.Free.model ?: main
+        return free?.takeIf { freeModel === model } ?: runCatching {
+            free?.close()
+            Recognizer(model, SAMPLE_RATE).also { free = it; freeModel = model }
+        }.onFailure { Log.e(TAG, "Voice: the free recognizer failed", it) }.getOrNull()
+    }
 
     /** The slow part, the phrases, is outside the lock; only the swap holds it. */
     private fun refresh(app: SignalApplication, model: Model): Recognizer {

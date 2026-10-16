@@ -10,82 +10,112 @@ import java.util.zip.ZipInputStream
 import kotlin.concurrent.thread
 
 /**
- * Vosk's larger English model with a runtime grammar ("lgraph", about 130 MB, Apache 2.0): the small
- * one (40 MB) mixed up letters too often for initials like CBS (2026-10-15). Downloaded once into
- * the app's files rather than shipped in the APK (PLAN §4.3.14 → Voice commands).
+ * The speech models, downloaded once into the app's files rather than shipped in the APK (PLAN
+ * §4.3.14 → Voice commands). Both Apache 2.0.
+ *
+ * - [VoskModel]: the larger English model with a runtime grammar ("lgraph", about 130 MB), for
+ *   channels and commands. The small one mixed up letters too often for initials like CBS (2026-10-15).
+ * - [VoskModel.Free]: the small English model (about 40 MB), for the free recognizer's titles. The
+ *   lgraph model without a grammar decoded slower than speech on the Shield (9.9 s for "play the
+ *   matrix", 0.2.27); the small one is built for real time on devices like it.
  */
 internal object VoskModel {
     private const val TAG = "Signal"
-    private const val NAME = "vosk-model-en-us-0.22-lgraph"
-    private const val URL = "https://alphacephei.com/vosk/models/$NAME.zip"
 
-    @Volatile private var model: Model? = null
-    @Volatile private var preparing = false
-    @Volatile private var failed = false
-    @Volatile private var downloading = false
+    /** One model: its download, its loading, and its state. */
+    class Downloaded(private val name: String, private val label: String) {
+        private val url = "https://alphacephei.com/vosk/models/$name.zip"
+        @Volatile var model: Model? = null
+            private set
+        @Volatile private var preparing = false
+        @Volatile var failed = false
+            private set
+        @Volatile var downloading = false
+            private set
 
-    /** For Settings → Voice commands. */
+        val isPreparing get() = preparing
+
+        fun downloaded(context: Context) = File(context.filesDir, "vosk/$name.ready").exists()
+
+        /** Downloads and loads it, once (again after a failure); [then] runs once it's loaded. */
+        fun prepare(context: Context, then: () -> Unit = {}) {
+            if (model != null || preparing) return
+            preparing = true
+            failed = false
+            thread(name = "vosk-$label") {
+                runCatching {
+                    val dir = File(context.filesDir, "vosk")
+                    val modelDir = File(dir, name)
+                    val ready = File(dir, "$name.ready")
+                    if (!ready.exists()) {
+                        downloading = true
+                        try { download(dir, modelDir, ready) } finally { downloading = false }
+                    }
+                    val started = System.currentTimeMillis()
+                    model = Model(modelDir.absolutePath)
+                    Log.i(TAG, "Voice: $label model loaded in ${System.currentTimeMillis() - started} ms")
+                    then()
+                }.onFailure { failed = true; Log.e(TAG, "Voice: $label model failed", it) }
+                preparing = false
+            }
+        }
+
+        private fun download(dir: File, modelDir: File, ready: File) {
+            Log.i(TAG, "Voice: downloading the $label model")
+            dir.mkdirs()
+            modelDir.deleteRecursively()
+            val started = System.currentTimeMillis()
+            ZipInputStream(URL(url).openStream().buffered()).use { zip ->
+                while (true) {
+                    val entry = zip.nextEntry ?: break
+                    val out = File(dir, entry.name)
+                    // Zip entries must stay inside the folder.
+                    require(out.canonicalPath.startsWith(dir.canonicalPath + File.separator)) { "Bad zip entry ${entry.name}" }
+                    if (entry.isDirectory) out.mkdirs()
+                    else {
+                        out.parentFile?.mkdirs()
+                        out.outputStream().use { zip.copyTo(it) }
+                    }
+                }
+            }
+            ready.createNewFile()
+            // Models from earlier versions: only the ones in use stay.
+            dir.listFiles()?.filter { f -> USED.none { f.name == it || f.name == "$it.ready" } }?.forEach { it.deleteRecursively() }
+            Log.i(TAG, "Voice: $label model downloaded in ${System.currentTimeMillis() - started} ms")
+        }
+    }
+
+    private const val MAIN_NAME = "vosk-model-en-us-0.22-lgraph"
+    private const val FREE_NAME = "vosk-model-small-en-us-0.15"
+    private val USED = listOf(MAIN_NAME, FREE_NAME)
+
+    private val main = Downloaded(MAIN_NAME, "speech")
+    /** The free recognizer's model; until it's loaded, the free recognizer uses the main one. */
+    val Free = Downloaded(FREE_NAME, "title")
+
+    /** For Settings → Voice commands: the main model's state, which voice commands need. */
     fun state(context: Context): VoiceStatus.Model = when {
-        model != null -> VoiceStatus.Model.READY
-        downloading -> VoiceStatus.Model.DOWNLOADING
-        preparing -> VoiceStatus.Model.LOADING
-        failed -> VoiceStatus.Model.FAILED
-        File(context.filesDir, "vosk/$NAME.ready").exists() -> VoiceStatus.Model.LOADING
+        main.model != null -> VoiceStatus.Model.READY
+        main.downloading -> VoiceStatus.Model.DOWNLOADING
+        main.isPreparing -> VoiceStatus.Model.LOADING
+        main.failed -> VoiceStatus.Model.FAILED
+        main.downloaded(context) -> VoiceStatus.Model.LOADING
         else -> VoiceStatus.Model.NOT_DOWNLOADED
     }
 
-    /** The loaded model, or null while it downloads or loads (which [prepare] starts). */
-    fun get(context: Context): Model? = model ?: run { prepare(context); null }
+    /** The loaded main model, or null while it downloads or loads (which [prepare] starts). */
+    fun get(context: Context): Model? = main.model ?: run { prepare(context); null }
 
-    /** The model if it's loaded; never starts loading. */
-    fun loaded(): Model? = model
+    /** The main model if it's loaded; never starts loading. */
+    fun loaded(): Model? = main.model
 
-    /** Downloads and loads the model in the background, once (again after a failure). */
+    /** Downloads and loads the main model in the background, then the free recognizer's. */
     fun prepare(context: Context) {
-        if (model != null || preparing) return
-        preparing = true
-        failed = false
-        thread(name = "vosk-model") {
-            runCatching {
-                val dir = File(context.filesDir, "vosk")
-                val modelDir = File(dir, NAME)
-                val ready = File(dir, "$NAME.ready")
-                if (!ready.exists()) {
-                    downloading = true
-                    try { download(dir, modelDir, ready) } finally { downloading = false }
-                }
-                val started = System.currentTimeMillis()
-                model = Model(modelDir.absolutePath)
-                Log.i(TAG, "Voice: speech model loaded in ${System.currentTimeMillis() - started} ms")
-                val app = context.applicationContext as com.signal.tv.SignalApplication
-                ReadyRecognizer.warm(app)
-                ReadyRecognizer.follow(app)
-            }.onFailure { failed = true; Log.e(TAG, "Voice: speech model failed", it) }
-            preparing = false
+        main.prepare(context) {
+            val app = context.applicationContext as com.signal.tv.SignalApplication
+            ReadyRecognizer.warm(app)
+            ReadyRecognizer.follow(app)
+            Free.prepare(context) { ReadyRecognizer.warm(app) }
         }
-    }
-
-    private fun download(dir: File, modelDir: File, ready: File) {
-        Log.i(TAG, "Voice: downloading the speech model")
-        dir.mkdirs()
-        modelDir.deleteRecursively()
-        val started = System.currentTimeMillis()
-        ZipInputStream(URL(URL).openStream().buffered()).use { zip ->
-            while (true) {
-                val entry = zip.nextEntry ?: break
-                val out = File(dir, entry.name)
-                // Zip entries must stay inside the folder.
-                require(out.canonicalPath.startsWith(dir.canonicalPath + File.separator)) { "Bad zip entry ${entry.name}" }
-                if (entry.isDirectory) out.mkdirs()
-                else {
-                    out.parentFile?.mkdirs()
-                    out.outputStream().use { zip.copyTo(it) }
-                }
-            }
-        }
-        ready.createNewFile()
-        // Other models from earlier versions: only this one is used.
-        dir.listFiles()?.filter { it.name != NAME && it.name != "$NAME.ready" }?.forEach { it.deleteRecursively() }
-        Log.i(TAG, "Voice: speech model downloaded in ${System.currentTimeMillis() - started} ms")
     }
 }

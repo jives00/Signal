@@ -42,6 +42,8 @@ private const val TAG = "Signal"
 private const val SAMPLE_RATE = 16000
 /** Longest a press listens, in case the end of speech is never detected. */
 private const val MAX_LISTEN_MS = 8000L
+/** How long the free recognizer may run on after the grammar one heard the end of speech. */
+private const val FREE_GRACE_MS = 1500L
 
 private fun joined(a: String, b: String) = listOf(a, b).filter { it.isNotBlank() }.joinToString(" ")
 
@@ -207,6 +209,10 @@ private class ListenSession(context: Context) : VoiceInteractionSession(context)
             if (free != null && freeListener == null) freeListener = FreeListener(free, heardSoFar, onPartial)
         }
         var guesses = emptyList<String>()
+        // When the grammar one heard the end of speech while the free one runs: it gets [FREE_GRACE_MS] more
+        // to hear it too. Waiting on it alone kept a press open to the 8 s limit when it decoded slower
+        // than speech (0.2.27).
+        var grammarEndedAt = 0L
         var partial = ""
         while (listening && System.currentTimeMillis() - started < MAX_LISTEN_MS) {
             val n = record.read(buffer, 0, buffer.size)
@@ -216,11 +222,13 @@ private class ListenSession(context: Context) : VoiceInteractionSession(context)
             // While the free one runs, its end of speech ends the press: the grammar one, not knowing
             // the words, can decide a title is over halfway through ("remind me about" … "jeopardy").
             if (freeListener?.ended == true) break
+            if (grammarEndedAt > 0 && System.currentTimeMillis() - grammarEndedAt > FREE_GRACE_MS) break
             if (rec.acceptWaveForm(buffer, n)) {
                 val heard = guesses(rec.result)
                 if (guesses.isEmpty()) guesses = heard
                 // An end detected in the silence before speaking: keep listening.
                 if (guesses.isNotEmpty() && freeListener == null) break
+                if (guesses.isNotEmpty() && grammarEndedAt == 0L) grammarEndedAt = System.currentTimeMillis()
             } else {
                 val now = JSONObject(rec.partialResult).optString("partial")
                 if (com.signal.voice.VoiceCommand.wantsTitle(now)) startFree()

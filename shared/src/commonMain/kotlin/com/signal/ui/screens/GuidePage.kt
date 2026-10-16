@@ -191,7 +191,9 @@ fun LiveTvPage() {
     com.signal.ui.components.OnPageHidden {
         panelOpen = false
         // Into Home or full screen the stream carries on (PLAN §4.3.1: no rebuffer between them).
-        if (!app.navigator.current.showsVideo) app.playback.stop()
+        // Into a movie, the player is the movie's: stopping it here stopped the movie a voice command
+        // had just started from Live TV, leaving a grey screen (0.2.27). VodPlayback has it now.
+        if (!app.navigator.current.showsVideo && app.navigator.current != com.signal.app.Route.VodPlayer) app.playback.stop()
     }
 
     fun scrollToRow(row: Int) {

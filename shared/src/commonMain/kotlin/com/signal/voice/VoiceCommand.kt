@@ -332,6 +332,13 @@ sealed interface VoiceCommand {
 
         private val titleLead = Regex("""^(play|search|find|look up|look for|continue|resume|keep watching|watch the (movie|show|film|series)|remind me( about| of| to watch)?|set a reminder( for| about)?)\s+\S""")
 
+        /** Words that are never a channel's name on their own: a press cut short ("watch the") found The Weather Channel. */
+        val FILLER_NAMES = setOf("the", "a", "an", "to", "on", "of", "in", "and", "my", "it", "this")
+
+        /** "Play ___": a movie or series first. "Watch ___" or a bare name: what's on now first. */
+        fun saysPlay(heard: String): Boolean =
+            heard.lowercase().replace(unknown, " ").replace(nonWord, " ").trim().replace(spaces, " ").removePrefix(fillers).startsWith("play ")
+
         /**
          * What a free guess says after any lead-in, as heard ("play seinfeld" → "seinfeld", true), for
          * matching a title. The flag says it began with a lead-in, so a miss can still open Search.

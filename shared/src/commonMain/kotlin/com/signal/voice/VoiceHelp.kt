@@ -30,6 +30,7 @@ data class VoiceHelp(val groups: List<Group>, val tips: List<String>) {
                         Command(listOf("channel up", "channel down", "next channel"), "Changes channel, as the remote's channel buttons do."),
                         Command(listOf("last channel", "go to the last channel", "previous channel"), "Goes back to the channel before this one."),
                         Command(listOf("what's on ESPN", "what's on"), "Shows the program on now without changing channel. With no channel, it's the one playing."),
+                        Command(listOf("watch Friends", "watch Jeopardy"), "Tunes the channel showing that program now. (\"Play Friends\" plays it from Movies & Series instead.)"),
                     ),
                 ),
                 Group(
