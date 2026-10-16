@@ -55,13 +55,23 @@ class AndroidUpdater(
             release = latest
             val dismissed = if (manual) null else prefs.getString(KEY_DISMISSED, null)
             _state.value = if (GitHubReleases.isNewer(currentTag, latest.tag) && latest.tag != dismissed) {
-                UpdateState.Available(latest.tag, latest.body)
+                UpdateState.Available(latest.tag, changesSince(latest) ?: latest.body)
             } else {
                 UpdateState.None
             }
             true
         }.getOrElse { e -> android.util.Log.w("Signal", "Update check failed: ${e.message}"); false }
     }
+
+    /**
+     * Every release's notes since the installed version, not only the newest's (user, 2026-10-16).
+     * Null when the list can't be fetched, so the newest release's notes show as before.
+     */
+    private suspend fun changesSince(latest: GitHubReleases.Release): String? = runCatching {
+        val response = withContext(Dispatchers.IO) { http.get(GitHubReleases.RELEASES_URL) }
+        if (!response.status.isSuccess()) return null
+        GitHubReleases.changesSince(GitHubReleases.parseReleases(response.bodyAsText()), currentTag, latest.tag)
+    }.getOrNull()
 
     override fun install() {
         val r = release ?: return
