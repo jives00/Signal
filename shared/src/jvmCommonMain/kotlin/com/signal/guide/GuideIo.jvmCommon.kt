@@ -23,6 +23,12 @@ internal actual object GuideFiles {
     }
     actual fun join(dir: String, name: String): String = File(dir, name).absolutePath
     actual fun rename(from: String, to: String): Boolean = File(from).renameTo(File(to))
+    actual fun readText(path: String): String? = File(path).takeIf { it.exists() }?.readText()
+    actual fun writeText(path: String, text: String) {
+        val part = File("$path.part")
+        part.writeText(text)
+        if (!part.renameTo(File(path))) { File(path).delete(); part.renameTo(File(path)) }
+    }
 }
 
 internal actual suspend fun <T> readXmltv(

@@ -10,6 +10,10 @@ internal expect object GuideFiles {
     fun delete(path: String)
     fun join(dir: String, name: String): String
     fun rename(from: String, to: String): Boolean
+    /** A small text file, or null when there is none. */
+    fun readText(path: String): String?
+    /** Writes [text] whole, through a temporary file, so a reader never sees half of it. */
+    fun writeText(path: String, text: String)
 }
 
 /**

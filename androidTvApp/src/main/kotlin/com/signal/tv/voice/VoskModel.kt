@@ -42,7 +42,8 @@ internal object VoskModel {
             if (model != null || preparing) return
             preparing = true
             failed = false
-            thread(name = "vosk-$label") {
+            // Low priority: it loads as Signal opens, and competed with the guide's first rows (2026-10-16).
+            thread(name = "vosk-$label", priority = Thread.MIN_PRIORITY) {
                 runCatching {
                     val dir = File(context.filesDir, "vosk")
                     val modelDir = File(dir, name)
@@ -88,6 +89,7 @@ internal object VoskModel {
     private const val MAIN_NAME = "vosk-model-en-us-0.22-lgraph"
     private const val FREE_NAME = "vosk-model-small-en-us-0.15"
     private val USED = listOf(MAIN_NAME, FREE_NAME)
+    private const val FREE_DELAY_MS = 60_000L
 
     private val main = Downloaded(MAIN_NAME, "speech")
     /** The free recognizer's model; until it's loaded, the free recognizer uses the main one. */
@@ -115,7 +117,12 @@ internal object VoskModel {
             val app = context.applicationContext as com.signal.tv.SignalApplication
             ReadyRecognizer.warm(app)
             ReadyRecognizer.follow(app)
-            Free.prepare(context) { ReadyRecognizer.warm(app) }
+            // The title model a minute later: until then the free recognizer uses the main model, and
+            // loading both as Signal opened (8 s on the Shield) slowed the guide's first rows.
+            thread(name = "vosk-title-wait", priority = Thread.MIN_PRIORITY) {
+                Thread.sleep(FREE_DELAY_MS)
+                Free.prepare(context) { ReadyRecognizer.warm(app) }
+            }
         }
     }
 }

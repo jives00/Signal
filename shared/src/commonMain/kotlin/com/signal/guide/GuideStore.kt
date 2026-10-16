@@ -46,7 +46,8 @@ class GuideStore(
         val dir = platform.guideDirectory
         val files = GuideFiles.list(dir)
         val newest = files.filter { NAME.matches(it.substringAfterLast('/').substringAfterLast('\\')) }.maxOrNull()
-        files.filter { it != newest && !it.endsWith("-journal") }.forEach(GuideFiles::delete)
+        // The saved channel resolutions (GuideRepository) stay: they say which guide they were for.
+        files.filter { it != newest && !it.endsWith("-journal") && !it.endsWith(RESOLVED) }.forEach(GuideFiles::delete)
         if (newest != null) {
             val opened = runCatching { openFile(newest) }.getOrNull()
             val current = opened != null && runCatching { opened.db.guideQueries.meta(META_SCHEMA).executeAsOneOrNull() == SCHEMA.toString() }.getOrDefault(false)
@@ -61,6 +62,9 @@ class GuideStore(
             }
         }
     }
+
+    /** Where GuideRepository keeps each channel's resolved guide between runs. */
+    fun resolvedPath(): String = GuideFiles.join(platform.guideDirectory, RESOLVED)
 
     /** The guide's build time, or null when there's none. */
     fun builtAt(): Long? = db?.guideQueries?.meta(META_BUILT_AT)?.executeAsOneOrNull()?.toLongOrNull()
@@ -154,6 +158,8 @@ class GuideStore(
         const val ORIGIN_NAS = "nas"
         /** Bumped whenever Guide.sq changes: older files are deleted rather than migrated. 2: guide_channel_name. */
         const val SCHEMA = 2
+        /** Each channel's guide, saved by GuideRepository so a restart doesn't rebuild every source's index first. */
+        const val RESOLVED = "resolved.tsv"
         private val NAME = Regex("""guide-\d+\.db""")
     }
 }

@@ -12,6 +12,8 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.withContext
 
@@ -48,27 +50,81 @@ class GuideRepository(
     // Readers run on several IO threads at once; the caches are guarded by one lock.
     private val lock = Any()
 
-    private fun resolveNow(channel: Channel): GuideRef? = synchronized(lock) {
-        val s = state.value
-        val db = store.db ?: return null
-        if (refsState != s) {
-            refs.clear()
-            refsState = s
-        }
-        if (indexVersion != s.version) {
-            indexes.clear()
-            indexVersion = s.version
-        }
-        return refs.getOrPut(channel.stream.id) { compute(channel.userChannelId, channel.stream.tvgId, channel.stream.rawName, s, db) }
-    }
+    private fun resolveNow(channel: Channel): GuideRef? =
+        resolve(channel.stream.id, channel.userChannelId, channel.stream.tvgId, channel.stream.rawName)
 
     /** Resolution from a channel's raw fields, for search's map from guide channels back to channels. */
     internal fun resolve(streamId: String, userChannelId: String?, tvgId: String?, rawName: String): GuideRef? = synchronized(lock) {
         val s = state.value
         val db = store.db ?: return null
-        if (refsState != s) { refs.clear(); refsState = s }
+        if (refsState != s) {
+            refs.clear()
+            refsState = s
+            refsSignature = signature(s)
+            // The resolutions saved by the last run, when they're for this same guide and matches.
+            loadSaved()?.takeIf { it.first == refsSignature }?.let { refs.putAll(it.second) }
+        }
         if (indexVersion != s.version) { indexes.clear(); indexVersion = s.version }
-        return refs.getOrPut(streamId) { compute(userChannelId, tvgId, rawName, s, db) }
+        refs[streamId]?.let { return it }
+        if (streamId in refs) return null
+        return compute(userChannelId, tvgId, rawName, s, db).also {
+            refs[streamId] = it
+            unsaved.tryEmit(Unit)
+        }
+    }
+
+    // ---- Saved between runs (user, 2026-10-16: 5-10 s before the guide's rows after opening) ----
+    // Resolving a channel that isn't mapped by hand builds its EPG sources' indexes, 8 s on the Shield
+    // for four guides. Each channel's answer is saved beside the guide, so the next start uses it at
+    // once; it counts only for the same guide build, EPG sources and mappings.
+
+    private var refsSignature = ""
+    private var saved: Pair<String, Map<String, GuideRef?>>? = null
+    private var savedLoaded = false
+    private val unsaved = kotlinx.coroutines.flow.MutableSharedFlow<Unit>(extraBufferCapacity = 1, onBufferOverflow = kotlinx.coroutines.channels.BufferOverflow.DROP_OLDEST)
+
+    init {
+        scope.launch {
+            @OptIn(kotlinx.coroutines.FlowPreview::class)
+            unsaved.debounce(SAVE_AFTER_MS).collect { withContext(io) { save() } }
+        }
+    }
+
+    /** What the resolutions depend on: the guide build, the EPG sources in order, the default, the mappings. */
+    private fun signature(s: State): String = listOf(
+        store.builtAt()?.toString().orEmpty(),
+        s.sources.joinToString(",") { "${it.id}:${it.enabled}:${it.timeShiftMs}" },
+        s.defaultId.orEmpty(),
+        s.mappings.entries.sortedBy { it.key }.joinToString(",") { "${it.key}=${it.value.epgSourceId}/${it.value.guideChannelId}" }.hashCode().toString(),
+    ).joinToString("|")
+
+    private fun loadSaved(): Pair<String, Map<String, GuideRef?>>? {
+        if (savedLoaded) return saved
+        savedLoaded = true
+        saved = runCatching {
+            val lines = GuideFiles.readText(store.resolvedPath())?.lines() ?: return null
+            val sig = lines.firstOrNull() ?: return null
+            sig to lines.drop(1).filter { it.isNotEmpty() }.associate { line ->
+                val f = line.split('\t')
+                f[0] to if (f.size < 5) null else GuideRef(f[1], f[2], f[3].toLong(), f[4] == "1")
+            }
+        }.getOrNull()
+        return saved
+    }
+
+    private fun save() {
+        val (sig, snapshot) = synchronized(lock) { refsSignature to HashMap(refs) }
+        if (sig.isEmpty() || snapshot.isEmpty()) return
+        val text = buildString {
+            append(sig).append('\n')
+            for ((id, ref) in snapshot) {
+                append(id)
+                if (ref != null) append('\t').append(ref.epgSourceId).append('\t').append(ref.guideChannelId).append('\t').append(ref.timeShiftMs).append('\t').append(if (ref.isFallback) "1" else "0")
+                append('\n')
+            }
+        }
+        runCatching { GuideFiles.writeText(store.resolvedPath(), text) }.onFailure { log?.invoke("Guide: couldn't save resolutions: ${it.message}") }
+        synchronized(lock) { saved = sig to snapshot }
     }
 
     private fun compute(userChannelId: String?, rawTvgId: String?, rawName: String, s: State, db: GuideDatabase): GuideRef? {
@@ -175,3 +231,6 @@ class GuideRepository(
         credits = credits?.split(GuideBuilder.SEPARATOR).orEmpty(),
     )
 }
+
+/** New resolutions are saved this long after the last one, so a screenful saves once. */
+private const val SAVE_AFTER_MS = 3_000L

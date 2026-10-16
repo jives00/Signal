@@ -21,7 +21,8 @@ internal object ReadyRecognizer {
     private const val SAMPLE_RATE = 16000f
     private const val MAX_GUESSES = 5
 
-    private val background = Executors.newSingleThreadExecutor { Thread(it, "voice-grammar") }
+    // Low priority: it builds as Signal opens, beside the guide's first rows (2026-10-16).
+    private val background = Executors.newSingleThreadExecutor { Thread(it, "voice-grammar").apply { priority = Thread.MIN_PRIORITY } }
     private var recognizer: Recognizer? = null
     private var phrasesKey = 0
 

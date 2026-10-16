@@ -68,11 +68,13 @@ object GuideResolver {
         // The best flawed name match so far (wrong country, or a Pacific or West feed), used only if nothing clean turns up.
         var flawed: Pair<GuideRef, Int>? = null
         for ((i, src) in order.withIndex()) {
-            val idx = index(src.id)
             // 1. A manual mapping names both the EPG source and the guide channel: the strongest override.
+            // Checked before the source's index is built: a mapped channel never needs it, and building
+            // it first held every mapped row behind it (5.5 s for one guide on the Shield, 2026-10-16).
             if (i == 0 && mapping?.guideChannelId != null && mapping.epgSourceId == src.id) {
                 return GuideRef(src.id, mapping.guideChannelId, src.timeShiftMs, isFallback = false)
             }
+            val idx = index(src.id)
             // 2. tvg-id in this EPG source.
             if (tvgId != null) idx.byId[tvgId.lowercase()]?.let { return GuideRef(src.id, it, src.timeShiftMs, isFallback = i > 0) }
             // 3. The normalized name in this EPG source, ranked.

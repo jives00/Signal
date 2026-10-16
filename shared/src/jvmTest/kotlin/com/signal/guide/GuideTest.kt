@@ -141,6 +141,32 @@ class GuideTest {
         assertEquals(distinct, skip)
     }
 
+    /**
+     * Each channel's guide is saved beside the guide, so the next start resolves it without building
+     * its EPG sources' indexes (8 s for four guides on the Shield, 2026-10-16). A mapped channel
+     * never builds one at all.
+     */
+    @Test fun resolutionsAreSavedForTheNextStart() = runBlocking<Unit> {
+        sources.save(Source(id = "demo", name = "Demo", kind = SourceKind.DEMO, url = "demo:"))
+        sources.refresh("demo").getOrThrow()
+        epg.ensureForSource(sources.byId("demo")!!)
+        assertTrue(build())
+        settle()
+        val first = channels.channelsNow(channels.groupsNow().first { it.group is ChannelGroup.Provider }.group).take(5)
+        val before = first.map { guide.resolve(it) }
+        assertTrue(before.all { it != null })
+        // The save waits a few seconds for a burst of resolutions to settle.
+        withTimeoutOrNull(10_000) { while (!java.io.File(store.resolvedPath()).exists()) kotlinx.coroutines.delay(100) }
+        assertTrue(java.io.File(store.resolvedPath()).exists(), "saved")
+
+        // The next start: a new repository on the same guide, which logs any index it builds.
+        val logged = java.util.Collections.synchronizedList(ArrayList<String>())
+        val next = GuideRepository(store, epg, settings, Dispatchers.IO, scope) { logged += it }
+        withTimeoutOrNull(10_000) { next.state.first { it.sources == epg.all() && it.version == store.version.value } }
+        assertEquals(before, first.map { next.resolve(it) })
+        assertTrue(logged.none { it.startsWith("Guide: index") }, "no index built: $logged")
+    }
+
     @Test fun xmltvPlainAndGzippedWithTimeShiftAndPruning() = runBlocking<Unit> {
         val list = m3u("#EXTM3U\n#EXTINF:-1 tvg-id=\"a.us\" group-title=\"G\",US: Alpha HD\nhttp://p/1.ts\n#EXTINF:-1 group-title=\"G\",Bravo ᴴᴰ\nhttp://p/2.ts\n")
         served["http://g/one.xml"] = xmltv(
