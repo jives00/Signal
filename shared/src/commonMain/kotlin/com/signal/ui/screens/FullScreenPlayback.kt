@@ -334,6 +334,10 @@ private fun aspectPicker(app: com.signal.app.AppController, channel: Channel): P
     })
 }
 
+/** The channel list's first focus: up to this many tries, each a few frames apart (about a second in all). */
+private const val FOCUS_TRIES = 10
+private const val FRAMES_PER_TRY = 6
+
 /**
  * The channel list over playback (PLAN §4.3.3 → Channel list): the current group's channels first,
  * Left again for the groups. Up/Down move without tuning; OK tunes and makes that group current.
@@ -370,7 +374,14 @@ private fun ChannelListOverlay(onClose: () -> Unit, onTuned: () -> Unit) {
         val i = list.indexOfFirst { it.stream.id == current?.stream?.id }.coerceAtLeast(0)
         if (list.isNotEmpty()) {
             channelState.requestScrollToItem(i)
-            channelFocus.focus(list[i].key)
+            // A list built ahead and shown again can take longer than a row's own few frames to be
+            // placed when the device (or a test run) is busy, and the row then gave up, leaving nothing
+            // focused. Ask again until a row has it.
+            repeat(FOCUS_TRIES) {
+                if (channelFocus.hasFocus) return@LaunchedEffect
+                channelFocus.focus(list[i].key)
+                repeat(FRAMES_PER_TRY) { androidx.compose.runtime.withFrameNanos { } }
+            }
         }
     }
 
