@@ -163,6 +163,14 @@ class SearchRepository(
         }
     }
 
+    /** Up to [limit] of the channels voice commands match ([voicePool]), favorites first, for the program titles in the grammar. */
+    suspend fun voiceChannels(limit: Int): List<Channel> {
+        val ids = lock.withLock {
+            withContext(io) { voicePool(index()).sortedWith(compareBy({ !it.favorite }, { it.order })).take(limit).map { it.streamId } }
+        }
+        return ids.mapNotNull { channels.channelByStream(it) }
+    }
+
     /** The streams voice commands match ([voicePool]): games and reminders keep to them too. */
     suspend fun voiceStreamIds(): Set<String> = lock.withLock { withContext(io) { voicePool(index()).mapTo(HashSet()) { it.streamId } } }
 

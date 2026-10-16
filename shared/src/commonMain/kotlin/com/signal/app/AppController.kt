@@ -647,7 +647,13 @@ class AppController(val platform: Platform, val log: Log) {
                         return voiceChannel(heard, hits, "", ::result)
                     }
                 }
-                is com.signal.voice.VoiceCommand.WhatsOn -> return voiceWhatsOn(heard, command.channel, ::result)
+                is com.signal.voice.VoiceCommand.WhatsOn -> {
+                    // A later guess may name the channel the first got wrong: "what's on u s p n", then
+                    // "… e s p n" (0.2.31).
+                    val asked = parsed.mapNotNull { (h, c) -> (c as? com.signal.voice.VoiceCommand.WhatsOn)?.let { h to it.channel } }
+                    val found = asked.firstOrNull { (_, n) -> n == null || whatsOnHits(n).isNotEmpty() } ?: (heard to command.channel)
+                    return voiceWhatsOn(found.first, found.second, ::result)
+                }
                 // A title command in the grammar's words, when the free recognizer heard it too: its
                 // title, not the grammar's channel words, and that was handled above.
                 else -> if (whole && !(command.isTitleCommand && heardFree != null)) {
@@ -684,8 +690,12 @@ class AppController(val platform: Platform, val log: Log) {
             else -> return withContext(Dispatchers.Main) { voiceCommand(heardFree, freeCommand, ::result) }
         }
         val tried = names.firstOrNull() ?: return result(false, best, "Didn't catch that", "nothing")
-        // "Play ___" that matched nothing: Search, with it filled in.
-        if (plays) return voiceSearch(heardFree ?: best, tried, ::result)
+        // "Play ___" that matched nothing: Search, with it filled in. The grammar's words when they
+        // name a channel exactly: it heard "play e s p n", the free recognizer "play yet pm" (0.2.31).
+        if (plays) {
+            val named = tunes.firstOrNull { (h, n) -> "[unk]" !in h && search.channelHits(n, limit = VOICE_HITS, forVoice = true).any { it.exact } }
+            return if (named != null) voiceSearch(named.first, named.second, ::result) else voiceSearch(heardFree ?: best, tried, ::result)
+        }
         // "Watch ___" that isn't on now: when it's next on, if it's in the guide.
         nextAiring(tried)?.let { return result(false, heardFree ?: best, it, "not on now") }
         return result(false, heardFree ?: best, "No channel or show on now matches \"$tried\"", "no match")
@@ -846,6 +856,23 @@ class AppController(val platform: Platform, val log: Log) {
         return yours
     }
 
+    /**
+     * Programs matching [title] on the channels voice matches, like [yourGames]: "remind me about
+     * jeopardy" set its reminder on a channel that isn't a favorite (0.2.31). When it airs only
+     * elsewhere, [elsewhere] gets a message naming where.
+     */
+    private suspend inline fun yourPrograms(title: String, now: Long, elsewhere: (String) -> Nothing): List<SearchRepository.ProgramHit> {
+        val all = search.programs(title, now, limit = 60)
+        val mine = search.voiceStreamIds()
+        val yours = all.filter { it.channel.stream.id in mine }
+        if (yours.isEmpty() && all.isNotEmpty()) {
+            val next = all.minBy { it.program.start }
+            val time = if (next.program.isOn(now)) "on now" else com.signal.ui.screens.programTime(this, next.program, now).substringBefore(" –")
+            elsewhere("${next.program.title} isn't on your channels · next is on ${next.channel.displayName}, $time")
+        }
+        return yours
+    }
+
     /** "Pittsburgh Steelers vs. Cleveland Browns", or the title when it names no teams. */
     private fun gameName(p: com.signal.model.Program) = com.signal.guide.GameTitles.matchup(p.title)?.text ?: p.title
 
@@ -892,7 +919,8 @@ class AppController(val platform: Platform, val log: Log) {
     private suspend fun voiceRemind(heard: String, command: com.signal.voice.VoiceCommand.Remind, result: (Boolean, String, String, String) -> VoiceResult): VoiceResult {
         val now = Clock.System.now().toEpochMilliseconds()
         val team = command.team
-        val hits = if (team != null) yourGames(team, now) { return result(false, heard, it, "game elsewhere") } else search.programs(command.program, now, limit = 60)
+        val hits = if (team != null) yourGames(team, now) { return result(false, heard, it, "game elsewhere") }
+        else yourPrograms(command.program, now) { return result(false, heard, it, "program elsewhere") }
         val upcoming = hits.filter { it.program.start > now }
         if (upcoming.isEmpty()) {
             val on = hits.firstOrNull { it.program.isOn(now) }
@@ -1055,8 +1083,7 @@ class AppController(val platform: Platform, val log: Log) {
             withContext(Dispatchers.Main) { panel.open(page, null) }
             return result(true, heard, ch.displayName, "what's on ${ch.displayName}")
         }
-        val hits = com.signal.voice.VoiceCommand.Tune(name).names
-            .firstNotNullOfOrNull { n -> search.channelHits(n, limit = VOICE_HITS, forVoice = true).ifEmpty { null } }.orEmpty()
+        val hits = whatsOnHits(name)
         return withContext(Dispatchers.Main) {
             when (val pick = com.signal.voice.VoiceChoice.choose(hits, { it.channel.displayName }, { it.exact }, { it.favorite })) {
                 null -> result(false, heard, "No channel matches \"$name\"", "no channel")
@@ -1074,6 +1101,15 @@ class AppController(val platform: Platform, val log: Log) {
                 }
             }
         }
+    }
+
+    /** The channels "what's on ___" names: by name, then by initials that sound alike ("e f e n" → ESPN). */
+    private suspend fun whatsOnHits(name: String): List<SearchRepository.ChannelHit> {
+        val names = com.signal.voice.VoiceCommand.Tune(name).names
+        names.firstNotNullOfOrNull { n -> search.channelHits(n, limit = VOICE_HITS, forVoice = true).ifEmpty { null } }?.let { return it }
+        val initials = search.voiceNames().second
+        return names.asSequence().flatMap { com.signal.voice.VoiceCommand.soundsLike(it, initials) }
+            .firstNotNullOfOrNull { like -> search.channelHits(like, limit = VOICE_HITS, forVoice = true).ifEmpty { null } }.orEmpty()
     }
 
     /** The choice of channels for a weak or shared match (PLAN §4.3.14 → Voice commands, phase 2). */
@@ -1242,7 +1278,7 @@ class AppController(val platform: Platform, val log: Log) {
      * until the channels change, since building them from a large list takes seconds.
      */
     suspend fun voicePhrases(): Set<String> {
-        val titles = voiceTitles()
+        val titles = voiceTitles() + voicePrograms()
         val teams = voiceTeams()
         val version = listOf(search.version, titles.hashCode(), teams.hashCode(), settings.raw(Settings.Key.VOICE_CHANNELS))
         voicePhrasesCache?.takeIf { it.first == version }?.let { return it.second }
@@ -1263,6 +1299,24 @@ class AppController(val platform: Platform, val log: Log) {
             .flatMap { listOf(it.away, it.home) }
             .flatMap(com.signal.guide.GameTitles::spokenNames)
             .mapNotNullTo(LinkedHashSet()) { com.signal.match.SearchText.fold(it).ifEmpty { null } }
+    }
+
+    /**
+     * Program titles on the channels voice matches over the next day or so ([VOICE_PROGRAM_HOURS]),
+     * folded, for the grammar: without them "watch jeopardy" came out as channel words ("watch
+     * japanese", 0.2.31), and "watch" never wakes the free recognizer. Games are left to the teams.
+     * Rebuilt with each new guide (voiceInputs).
+     */
+    suspend fun voicePrograms(): Set<String> {
+        val now = Clock.System.now().toEpochMilliseconds()
+        val out = LinkedHashSet<String>()
+        val channels = runCatching { search.voiceChannels(VOICE_PROGRAM_CHANNELS) }.getOrDefault(emptyList())
+        for (ch in channels) {
+            runCatching { guide.programs(ch, now, now + VOICE_PROGRAM_HOURS * 60 * 60_000L) }.getOrDefault(emptyList()).forEach { p ->
+                if (com.signal.guide.GameTitles.matchup(p.title) == null) out += p.title
+            }
+        }
+        return out.mapNotNullTo(LinkedHashSet()) { com.signal.match.SearchText.fold(it).ifEmpty { null } }.take(VOICE_PROGRAM_TITLES).toSet()
     }
 
     /**
@@ -1383,6 +1437,10 @@ class AppController(val platform: Platform, val log: Log) {
         const val VOICE_TITLE_HITS = 20
         /** Games whose teams the voice grammar knows: four days, so Sunday's games are known by Friday (a day missed the Bears). */
         const val VOICE_TEAM_HOURS = 96
+        /** Program titles in the grammar ([voicePrograms]): this many hours ahead, on at most this many channels, at most this many titles. */
+        const val VOICE_PROGRAM_HOURS = 30
+        const val VOICE_PROGRAM_CHANNELS = 200
+        const val VOICE_PROGRAM_TITLES = 3000
         /** A burst of edits (a move, a rename) goes as one sync. */
         const val SYNC_DEBOUNCE_MS = 2_000L
         /** While the event stream is down (PLAN §9.2). */

@@ -347,6 +347,37 @@ class VoiceKeyMapTest {
         assertTrue(app.reminderList.value.isEmpty())
     }
 
+    // ---- 0.2.31 on the Shield ----
+
+    // "Remind me about jeopardy" set the reminder on a channel that isn't a favorite.
+    @Test fun aProgramOnlyElsewhereIsntReminded() = keyMapTest(favorites = 3) {
+        makeGame("Zebra Quartz Hour", later = true, channel = "Tennis TV")
+        val r = app.voice(listOf("remind me about [unk]"), free = "remind me about zebra quartz hour")
+        assertFalse(r.acted, r.message)
+        assertTrue(r.shown.startsWith("Zebra Quartz Hour isn't on your channels · next is on Tennis TV"), r.shown)
+        assertTrue(app.reminderList.value.isEmpty())
+    }
+
+    // "Watch jeopardy" came out as channel words: the grammar now knows what's on your channels.
+    @Test fun programTitlesJoinTheGrammar() = keyMapTest {
+        makeGame("Zebra Quartz Hour", later = true)
+        assertTrue("zebra quartz hour" in app.voicePhrases())
+    }
+
+    // The grammar heard "play e s p n", the free recognizer "play yet pm": Search got the grammar's words.
+    @Test fun playSearchesTheGrammarsChannelWords() = keyMapTest {
+        val r = app.voice(listOf("play golf channel"), free = "play goal flannel")
+        assertEquals("Searching \"golf channel\"", r.shown, r.message)
+    }
+
+    // "What's on u s p n" was the first guess, "… e s p n" the second.
+    @Test fun whatsOnTriesLaterGuesses() = keyMapTest {
+        guideReady()
+        val r = app.voice(listOf("what's on qqqq", "what's on golf channel"))
+        assertTrue(r.acted, r.message)
+        eventually("program details") { panelTitle != null && panelTitle != "Which channel?" }
+    }
+
     // ---- Channels to match ----
 
     // By default, with favorites set, only they (and playlists and voice names) are matched.
