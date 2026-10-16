@@ -1034,7 +1034,9 @@ class AppController(val platform: Platform, val log: Log) {
         combine(search.versions, continueWatching, watchState, newEpisodes, vodVersion) { a, b, c, d, e -> listOf(a, b.map { it.title }, c.library.map { it.title }, d, e) }
             .distinctUntilChanged()
 
-    private var inBackground = false
+    /** From the activity's onStop to the next onStart, whichever activity instance that is. */
+    var inBackground = false
+        private set
     /** What a voice command asked for while the app was in the background: done on return. */
     private var voicePending: (() -> Unit)? = null
 

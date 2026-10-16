@@ -113,10 +113,11 @@ class MainActivity : ComponentActivity() {
 
     override fun onStart() {
         super.onStart()
-        if (started) {
-            (signal.platform.player as? ExoVideoPlayer)?.rebuildView()
-            signal.controller.onForeground()
-        }
+        if (started) (signal.platform.player as? ExoVideoPlayer)?.rebuildView()
+        // Asks the controller, not `started`: leaving with Back finishes this activity but can keep
+        // the process, and the next launch's new activity must still bring the app forward, or a
+        // voice command waits for a return that never comes.
+        if (signal.controller.inBackground) signal.controller.onForeground()
         started = true
         askForMicrophone()
     }
