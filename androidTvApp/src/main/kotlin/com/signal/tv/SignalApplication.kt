@@ -15,7 +15,7 @@ class SignalApplication : Application() {
                 "W" -> android.util.Log.w(TAG, message)
                 else -> android.util.Log.i(TAG, message)
             }
-        })
+        }).also { c -> platform.player.log = c.log::info }
     }
 
     override fun onCreate() {

@@ -83,6 +83,8 @@ class ExoVideoPlayer(private val context: Context) : VideoPlayer {
     /** Automatic retries left for the current request (Settings → Playback → Stream retries). */
     private var retriesLeft = 0
     @Volatile private var settings = PlayerSettings()
+    /** Where the player's lines go: the app log once [SignalApplication] wires it, so Send logs carries them. */
+    var log: (String) -> Unit = { android.util.Log.i("Signal", it) }
     /** Subtitle style for the views: state, so a change restyles the one on screen. */
     private var subtitleStyle by mutableStateOf(Style(settings))
 
@@ -237,7 +239,7 @@ class ExoVideoPlayer(private val context: Context) : VideoPlayer {
         override fun onRenderedFirstFrame(time: androidx.media3.exoplayer.analytics.AnalyticsListener.EventTime, output: Any, renderTimeMs: Long) {
             if (playStartedAt == 0L) return
             mark("first frame")
-            android.util.Log.i("Signal", "Zap timing: ${stages.toString().trimEnd(',', ' ')}")
+            log("Zap timing: ${stages.toString().trimEnd(',', ' ')}")
             playStartedAt = 0L
         }
     }
@@ -257,9 +259,125 @@ class ExoVideoPlayer(private val context: Context) : VideoPlayer {
             mark("response")
         }
         override fun onBytesTransferred(source: androidx.media3.datasource.DataSource, dataSpec: androidx.media3.datasource.DataSpec, isNetwork: Boolean, bytesTransferred: Int) {
+            if (isNetwork) stalls.bytesIn.addAndGet(bytesTransferred.toLong())
             if (!bytesSeen) { bytesSeen = true; mark("first bytes") }
         }
         override fun onTransferEnd(source: androidx.media3.datasource.DataSource, dataSpec: androidx.media3.datasource.DataSpec, isNetwork: Boolean) = Unit
+    }
+
+    private val stalls = StallLog()
+
+    /**
+     * Stalls for Send logs: buffering after playback started, how long it lasted, what the stream got
+     * from the network before and during it, and the Wi-Fi signal. That tells a weak connection (the
+     * download falls short of the stream's rate) from a provider that stops sending (nothing at all, or
+     * the stream ends). Added for a Chromecast that buffered live TV on a home's Wi-Fi (2026-10-17).
+     */
+    private inner class StallLog {
+        /** Network bytes read by the player, counted on the loader thread. */
+        val bytesIn = java.util.concurrent.atomic.AtomicLong()
+        /** When the viewer last seeked: buffering just after isn't a stall. */
+        var seekedAt = 0L
+        private var label: String? = null
+        private var live = true
+        private var playingSince = 0L
+        private var playedMs = 0L
+        private var bytesAtStart = 0L
+        private var stallStartedAt = 0L
+        private var bytesAtStall = 0L
+        private var count = 0
+        private var stalledMs = 0L
+        /** (time, bytes) every [SAMPLE_MS], for the download rate before a stall. */
+        private val samples = ArrayDeque<Pair<Long, Long>>()
+        private val sampler = object : Runnable {
+            override fun run() {
+                samples.addLast(now() to bytesIn.get())
+                while (samples.size > SAMPLES) samples.removeFirst()
+                main.postDelayed(this, SAMPLE_MS)
+            }
+        }
+
+        private fun now() = android.os.SystemClock.elapsedRealtime()
+
+        fun begin(request: PlayRequest) {
+            end()
+            label = request.label
+            live = request.isLive
+            bytesAtStart = bytesIn.get()
+            sampler.run()
+        }
+
+        /** The summary of the play that's ending, if it played at all. */
+        fun end() {
+            main.removeCallbacks(sampler)
+            samples.clear()
+            val t = now()
+            if (stallStartedAt != 0L) stalledMs += t - stallStartedAt
+            if (playingSince != 0L) playedMs += t - playingSince
+            // Not for channels zapped through: a minute's play, or a stall.
+            if (label != null && (playedMs >= 60_000 || count > 0)) {
+                log("Playback: ${label} played ${seconds(playedMs)}, $count stall${if (count == 1) "" else "s"}" +
+                    "${if (count > 0) " (${seconds(stalledMs)} in all)" else ""}, average download ${mbps(bytesIn.get() - bytesAtStart, playedMs + stalledMs)} (${network()})")
+            }
+            label = null
+            playingSince = 0L; playedMs = 0L; stallStartedAt = 0L; count = 0; stalledMs = 0L
+        }
+
+        fun onState(state: Int) {
+            val t = now()
+            when (state) {
+                Player.STATE_READY -> {
+                    if (stallStartedAt != 0L) {
+                        val ms = t - stallStartedAt
+                        stalledMs += ms
+                        log("Stall: resumed after ${seconds(ms)}, download during it ${mbps(bytesIn.get() - bytesAtStall, ms)}")
+                        stallStartedAt = 0L
+                    }
+                    if (playingSince == 0L) playingSince = t
+                }
+                Player.STATE_BUFFERING -> {
+                    if (playingSince == 0L || stallStartedAt != 0L) return
+                    playedMs += t - playingSince
+                    playingSince = 0L
+                    if (t - seekedAt < SEEK_GRACE_MS) return
+                    count++
+                    stallStartedAt = t
+                    bytesAtStall = bytesIn.get()
+                    log("Stall: buffering ${seconds(playedMs)} into ${label}, download ${rate(10_000)} over 10 s, ${rate(60_000)} over 60 s (${network()})")
+                }
+                Player.STATE_ENDED -> if (live) {
+                    if (playingSince != 0L) { playedMs += t - playingSince; playingSince = 0L }
+                    log("Stall: the provider ended the stream after ${seconds(playedMs)}, reconnecting (${network()})")
+                }
+            }
+        }
+
+        /** The download rate over about the last [windowMs]. */
+        private fun rate(windowMs: Long): String {
+            val t = now()
+            val from = samples.firstOrNull { t - it.first <= windowMs } ?: return "unknown"
+            return mbps(bytesIn.get() - from.second, t - from.first)
+        }
+
+        private fun mbps(bytes: Long, ms: Long) = if (ms <= 0) "unknown" else "%.1f Mbps".format(bytes * 8.0 / ms / 1000)
+        private fun seconds(ms: Long) = if (ms < 60_000) "%.1f s".format(ms / 1000.0) else "${ms / 60_000} min ${ms % 60_000 / 1000} s"
+
+        /** The connection, and on Wi-Fi its band, signal and link speed. */
+        fun network(): String = runCatching {
+            val cm = context.getSystemService(android.net.ConnectivityManager::class.java)
+            val caps = cm.getNetworkCapabilities(cm.activeNetwork) ?: return "no network"
+            when {
+                caps.hasTransport(android.net.NetworkCapabilities.TRANSPORT_ETHERNET) -> "Ethernet"
+                caps.hasTransport(android.net.NetworkCapabilities.TRANSPORT_WIFI) -> {
+                    @Suppress("DEPRECATION")
+                    val info = context.applicationContext.getSystemService(android.net.wifi.WifiManager::class.java).connectionInfo
+                    val band = when (info.frequency) { in 2400..2500 -> "2.4 GHz"; in 4900..5900 -> "5 GHz"; in 5925..7125 -> "6 GHz"; else -> "${info.frequency} MHz" }
+                    val signal = when { info.rssi >= -60 -> "strong"; info.rssi >= -70 -> "fair"; else -> "weak" }
+                    "Wi-Fi $band, ${info.rssi} dBm ($signal), link ${info.linkSpeed} Mbps"
+                }
+                else -> "other network"
+            }
+        }.getOrElse { "network unknown" }
     }
 
     override fun play(request: PlayRequest) {
@@ -268,11 +386,12 @@ class ExoVideoPlayer(private val context: Context) : VideoPlayer {
     }
 
     private fun start(request: PlayRequest) {
+        stalls.begin(request)
         this.request = request
         // Another decoder, passthrough or buffer than this ExoPlayer has: build a new one (PLAN §4.3.15 → 5).
         val wanted = engineFor(request.isLive)
         if (wanted != engine) {
-            android.util.Log.i("Signal", "Player: rebuilding for ${if (request.isLive) "live" else "on-demand"} (${wanted.decoder}, passthrough ${wanted.passthrough}, buffer ${wanted.minMs / 1000}-${wanted.maxMs / 1000} s)")
+            log("Player: rebuilding for ${if (request.isLive) "live" else "on-demand"} (${wanted.decoder}, passthrough ${wanted.passthrough}, buffer ${wanted.minMs / 1000}-${wanted.maxMs / 1000} s)")
             exo.release()
             engine = wanted
             exo = build(wanted)
@@ -322,6 +441,7 @@ class ExoVideoPlayer(private val context: Context) : VideoPlayer {
     }
 
     override fun stop() {
+        stalls.end()
         exo.stop()
         exo.clearMediaItems()
         fpsMeter = null
@@ -360,6 +480,7 @@ class ExoVideoPlayer(private val context: Context) : VideoPlayer {
         com.signal.player.PlaybackPosition(exo.currentPosition.coerceAtLeast(0), exo.duration.takeIf { it != C.TIME_UNSET && it > 0 } ?: 0)
 
     override fun seekTo(positionMs: Long) {
+        stalls.seekedAt = android.os.SystemClock.elapsedRealtime()
         exo.seekTo(positionMs.coerceAtLeast(0))
         _state.update { it.copy(ended = false) }
     }
@@ -452,6 +573,7 @@ class ExoVideoPlayer(private val context: Context) : VideoPlayer {
                 Player.STATE_ENDED -> PlaybackState.Status.BUFFERING // Live streams "end" when the provider drops them.
                 else -> return
             }
+            stalls.onState(playbackState)
             if (playbackState == Player.STATE_ENDED) {
                 // On-demand ends for real (autoplay, PLAN §4.3.9); live streams "end" when the provider drops them.
                 if (request?.isLive == false) _state.update { it.copy(status = PlaybackState.Status.PLAYING, ended = true) } else retry()
@@ -462,6 +584,7 @@ class ExoVideoPlayer(private val context: Context) : VideoPlayer {
 
         override fun onPlayerError(error: PlaybackException) {
             // Retries (one by default, Settings → Playback), then the message (PLAN §4.3.3 → Stream failure).
+            log("Player error: ${error.errorCodeName}${if (retriesLeft > 0) ", retrying" else ""} (${stalls.network()})")
             if (retriesLeft > 0) {
                 retriesLeft--
                 val failed = request
@@ -489,7 +612,7 @@ class ExoVideoPlayer(private val context: Context) : VideoPlayer {
             }
             _state.update { it.copy(audioTracks = audio, subtitleTracks = text, selectedAudioTrackId = selectedAudio, selectedSubtitleTrackId = selectedText, video = videoInfo()) }
             // What the stream carries, for "no subtitles on this channel" reports (milestone 6).
-            android.util.Log.i("Signal", "Tracks: " + tracks.groups.joinToString("; ") { group ->
+            log("Tracks: " + tracks.groups.joinToString("; ") { group ->
                 (0 until group.length).joinToString(", ") { t ->
                     val f = group.getTrackFormat(t)
                     "${f.sampleMimeType ?: f.containerMimeType}${f.language?.let { " $it" } ?: ""}${if (group.isTrackSupported(t)) "" else " (unsupported)"}"
@@ -540,6 +663,11 @@ class ExoVideoPlayer(private val context: Context) : VideoPlayer {
 
         /** The Large on-demand buffer's cap in bytes: about two minutes of 1080p within the Shield's 192 MB heap. */
         private const val LARGE_VOD_BYTES = 64 * 1024 * 1024
+
+        /** [StallLog]'s download samples: every 5 s, the last minute's worth. */
+        private const val SAMPLE_MS = 5_000L
+        private const val SAMPLES = 13
+        private const val SEEK_GRACE_MS = 2_000L
 
         /** The captions [mediaSource] looks for in every live and on-demand stream. */
         val EMBEDDED_CAPTIONS: List<Format> = listOf(

@@ -7,6 +7,9 @@
     <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- The Wi-Fi band and signal in the player's stall lines, for Send logs (ExoVideoPlayer.StallLog). -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
     <!-- The auto-updater hands downloaded release APKs to the package installer (PLAN §4.3.15). -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <!-- Voice commands when Signal is the device's assistant (PLAN §4.3.14 → Voice commands). -->
