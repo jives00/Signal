@@ -289,6 +289,28 @@ class AdminTest {
         assertEquals(0, json.parseToJsonElement(client.send("GET", "/api/mapping/manual")).jsonArray.size)
     }
 
+    /** Sources per profile (PLAN §9.1): one profile leaves a source out; the other keeps it, and Undo brings it back. */
+    @Test fun aSourceCanBeLeftOutOfOneProfile() = testApplication {
+        application { signalModule(companion) }
+        val id = client.demo()["sources"]!!.jsonArray.single().jsonObject.s("id")!!
+        val kids = companion.sync.createProfile("Kids", null)
+        suspend fun groups(profile: String) = obj(client.send("GET", "/api/groups?profile=$profile"))["groups"]!!.jsonArray.size
+        assertTrue(groups(kids.id) > 0)
+
+        val result = obj(client.send("POST", "/api/sources/$id/profiles", """{"profiles":["main"]}"""))
+        val source = obj(client.send("GET", "/api/sources"))["sources"]!!.jsonArray.single().jsonObject
+        assertEquals(listOf(kids.id), source["hiddenFor"]!!.jsonArray.map { it.jsonPrimitive.content })
+        assertEquals(id, obj(client.send("GET", "/api/settings?profile=${kids.id}"))["profile"]!!.jsonObject.s("hidden_sources"))
+        assertEquals(0, groups(kids.id))
+        assertTrue(groups("main") > 0)
+        // Saving what's already there changes nothing.
+        assertEquals(HttpStatusCode.BadRequest, client.post("/api/sources/$id/profiles") { contentType(ContentType.Application.Json); setBody("""{"profiles":["main"]}""") }.status)
+
+        client.send("POST", "/api/edits/undo", """{"ops":${result["undo"]}}""")
+        assertTrue(obj(client.send("GET", "/api/sources"))["sources"]!!.jsonArray.single().jsonObject["hiddenFor"]!!.jsonArray.isEmpty())
+        assertTrue(groups(kids.id) > 0)
+    }
+
     @Test fun settingsCompanionSettingsAndCopyTo() = testApplication {
         application { signalModule(companion) }
         client.demo()

@@ -32,6 +32,7 @@ import io.ktor.utils.io.readAvailable
 import io.ktor.utils.io.readLine
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
@@ -47,11 +48,23 @@ class SourceRepository(
     /** Movie and series categories to leave out of the catalog (PLAN §4.3.6 → Categories). */
     private val vodFilter: () -> VodCategoryFilter = { VodCategoryFilter.NONE },
 ) {
-    fun sources(): Flow<List<Source>> = db.sourceQueries.all().asFlow().mapToList(io).map { rows -> rows.map { it.toModel() } }
+    /** Every source of the household, the ones this device's profile leaves out marked [Source.hiddenHere]. */
+    fun sources(): Flow<List<Source>> = combine(
+        db.sourceQueries.all().asFlow().mapToList(io),
+        db.sourceQueries.hiddenHere().asFlow().mapToList(io),
+    ) { rows, hidden -> rows.map { it.toModel(it.id in hidden) } }
 
-    suspend fun all(): List<Source> = withContext(io) { db.sourceQueries.all().executeAsList().map { it.toModel() } }
+    suspend fun all(): List<Source> = withContext(io) {
+        val hidden = hiddenHere()
+        db.sourceQueries.all().executeAsList().map { it.toModel(it.id in hidden) }
+    }
 
-    suspend fun byId(id: String): Source? = withContext(io) { db.sourceQueries.byId(id).executeAsOneOrNull()?.toModel() }
+    /** The sources this device shows and refreshes ([Source.active]). */
+    suspend fun active(): List<Source> = all().filter { it.active }
+
+    suspend fun byId(id: String): Source? = withContext(io) { db.sourceQueries.byId(id).executeAsOneOrNull()?.let { it.toModel(it.id in hiddenHere()) } }
+
+    private fun hiddenHere(): Set<String> = db.sourceQueries.hiddenHere().executeAsList().toSet()
 
     suspend fun count(): Long = withContext(io) { db.sourceQueries.count().executeAsOne() }
 
@@ -246,7 +259,7 @@ class SourceRepository(
      * out of memory on large catalogs) left the channels fresh, so the 24-hour refresh won't retry them.
      */
     suspend fun refreshVodIfMissing(id: String): Pair<Int, Int>? = withContext(io) {
-        val source = byId(id)?.takeIf { it.enabled && it.kind == SourceKind.XTREAM } ?: return@withContext null
+        val source = byId(id)?.takeIf { it.active && it.kind == SourceKind.XTREAM } ?: return@withContext null
         if (db.vodQueries.countForSource(source.id).executeAsOne() > 0) return@withContext null
         refreshVod(source, null)?.also { (m, s) -> log.info("Loaded ${source.name}'s movies and series: $m movies, $s series") }
     }
@@ -299,7 +312,7 @@ class SourceRepository(
         }
     }
 
-    private fun com.signal.db.user.Source.toModel() = Source(
+    private fun com.signal.db.user.Source.toModel(hiddenHere: Boolean) = Source(
         id = id,
         name = name,
         kind = runCatching { SourceKind.valueOf(kind) }.getOrDefault(SourceKind.M3U),
@@ -315,6 +328,7 @@ class SourceRepository(
         lastError = last_error,
         providerConnections = provider_connections?.toInt(),
         expiresAt = expires_at,
+        hiddenHere = hiddenHere,
     )
 
     private fun VodCategory.toRow() = com.signal.db.user.Vod_category(sourceId, kind.name, categoryId, CharacterCleanup.clean(name, true).ifEmpty { name }, position.toLong())

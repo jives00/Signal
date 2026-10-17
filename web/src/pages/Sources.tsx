@@ -2,10 +2,10 @@ import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { Link } from "react-router-dom";
 import {
   addEpgSource, addSource, deleteEpgSource, deleteSource, getSources, moveEpgSource, refreshSource, revealPassword, setDefaultEpg,
-  setSourceEnabled, testSource, updateEpgSource, updateSource, type SourceForm,
+  setSourceEnabled, setSourceProfiles, testSource, updateEpgSource, updateSource, type SourceForm,
 } from "../admin";
 import { ago, buildGuide } from "../api";
-import { useToast } from "../context";
+import { profileNames, useProfiles, useToast } from "../context";
 import type { EpgSourceView, SourceView, SourcesView } from "../schema";
 import { useSorted } from "../sort";
 
@@ -22,6 +22,26 @@ export default function Sources() {
   const [editing, setEditing] = useState<{ id: string | null; form: SourceForm } | null>(null);
   const [revealed, setRevealed] = useState<Record<string, string>>({});
   const [epgForm, setEpgForm] = useState<{ name: string; url: string } | null>(null);
+  const { profiles } = useProfiles();
+  /** Sources per profile (PLAN §9.1): the source being edited and the profiles ticked to show it. */
+  const [choosing, setChoosing] = useState<{ source: SourceView; showOn: string[] } | null>(null);
+
+  /** The profiles that show the source: every profile but the ones that leave it out. */
+  const shownOn = (s: SourceView) => profiles.filter((p) => !s.hiddenFor.includes(p.id)).map((p) => p.id);
+
+  function profilesLabel(s: SourceView): string {
+    const on = shownOn(s);
+    if (on.length === profiles.length) return profiles.length > 1 ? "All profiles" : "Shown";
+    return on.length === 0 ? "No profiles" : profileNames(on, profiles);
+  }
+
+  async function saveProfiles(event: FormEvent) {
+    event.preventDefault();
+    if (!choosing) return;
+    const { source, showOn } = choosing;
+    const what = showOn.length === 0 ? `${source.name} is off on every profile` : `${source.name} shows on ${profileNames(showOn, profiles)}`;
+    if (await save(what, () => setSourceProfiles(source.id, showOn), load)) setChoosing(null);
+  }
 
   const load = useCallback(() => {
     getSources().then((d) => { setData(d); setError(null); }).catch((e: Error) => setError(e.message));
@@ -104,7 +124,7 @@ export default function Sources() {
         {data && data.sources.length === 0 && <p className="detail">No sources yet. Add one here or on a TV.</p>}
         {data && data.sources.length > 0 && (
           <table className="table">
-            <thead><tr>{sourceTable.header("name", "Name")}{sourceTable.header("kind", "Type")}{sourceTable.header("login", "Login")}{sourceTable.header("streams", "Channels")}<th>Connections</th>{sourceTable.header("refreshed", "Last refresh")}<th /></tr></thead>
+            <thead><tr>{sourceTable.header("name", "Name")}{sourceTable.header("kind", "Type")}{sourceTable.header("login", "Login")}{sourceTable.header("streams", "Channels")}<th>Connections</th><th>Profiles</th>{sourceTable.header("refreshed", "Last refresh")}<th /></tr></thead>
             <tbody>
               {sourceTable.rows.map((s) => (
                 <tr key={s.id} className={s.enabled ? "" : "dim"}>
@@ -120,6 +140,10 @@ export default function Sources() {
                     {s.providerConnections != null && <div className="detail small">Provider allows {s.providerConnections}{s.expiresAt ? ` · expires ${new Date(s.expiresAt * 1000).toLocaleDateString()}` : ""}</div>}
                   </td>
                   <td>
+                    {profilesLabel(s)}
+                    <div><button className="link" onClick={() => setChoosing({ source: s, showOn: shownOn(s) })}>Choose</button></div>
+                  </td>
+                  <td>
                     {s.refreshing ? "Refreshing…" : s.lastRefreshedAt ? ago(s.lastRefreshedAt) : "Never"}
                     {s.lastError && <div className="error-text small">{s.lastError}</div>}
                   </td>
@@ -133,6 +157,26 @@ export default function Sources() {
               ))}
             </tbody>
           </table>
+        )}
+
+        {choosing && (
+          <form className="card form" onSubmit={saveProfiles}>
+            <h2>Profiles for {choosing.source.name}</h2>
+            <p className="detail">TVs on a ticked profile show this source&apos;s channels, movies and series. The others leave it out and stop refreshing it. Disable turns it off on every profile.</p>
+            <fieldset><legend>Show on</legend>
+              {profiles.map((p) => (
+                <label key={p.id} className="check">
+                  <input type="checkbox" checked={choosing.showOn.includes(p.id)}
+                    onChange={() => setChoosing({ ...choosing, showOn: choosing.showOn.includes(p.id) ? choosing.showOn.filter((x) => x !== p.id) : [...choosing.showOn, p.id] })} />
+                  {" "}{p.name}{p.devices.length > 0 && <span className="detail small"> · {p.devices.join(", ")}</span>}
+                </label>
+              ))}
+            </fieldset>
+            <div className="row">
+              <button className="primary" type="submit" disabled={[...choosing.showOn].sort().join() === shownOn(choosing.source).sort().join()}>Save</button>
+              <button type="button" onClick={() => setChoosing(null)}>Cancel</button>
+            </div>
+          </form>
         )}
 
         {f && (

@@ -5,6 +5,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import com.signal.data.ChannelRepository
 import com.signal.data.GroupEntry
+import com.signal.data.HiddenSources
 import com.signal.data.Log
 import com.signal.model.ChannelGroup
 import com.signal.ui.menus.ItemMenus
@@ -135,6 +136,24 @@ class AppController(val platform: Platform, val log: Log) {
     val sourceList: StateFlow<List<Source>> = sources.sources().stateIn(scope, SharingStarted.Eagerly, emptyList())
 
     /**
+     * Why there's nothing to watch although the household has sources: every one is disabled, or this
+     * device's profile leaves out the rest (PLAN §9.1 → Sources per profile). Null when a source shows.
+     */
+    fun noSourcesText(): String? {
+        val all = sourceList.value
+        if (all.isEmpty() || all.any { it.active }) return null
+        if (all.none { it.enabled }) return "Every source is disabled. Enable one in Settings → Sources."
+        val profile = sync.state.value.profileName?.let { "the $it profile" } ?: "this profile"
+        return "No sources are turned on for $profile. Turn one on in Settings → Sources, or on the web admin's Sources page."
+    }
+
+    /** Leaves a source out of this device's profile, or shows it again (PLAN §9.1 → Sources per profile). */
+    fun setSourceHiddenHere(id: String, hidden: Boolean) {
+        val now = settings.hiddenSources()
+        settings.put(Settings.Key.HIDDEN_SOURCES, HiddenSources.encode(if (hidden) now + id else now - id))
+    }
+
+    /**
      * Settings → Playback (PLAN §4.3.15 → 5), kept live: the player follows every change, including
      * device settings edited in the web admin, and the display follows auto frame rate.
      */
@@ -238,6 +257,18 @@ class AppController(val platform: Platform, val log: Log) {
                 if (old != null) vod.sourcesUnhidden(old, filter).forEach { sources.refresh(it) }
             }
         }
+        // Sources per profile (PLAN §9.1 → Sources per profile): a hidden source isn't refreshed here, so
+        // one the profile shows again refreshes now if its lists are over a day old.
+        scope.launch {
+            var hidden: Set<String>? = null
+            sources.sources().map { all -> all.filter { it.hiddenHere }.map { it.id }.toSet() }.distinctUntilChanged().collect { now ->
+                val shown = hidden?.minus(now).orEmpty()
+                hidden = now
+                val day = 24 * 60 * 60_000L
+                sources.all().filter { it.id in shown && it.active && Clock.System.now().toEpochMilliseconds() - it.lastRefreshedAt > day }
+                    .forEach { refresh(it.id) }
+            }
+        }
         // New title cleanup rules: the grids reload, so the titles show them.
         scope.launch {
             settings.changes().map { settings.raw(Settings.Key.VOD_NAME_CLEANUP) }.distinctUntilChanged().drop(1).collect { vodVersion.value++ }
@@ -304,7 +335,7 @@ class AppController(val platform: Platform, val log: Log) {
     private suspend fun refreshStaleSources() {
         val day = 24 * 60 * 60_000L
         val now = Clock.System.now().toEpochMilliseconds()
-        sources.all().filter { it.enabled && now - it.lastRefreshedAt > day }.forEach { refresh(it.id) }
+        sources.active().filter { now - it.lastRefreshedAt > day }.forEach { refresh(it.id) }
     }
 
     /** No guide yet, or one more than 24 hours old (PLAN §6: "the app refreshes from the sources itself"). */
@@ -356,8 +387,10 @@ class AppController(val platform: Platform, val log: Log) {
         val report = sync.sync(nas, full = !fullSyncDone) ?: return false
         fullSyncDone = true
         for (id in report.sourcesToRefresh) {
-            refresh(id)
-            sources.byId(id)?.let { epg.ensureForSource(it) }
+            val source = sources.byId(id) ?: continue
+            // A source this profile leaves out isn't loaded here; showing it again refreshes it.
+            if (!source.hiddenHere) refresh(id)
+            epg.ensureForSource(source)
         }
         if (report.sourcesRemoved && sources.count() == 0L) {
             playback.stop()
@@ -445,7 +478,7 @@ class AppController(val platform: Platform, val log: Log) {
         val files = platform.settingsFiles ?: return Result.failure(IllegalStateException("Not available on this device"))
         val text = files.open() ?: return Result.failure(IllegalStateException("No file chosen"))
         return sync.importFile(text).onSuccess {
-            sources.all().filter { it.enabled && it.lastRefreshedAt == 0L }.forEach { s ->
+            sources.active().filter { it.lastRefreshedAt == 0L }.forEach { s ->
                 refresh(s.id)
                 epg.ensureForSource(s)
             }

@@ -94,6 +94,8 @@ data class SourceView(
     val lastRefreshedAt: Long, val lastError: String?, val streams: Int, val refreshing: Boolean,
     /** Xtream: what the provider allows, and when the account expires (epoch seconds), from the companion's last refresh. */
     val providerConnections: Int? = null, val expiresAt: Long? = null,
+    /** Sources per profile (PLAN §9.1): the profiles that leave this source out. */
+    val hiddenFor: List<String> = emptyList(),
 )
 
 @Serializable
@@ -561,6 +563,11 @@ fun Route.adminPageRoutes(companion: Companion) {
     post("/sources") { val f = call.receive<SourceForm>(); call.edit { edits.saveSource(f.toSource(newId()), isNew = true) } }
     put("/sources/{id}") { val f = call.receive<SourceForm>(); call.edit { edits.saveSource(f.toSource(call.parameters["id"]!!), isNew = false) } }
     post("/sources/{id}/enabled") { val r = call.receive<EnabledRequest>(); call.edit { edits.setSourceEnabled(call.parameters["id"]!!, r.enabled) } }
+    // Sources per profile (PLAN §9.1): [ProfileTargets.profiles] are the profiles that show it; the rest leave it out.
+    post("/sources/{id}/profiles") {
+        val r = call.receive<ProfileTargets>()
+        call.edit { edits.setSourceProfiles(call.parameters["id"]!!, r.profiles, companion.sync.status().profiles.map { it.id }) }
+    }
     delete("/sources/{id}") { call.edit { edits.deleteSource(call.parameters["id"]!!) } }
     post("/sources/test") {
         val f = call.receive<SourceForm>()
@@ -633,7 +640,7 @@ private suspend fun sourceViews(companion: Companion, view: AdminView): List<Sou
         SourceView(
             s.id, s.name, s.kind.name, s.url, s.username, s.password.isNotEmpty(), s.userAgent, s.referrer, s.enabled, s.liveFormat.name, s.connectionLimit,
             st?.lastRefreshedAt ?: 0, st?.lastError, st?.streams ?: 0, companion.catalog.refreshing == s.id,
-            st?.providerConnections, st?.expiresAt,
+            st?.providerConnections, st?.expiresAt, view.hiddenSourcesByProfile.filterValues { s.id in it }.keys.sorted(),
         )
     }
 }
@@ -656,7 +663,7 @@ internal suspend fun vodCategoriesView(companion: Companion, view: AdminView): V
 /** Provider groups in the order the profile shows them (PLAN §4.3.2 → Groups), hidden ones included. */
 private fun groupsView(companion: Companion, view: AdminView): GroupsView {
     data class G(val sourceId: String, val name: String, val count: Int, val first: Int)
-    val groups = companion.catalog.streams.filter { it.sourceId in view.sourceOrder && view.sources.first { s -> s.first.id == it.sourceId }.first.enabled }
+    val groups = companion.catalog.streams.filter { view.sourceShown(it.sourceId) }
         .groupBy { it.sourceId to it.groupName }
         .map { (k, list) -> G(k.first, k.second, list.size, list.minOf { it.position }) }
         .sortedWith(compareBy({ view.sourceOrder[it.sourceId] }, { it.first }))

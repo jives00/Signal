@@ -29,7 +29,13 @@ data class Source(
     val providerConnections: Int? = null,
     /** When the provider account expires, epoch seconds (Xtream `exp_date`); this device only. */
     val expiresAt: Long? = null,
+    /** Left out by this device's profile (PLAN §9.1 → Sources per profile); this device only. */
+    @kotlinx.serialization.Transient
+    val hiddenHere: Boolean = false,
 ) {
+    /** Shown on this device: enabled for the household and not left out by its profile. */
+    val active: Boolean get() = enabled && !hiddenHere
+
     /** Streams this source may play at once: the user's limit, never above the provider's. Null when neither is known. */
     val connections: Int?
         get() {

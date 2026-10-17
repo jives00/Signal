@@ -38,7 +38,7 @@ class ContractTest {
         hidden = false, groupHidden = false, customName = null, customLogo = null, customNumber = null, guide = guide,
         now = ProgramBrief("Live football", 1_791_828_000_000, 1_791_835_200_000), next = null,
     )
-    private val source = SourceView("src", "Provider", "XTREAM", "http://p.example", "me", true, null, null, true, "TS", 2, 1_791_828_000_000, null, 57_000, false)
+    private val source = SourceView("src", "Provider", "XTREAM", "http://p.example", "me", true, null, null, true, "TS", 2, 1_791_828_000_000, null, 57_000, false, hiddenFor = listOf("kids"))
     private val job = JobRun(1, "guide_build", 1_791_828_000_000, 1_791_828_160_000, "ok", "nightly: 283302 programs")
 
     @Test fun fixturesMatchTheKotlinTypes() {

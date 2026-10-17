@@ -1,0 +1,8 @@
+-- Sources per profile (PLAN §9.1 → Sources per profile): the sources the device's profile leaves out,
+-- kept on the device from the profile setting hidden_sources, and the view the list queries filter through.
+CREATE TABLE source_hidden (
+    source_id TEXT NOT NULL PRIMARY KEY
+);
+
+CREATE VIEW active_source AS
+SELECT * FROM source WHERE enabled = 1 AND id NOT IN (SELECT source_id FROM source_hidden);

@@ -166,6 +166,7 @@ private fun SourcesSection(app: AppController, onAdd: () -> Unit, onEdit: (Sourc
                 app.refreshing == s.id -> "Refreshing…"
                 s.lastError != null -> "Error: ${s.lastError}"
                 !s.enabled -> "Disabled"
+                s.hiddenHere -> "Off on this profile"
                 else -> listOfNotNull(
                     "$count channels",
                     refreshedLabel(app, s.lastRefreshedAt),
@@ -232,7 +233,13 @@ private fun sourceActions(app: AppController, s: Source, onEdit: (Source) -> Uni
     if (app.sourceList.value.size > 1) add(PanelAction("Match channels to this source", detail = "Link your channels to its streams before switching") {
         com.signal.ui.menus.SwitchReview.open(app, s, returnTo); null
     })
-    add(PanelAction(if (s.enabled) "Disable" else "Enable") { app.scope.launch { app.sources.save(s.copy(enabled = !s.enabled)) }; null })
+    // Sources per profile (PLAN §9.1): the profile's own choice, beside the household's Enable/Disable.
+    val profile = app.sync.state.value.profileName ?: "this profile"
+    // No detail: it would cut the profile's name short.
+    add(PanelAction(if (s.hiddenHere) "Turn on for $profile" else "Turn off for $profile") {
+        app.setSourceHiddenHere(s.id, !s.hiddenHere); null
+    })
+    add(PanelAction(if (s.enabled) "Disable" else "Enable", detail = "On every profile") { app.scope.launch { app.sources.save(s.copy(enabled = !s.enabled)) }; null })
     add(PanelAction("Remove") {
         PanelPage.Confirm("Remove ${s.name}?", "Its channels leave every list, including Favorites and playlists.", "Remove") {
             app.scope.launch { app.removeSource(s.id) }

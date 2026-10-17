@@ -357,8 +357,15 @@ class GuideTest {
 }
 
 class UserDatabaseMigrationTest {
-    /** What 9.sqm adds: older schemas don't have it. */
+    /** What 10.sqm adds: older schemas don't have it. */
+    private fun dropVersion11(d: JdbcSqliteDriver) {
+        d.execute(null, "DROP VIEW active_source", 0)
+        d.execute(null, "DROP TABLE source_hidden", 0)
+    }
+
+    /** What 9.sqm adds, and everything after it: older schemas don't have it. */
     private fun dropVersion10(d: JdbcSqliteDriver) {
+        dropVersion11(d)
         d.execute(null, "ALTER TABLE source DROP COLUMN provider_connections", 0)
         d.execute(null, "ALTER TABLE playlist DROP COLUMN channel_sort", 0)
     }
@@ -422,6 +429,24 @@ class UserDatabaseMigrationTest {
             assertNull(source.provider_connections)
             db.listsQueries.setPlaylistSort("A_Z", "p")
             assertEquals("A_Z", db.listsQueries.playlistSort("p").executeAsOne().channel_sort)
+        }
+    }
+
+    /** A 1.0.0 user.db (schema version 10) gains the profile's hidden sources, with none hidden. */
+    @Test fun version10GainsHiddenSources() {
+        val file = java.io.File.createTempFile("user-v10", ".db").apply { delete(); deleteOnExit() }
+        val url = "jdbc:sqlite:${file.absolutePath}"
+        JdbcSqliteDriver(url).use { d ->
+            UserDatabase.Schema.create(d)
+            dropVersion11(d)
+            d.execute(null, "INSERT INTO source(id, name, kind, url, created_at) VALUES ('s', 'Kept', 'M3U', 'http://x', 1)", 0)
+            d.execute(null, "PRAGMA user_version = 10", 0)
+        }
+        JdbcSqliteDriver(url, java.util.Properties(), UserDatabase.Schema).use { d ->
+            val db = UserDatabase(d)
+            assertEquals(listOf("s"), db.sourceQueries.active().executeAsList().map { it.id })
+            db.sourceQueries.hideHere("s")
+            assertTrue(db.sourceQueries.active().executeAsList().isEmpty())
         }
     }
 

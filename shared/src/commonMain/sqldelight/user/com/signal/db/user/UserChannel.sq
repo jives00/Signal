@@ -43,7 +43,7 @@ SELECT user_channel_id FROM channel_link WHERE stream_id = ?;
 preferredStream:
 SELECT s.* FROM channel_link cl
 JOIN stream s ON s.id = cl.stream_id
-JOIN source src ON src.id = s.source_id AND src.enabled = 1
+JOIN active_source src ON src.id = s.source_id
 WHERE cl.user_channel_id = ?
 ORDER BY cl.preferred DESC
 LIMIT 1;
@@ -96,11 +96,11 @@ multiLinked:
 SELECT cl.user_channel_id, cl.stream_id, cl.preferred, s.display_name, s.group_name, src.name AS source_name
 FROM channel_link cl
 JOIN stream s ON s.id = cl.stream_id
-JOIN source src ON src.id = s.source_id AND src.enabled = 1
+JOIN active_source src ON src.id = s.source_id
 WHERE cl.user_channel_id IN (
     SELECT cl2.user_channel_id FROM channel_link cl2
     JOIN stream s2 ON s2.id = cl2.stream_id
-    JOIN source src2 ON src2.id = s2.source_id AND src2.enabled = 1
+    JOIN active_source src2 ON src2.id = s2.source_id
     GROUP BY cl2.user_channel_id HAVING count(*) > 1
 )
 ORDER BY cl.user_channel_id, src.created_at, s.position;

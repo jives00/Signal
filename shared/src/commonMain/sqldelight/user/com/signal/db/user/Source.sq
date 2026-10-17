@@ -19,8 +19,32 @@ CREATE TABLE source (
     created_at INTEGER NOT NULL
 );
 
+-- Sources the device's profile leaves out (the profile setting hidden_sources, PLAN §9.1 → Sources per
+-- profile). Device-local, never synced: Settings rewrites it from the setting whenever that or the
+-- profile changes, so list queries filter in SQL without observing the setting table, which changes on
+-- every tune. Empty on the companion, which keeps every source.
+CREATE TABLE source_hidden (
+    source_id TEXT NOT NULL PRIMARY KEY
+);
+
+-- The sources this device shows: enabled for the household and not left out by its profile.
+CREATE VIEW active_source AS
+SELECT * FROM source WHERE enabled = 1 AND id NOT IN (SELECT source_id FROM source_hidden);
+
 all:
 SELECT * FROM source ORDER BY created_at;
+
+active:
+SELECT * FROM active_source ORDER BY created_at;
+
+hiddenHere:
+SELECT source_id FROM source_hidden;
+
+hideHere:
+INSERT INTO source_hidden(source_id) VALUES (?);
+
+clearHiddenHere:
+DELETE FROM source_hidden;
 
 byId:
 SELECT * FROM source WHERE id = ?;

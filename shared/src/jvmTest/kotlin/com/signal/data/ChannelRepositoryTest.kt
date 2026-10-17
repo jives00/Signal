@@ -50,6 +50,37 @@ class ChannelRepositoryTest {
         s
     }
 
+    /** Sources per profile (PLAN §9.1): a source the profile leaves out drops from the lists, on this profile only. */
+    @Test
+    fun aSourceHiddenOnTheProfileLeavesTheLists() = runBlocking {
+        setup()
+        sources.save(Source(id = "s2", name = "Provider B", kind = SourceKind.M3U, url = "http://h/b.m3u"))
+        sources.refresh("s2").getOrThrow()
+        fun providerGroups(gs: List<GroupEntry>) = gs.mapNotNull { (it.group as? ChannelGroup.Provider)?.sourceId }.distinct()
+        assertEquals(listOf("s1", "s2"), providerGroups(channels.groups().first()))
+
+        settings.put(Settings.Key.HIDDEN_SOURCES, HiddenSources.encode(setOf("s2")))
+        // Settings writes go through a queue on io, so wait for the lists to follow.
+        val hidden = kotlinx.coroutines.withTimeout(5_000) { channels.groups().first { providerGroups(it) == listOf("s1") } }
+        assertTrue(hidden.none { it.sourceName != null }, "with one source showing, groups don't name it")
+        assertTrue(sources.byId("s2")!!.hiddenHere)
+        assertEquals(listOf("s1"), sources.active().map { it.id })
+        assertEquals(3, db.streamQueries.searchIndex("main").executeAsList().size, "Search leaves out its channels")
+
+        // Another profile has its own choice: nothing hidden there.
+        settings.put(Settings.Key.PROFILE_ID, "kids")
+        kotlinx.coroutines.withTimeout(5_000) { channels.groups().first { providerGroups(it) == listOf("s1", "s2") } }
+        assertFalse(sources.byId("s2")!!.hiddenHere)
+    }
+
+    @Test
+    fun hiddenSourcesRoundTrip() {
+        assertEquals(null, HiddenSources.encode(emptySet()))
+        assertEquals("a,b", HiddenSources.encode(setOf("b", "a")))
+        assertEquals(setOf("a", "b"), HiddenSources.parse(" a, b ,,"))
+        assertEquals(emptySet(), HiddenSources.parse(null))
+    }
+
     @Test
     fun passwordsAreStoredEncrypted() = runBlocking {
         setup()

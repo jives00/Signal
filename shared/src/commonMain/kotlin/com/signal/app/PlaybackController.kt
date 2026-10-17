@@ -73,11 +73,11 @@ class PlaybackController(
                 failover(playing)
             }
         }
-        // Disabling or removing a source stops its channel wherever it's playing; otherwise a page
+        // Disabling, removing or hiding (on this profile) a source stops its channel wherever it's playing; otherwise a page
         // re-entering its preview would tune it again.
         scope.launch {
             sources.sources().collect { all ->
-                val enabled = all.filter { it.enabled }.map { it.id }.toSet()
+                val enabled = all.filter { it.active }.map { it.id }.toSet()
                 if (previous?.stream?.sourceId !in enabled) previous = null
                 val playing = _current.value ?: return@collect
                 if (playing.stream.sourceId !in enabled) {

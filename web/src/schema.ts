@@ -94,6 +94,8 @@ export const SourceView = z.object({
   refreshing: z.boolean(),
   providerConnections: z.number().nullable().default(null),
   expiresAt: z.number().nullable().default(null),
+  /** Sources per profile (PLAN §9.1): the profiles that leave this source out. */
+  hiddenFor: z.array(z.string()).default([]),
 });
 export const EpgSourceView = z.object({
   id: z.string(),

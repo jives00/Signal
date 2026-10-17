@@ -417,7 +417,8 @@ fun LiveTvPage() {
                 }
                 if (loaded != null && loaded.isEmpty()) {
                     SText(
-                        if (group == ChannelGroup.Favorites) "No favorites yet. Long-press OK on a channel to add one." else "No channels in this group.",
+                        app.noSourcesText()
+                            ?: if (group == ChannelGroup.Favorites) "No favorites yet. Long-press OK on a channel to add one." else "No channels in this group.",
                         24, Modifier.padding(top = 104.dp, start = 40.dp), color = SignalTheme.colors.muted, maxLines = 2,
                     )
                 }

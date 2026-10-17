@@ -17,7 +17,10 @@
             "streams": 57000,
             "refreshing": false,
             "providerConnections": null,
-            "expiresAt": null
+            "expiresAt": null,
+            "hiddenFor": [
+                "kids"
+            ]
         }
     ],
     "epgSources": [

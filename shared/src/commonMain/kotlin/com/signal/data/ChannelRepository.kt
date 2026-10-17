@@ -75,15 +75,15 @@ class ChannelRepository(
         db.streamQueries.groups().asFlow().mapToList(io),
         db.listsQueries.groupOverrides(profile).asFlow().mapToList(io),
         db.listsQueries.playlists(profile).asFlow().mapToList(io),
-        db.sourceQueries.all().asFlow().mapToList(io),
+        db.sourceQueries.active().asFlow().mapToList(io),
         // Settings and favorites only trigger a rebuild; one input keeps this within combine's five.
         merge(settings.changes().map { }, db.listsQueries.favoriteKeys(profile).asFlow().map { }),
     ) { groups, overrides, playlists, sources, _ ->
         val overrideByKey = overrides.associateBy { it.source_id to it.group_name }
         val cleanup = settings.nameCleanup()
-        val enabledSources = sources.filter { it.enabled == 1L }
+        // Only the sources this device shows (active_source): the household's enabled ones its profile keeps.
         val sourceNames = sources.associate { it.id to it.name }
-        val multiSource = enabledSources.size > 1
+        val multiSource = sources.size > 1
 
         val provider = groups.map { g ->
             val o = overrideByKey[g.source_id to g.group_name]

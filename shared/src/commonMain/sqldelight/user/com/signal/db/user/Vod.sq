@@ -124,7 +124,7 @@ UPDATE vod_item SET title_key = ?, search_name = ? WHERE id = ?;
 categories:
 SELECT c.source_id, c.category_id, c.name, c.position, count(i.id) AS item_count
 FROM vod_category c
-JOIN source src ON src.id = c.source_id AND src.enabled = 1
+JOIN active_source src ON src.id = c.source_id
 LEFT JOIN vod_item i ON i.source_id = c.source_id AND i.kind = c.kind AND i.category_id = c.category_id
 WHERE c.kind = ?
 GROUP BY c.source_id, c.category_id
@@ -135,7 +135,7 @@ ORDER BY src.created_at, c.position;
 allCategoriesCounted:
 SELECT c.source_id, c.kind, c.category_id, c.name, count(i.id) AS item_count
 FROM vod_category c
-JOIN source src ON src.id = c.source_id AND src.enabled = 1
+JOIN active_source src ON src.id = c.source_id
 LEFT JOIN vod_item i ON i.source_id = c.source_id AND i.kind = c.kind AND i.category_id = c.category_id
 GROUP BY c.source_id, c.kind, c.category_id
 ORDER BY src.created_at, c.kind, c.position;
@@ -147,12 +147,12 @@ WHERE i.source_id = ? AND i.kind = ? AND i.category_id = ? ORDER BY i.position;
 
 recentlyAdded:
 SELECT i.*, t.tmdb_id AS nas_tmdb, t.poster AS nas_poster FROM vod_item i
-JOIN source src ON src.id = i.source_id AND src.enabled = 1
+JOIN active_source src ON src.id = i.source_id
 LEFT JOIN vod_tmdb t ON t.item_id = i.id
 WHERE i.kind = ? ORDER BY i.added_at DESC, i.position LIMIT ?;
 
 countForKind:
-SELECT count(*) FROM vod_item i JOIN source src ON src.id = i.source_id AND src.enabled = 1 WHERE i.kind = ?;
+SELECT count(*) FROM vod_item i JOIN active_source src ON src.id = i.source_id WHERE i.kind = ?;
 
 -- An Xtream source with no titles: its movies and series failed to load, or never have.
 countForSource:
@@ -166,18 +166,18 @@ WHERE i.id = ?;
 -- The companion's matcher (PLAN §4.3.12): every title of every enabled source.
 allItems:
 SELECT i.*, t.tmdb_id AS nas_tmdb, t.poster AS nas_poster FROM vod_item i
-JOIN source src ON src.id = i.source_id AND src.enabled = 1
+JOIN active_source src ON src.id = i.source_id
 LEFT JOIN vod_tmdb t ON t.item_id = i.id
 ORDER BY i.source_id, i.kind, i.position;
 
 -- ---- Titles across sources (PLAN §4.3.4, §4.3.8, §4.3.11): preferred source first -----------------
 
 availableById:
-SELECT count(*) FROM vod_item i JOIN source src ON src.id = i.source_id AND src.enabled = 1 WHERE i.id = ?;
+SELECT count(*) FROM vod_item i JOIN active_source src ON src.id = i.source_id WHERE i.id = ?;
 
 byTitleKey:
 SELECT i.*, t.tmdb_id AS nas_tmdb, t.poster AS nas_poster FROM vod_item i
-JOIN source src ON src.id = i.source_id AND src.enabled = 1
+JOIN active_source src ON src.id = i.source_id
 LEFT JOIN vod_tmdb t ON t.item_id = i.id
 WHERE i.kind = ? AND i.title_key = ?
 ORDER BY src.created_at, i.source_id, i.position
@@ -186,7 +186,7 @@ LIMIT 200;
 -- The provider's TMDB ID or the companion's; the caller drops a provider ID the companion overruled.
 byTmdb:
 SELECT i.*, t.tmdb_id AS nas_tmdb, t.poster AS nas_poster FROM vod_item i
-JOIN source src ON src.id = i.source_id AND src.enabled = 1
+JOIN active_source src ON src.id = i.source_id
 LEFT JOIN vod_tmdb t ON t.item_id = i.id
 WHERE i.kind = :kind AND (i.id IN (SELECT item_id FROM vod_tmdb WHERE tmdb_id = :tmdb) OR i.tmdb_id = :tmdb)
 ORDER BY src.created_at, i.source_id, i.position
@@ -197,7 +197,7 @@ LIMIT 200;
 searchTitles:
 SELECT i.*, t.tmdb_id AS nas_tmdb, t.poster AS nas_poster FROM vod_fts f
 JOIN vod_item i ON i.rowid = f.docid
-JOIN source src ON src.id = i.source_id AND src.enabled = 1
+JOIN active_source src ON src.id = i.source_id
 LEFT JOIN vod_tmdb t ON t.item_id = i.id
 WHERE vod_fts MATCH :match AND i.kind = :kind
 ORDER BY i.search_name = :exact DESC, i.search_name LIKE :prefix DESC, length(i.search_name), src.created_at, i.position
@@ -239,7 +239,7 @@ shelves:
 SELECT sh.shelf, count(DISTINCT coalesce(t.tmdb_id, i.tmdb_id, i.id)) AS item_count
 FROM vod_shelf sh
 JOIN vod_item i ON i.id = sh.item_id
-JOIN source src ON src.id = i.source_id AND src.enabled = 1
+JOIN active_source src ON src.id = i.source_id
 LEFT JOIN vod_tmdb t ON t.item_id = i.id
 WHERE sh.kind = ?
 GROUP BY sh.shelf;
@@ -247,11 +247,11 @@ GROUP BY sh.shelf;
 itemsInShelf:
 SELECT i.*, t.tmdb_id AS nas_tmdb, t.poster AS nas_poster FROM vod_shelf sh
 JOIN vod_item i ON i.id = sh.item_id
-JOIN source src ON src.id = i.source_id AND src.enabled = 1
+JOIN active_source src ON src.id = i.source_id
 LEFT JOIN vod_tmdb t ON t.item_id = i.id
 WHERE sh.kind = ? AND sh.shelf = ?
 ORDER BY sh.position;
 
 -- Observed only to learn that the catalog, the sources or the TMDB matches changed.
 catalogTick:
-SELECT (SELECT count(*) FROM vod_item) + (SELECT count(*) FROM source WHERE enabled = 1) + (SELECT count(*) FROM vod_tmdb);
+SELECT (SELECT count(*) FROM vod_item) + (SELECT count(*) FROM active_source) + (SELECT count(*) FROM vod_tmdb);

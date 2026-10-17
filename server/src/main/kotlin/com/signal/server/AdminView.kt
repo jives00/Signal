@@ -1,5 +1,6 @@
 package com.signal.server
 
+import com.signal.data.HiddenSources
 import com.signal.data.Settings
 import com.signal.guide.GuideResolver
 import com.signal.match.NameCleanup
@@ -38,6 +39,16 @@ class AdminView(items: List<SyncItem>, val profileId: String) {
     val profileSettings: Map<String, String> = p(SyncType.SETTING).mapNotNull { s -> s.fields.str("value")?.let { s.id to it } }.toMap()
     val defaultEpgId: String? = GuideResolver.defaultId(householdSettings[Settings.Key.DEFAULT_EPG_SOURCE.id], epgSources)
     val nameCleanup: NameCleanup = NameCleanup.parse(profileSettings[Settings.Key.NAME_CLEANUP.id])
+
+    /** Sources per profile (PLAN §9.1): every profile's hidden_sources, by profile ID. */
+    val hiddenSourcesByProfile: Map<String, Set<String>> = items
+        .filter { it.scope == SyncScope.PROFILE && it.type == SyncType.SETTING && it.id == Settings.Key.HIDDEN_SOURCES.id }
+        .associate { it.owner to HiddenSources.parse(it.fields.str("value")) }
+    val hiddenSources: Set<String> = hiddenSourcesByProfile[profileId].orEmpty()
+
+    /** On this profile's TVs: enabled for the household and not left out by the profile (the TV's active_source). */
+    private val shownSources: Set<String> = sources.filter { it.first.enabled && it.first.id !in hiddenSources }.mapTo(HashSet()) { it.first.id }
+    fun sourceShown(id: String): Boolean = id in shownSources
 
     class Link(val userChannelId: String, val streamId: String, val preferred: Boolean)
     private val links = h(SyncType.CHANNEL_LINK).mapNotNull { l ->
@@ -358,7 +369,7 @@ class AdminChannels(private val companion: Companion) {
         val byId = companion.catalog.streams.associateBy { it.id }
         val refs = guideRefs(view)
         return userChannels.map { uc ->
-            val stream = view.streamsByUserChannel[uc].orEmpty().firstNotNullOfOrNull { byId[it.streamId]?.takeIf { s -> s.sourceId in view.sourceOrder && view.sources.firstOrNull { x -> x.first.id == s.sourceId }?.first?.enabled != false } }
+            val stream = view.streamsByUserChannel[uc].orEmpty().firstNotNullOfOrNull { byId[it.streamId]?.takeIf { s -> view.sourceShown(s.sourceId) } }
             if (stream == null) unavailableRow(view, uc) else row(view, stream, refs, withPrograms = false, now = now)
         }
     }
@@ -368,7 +379,7 @@ class AdminChannels(private val companion: Companion) {
         val refs = guideRefs(view)
         val inLists = view.favorites.entries.sortedBy { it.value }.map { it.key } + view.playlistItems.values.flatten().map { it.first }
         val listRank = inLists.withIndex().associate { (i, uc) -> uc to i }.let { m -> inLists.distinct().associateWith { m.getValue(it) } }
-        return orderedStreams(view).filter { s ->
+        return orderedStreams(view).filter { s -> view.sourceShown(s.sourceId) }.filter { s ->
             val uc = view.userChannelByStream[s.id]
             refs[s.id] == null && uc?.let { view.channelProfiles[it] }?.bool("hidden") != true &&
                 view.groupOverrides[view.groupKey(s.sourceId, s.groupName)]?.bool("hidden") != true
@@ -379,7 +390,7 @@ class AdminChannels(private val companion: Companion) {
     fun coverage(profileId: String): Pair<Int, Int> {
         val view = view(profileId)
         val refs = guideRefs(view)
-        val visible = orderedStreams(view).filter { s ->
+        val visible = orderedStreams(view).filter { s -> view.sourceShown(s.sourceId) }.filter { s ->
             val uc = view.userChannelByStream[s.id]
             uc?.let { view.channelProfiles[it] }?.bool("hidden") != true && view.groupOverrides[view.groupKey(s.sourceId, s.groupName)]?.bool("hidden") != true
         }

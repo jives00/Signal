@@ -134,6 +134,9 @@ private fun HeroDetails(channel: Channel?) {
     Column(Modifier.fillMaxSize().padding(start = 64.dp, top = 48.dp, end = SignalSizes.EDGE_MARGIN.dp, bottom = 48.dp)) {
         if (channel == null) {
             SText("Nothing playing", 48, weight = FontWeight.ExtraBold)
+            val app = LocalApp.current
+            val sources by app.sourceList.collectAsState()
+            remember(sources) { app.noSourcesText() }?.let { SText(it, 26, Modifier.padding(top = 16.dp), color = c.muted, maxLines = 3) }
             return@Column
         }
         Row(verticalAlignment = Alignment.CenterVertically) {

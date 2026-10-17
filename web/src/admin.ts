@@ -130,6 +130,8 @@ export const revealPassword = (id: string) => send<{ password: string }>(`/api/s
 export const addSource = (f: SourceForm) => post("/api/sources", f);
 export const updateSource = (id: string, f: SourceForm) => put(`/api/sources/${enc(id)}`, f);
 export const setSourceEnabled = (id: string, enabled: boolean) => post(`/api/sources/${enc(id)}/enabled`, { enabled });
+/** Sources per profile (PLAN §9.1): the profiles that show the source; every other profile leaves it out. */
+export const setSourceProfiles = (id: string, profiles: string[]) => post(`/api/sources/${enc(id)}/profiles`, { profiles });
 export const deleteSource = (id: string) => del(`/api/sources/${enc(id)}`);
 export const testSource = (f: SourceForm) => send<{ result: string }>("/api/sources/test", { method: "POST", body: JSON.stringify(f) });
 export const refreshSource = (id: string) => send<void>(`/api/sources/${enc(id)}/refresh`, { method: "POST" });

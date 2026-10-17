@@ -46,7 +46,7 @@ SELECT s.*, f.user_channel_id AS fav_user_channel_id,
 FROM favorite f
 JOIN channel_link cl ON cl.user_channel_id = f.user_channel_id
 JOIN stream s ON s.id = cl.stream_id
-JOIN source src ON src.id = s.source_id AND src.enabled = 1
+JOIN active_source src ON src.id = s.source_id
 LEFT JOIN channel_profile cp ON cp.user_channel_id = f.user_channel_id AND cp.profile_id = f.profile_id
 WHERE f.profile_id = ?
 GROUP BY f.user_channel_id
@@ -106,7 +106,7 @@ FROM playlist_item pi
 JOIN playlist p ON p.id = pi.playlist_id
 JOIN channel_link cl ON cl.user_channel_id = pi.user_channel_id
 JOIN stream s ON s.id = cl.stream_id
-JOIN source src ON src.id = s.source_id AND src.enabled = 1
+JOIN active_source src ON src.id = s.source_id
 LEFT JOIN channel_profile cp ON cp.user_channel_id = pi.user_channel_id AND cp.profile_id = p.profile_id
 LEFT JOIN favorite f ON f.user_channel_id = pi.user_channel_id AND f.profile_id = p.profile_id
 WHERE pi.playlist_id = ?

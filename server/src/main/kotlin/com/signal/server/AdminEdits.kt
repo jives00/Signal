@@ -2,6 +2,7 @@ package com.signal.server
 
 import com.signal.data.ChannelRepository
 import com.signal.data.FractionalIndex
+import com.signal.data.HiddenSources
 import com.signal.model.ChannelSort
 import com.signal.data.Settings
 import com.signal.data.newId
@@ -335,6 +336,27 @@ class AdminEdits(private val companion: Companion) {
     suspend fun setSourceEnabled(id: String, enabled: Boolean): EditResult {
         val batch = Batch(view(SyncService.MAIN))
         batch.ops += AdminOp(SyncType.SOURCE, id, SyncScope.HOUSEHOLD, fields = fields("enabled" to enabled))
+        return run(batch)
+    }
+
+    /**
+     * Sources per profile (PLAN §9.1): the source shows on the profiles in [showOn] and is left out of
+     * the rest of [allProfiles], through each profile's hidden_sources setting.
+     */
+    suspend fun setSourceProfiles(id: String, showOn: List<String>, allProfiles: List<String>): EditResult {
+        val v = view(SyncService.MAIN)
+        if (v.sources.none { it.first.id == id }) throw SyncRefused(404, "No such source")
+        val batch = Batch(v)
+        val key = Settings.Key.HIDDEN_SOURCES.id
+        for (p in allProfiles) {
+            val before = v.hiddenSourcesByProfile[p].orEmpty()
+            val after = if (p in showOn) before - id else before + id
+            if (after == before) continue
+            val value = HiddenSources.encode(after)
+            batch.ops += if (value == null) AdminOp(SyncType.SETTING, key, SyncScope.PROFILE, p, deleted = true)
+            else AdminOp(SyncType.SETTING, key, SyncScope.PROFILE, p, fields("value" to value))
+        }
+        if (batch.ops.isEmpty()) throw SyncRefused(400, "Nothing to change.")
         return run(batch)
     }
 
