@@ -1431,6 +1431,8 @@ class AppController(val platform: Platform, val log: Log) {
     /** From the activity's onStop to the next onStart, whichever activity instance that is. */
     var inBackground = false
         private set
+    /** Counts returns from the background, for screens that must catch up with the clock (the guide). */
+    val foregrounds = kotlinx.coroutines.flow.MutableStateFlow(0)
     /** What a voice command asked for while the app was in the background: done on return. */
     private var voicePending: (() -> Unit)? = null
 
@@ -1465,6 +1467,7 @@ class AppController(val platform: Platform, val log: Log) {
         val away = settings.raw(Settings.Key.BACKGROUNDED_AT)?.toLongOrNull()?.let { Clock.System.now().toEpochMilliseconds() - it }
         settings.put(Settings.Key.BACKGROUNDED_AT, null)
         inBackground = false
+        foregrounds.value++
         scope.launch { catchUpReminders() }
         scope.launch { refreshFollowedSeries() }
         val voice = voicePending

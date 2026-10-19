@@ -142,14 +142,6 @@ fun LiveTvPage() {
 
     // The clock the grid runs on: ended programs drop off and the now line moves.
     var now by remember { mutableLongStateOf(Clock.System.now().toEpochMilliseconds()) }
-    // Only while shown: the page is kept alive (KeptPage), and a hidden guide shouldn't recompose.
-    com.signal.ui.components.OnPageShown {
-        now = Clock.System.now().toEpochMilliseconds()
-        while (true) {
-            delay(30_000)
-            now = Clock.System.now().toEpochMilliseconds()
-        }
-    }
 
     // Focus: a row, and a moment inside the focused program; or the row's channel column.
     var focusRow by remember { mutableStateOf(0) }
@@ -159,6 +151,26 @@ fun LiveTvPage() {
     // (PLAN §4.3.2 → Time window).
     var windowStart by remember { mutableLongStateOf(halfHourBefore(now)) }
     fun earliest() = halfHourBefore(now)
+
+    fun tick() {
+        now = Clock.System.now().toEpochMilliseconds()
+        // The window follows the clock: a guide left open (or backgrounded with Live TV showing, which
+        // never re-shows the kept page) sat hours behind until it was left and opened again.
+        if (windowStart < earliest()) {
+            windowStart = earliest()
+            focusTime = maxOf(focusTime, now)
+        }
+    }
+    // Only while shown: the page is kept alive (KeptPage), and a hidden guide shouldn't recompose.
+    // Restarted on each return from the background, which a shown page otherwise doesn't notice.
+    val foregrounds by app.foregrounds.collectAsState()
+    com.signal.ui.components.OnPageShown(foregrounds) {
+        tick()
+        while (true) {
+            delay(30_000)
+            tick()
+        }
+    }
 
     // Opens on Favorites every time; with no favorites, the first visible group (PLAN §4.3.2). Full
     // screen's Back opens on its own group instead. On every showing: the page is kept alive (KeptPage).
