@@ -16,7 +16,17 @@ object GuideResolver {
         val byId: Map<String, String>,
         /** Normalized name → every guide channel going by it, best-known name first. */
         val byName: Map<String, List<String>>,
-    )
+    ) {
+        /** The same names with the spaces taken out: guides write "HBO2" where providers write "HBO 2". */
+        val byCompact: Map<String, List<String>> by lazy {
+            val m = HashMap<String, MutableList<String>>()
+            for ((name, ids) in byName) {
+                val list = m.getOrPut(name.replace(" ", "")) { ArrayList(1) }
+                for (id in ids) if (id !in list) list += id
+            }
+            m
+        }
+    }
 
     data class Mapping(val epgSourceId: String, val guideChannelId: String?)
 
@@ -87,12 +97,20 @@ object GuideResolver {
     }
 
     private fun bestByName(idx: SourceIndex, name: String, country: String?): Pair<String, Int>? {
-        fun ranked(key: String) = idx.byName[key].orEmpty().map { it to penalty(it, country) }.minByOrNull { it.second }
+        val exact = bestOf(idx.byName, name, " east", country)
+        if (exact != null && exact.second == 0) return exact
+        // Then ignoring spaces, so "HBO 2" finds "HBO2 HD"; the exact name wins a tie.
+        val compact = bestOf(idx.byCompact, name.replace(" ", ""), "east", country)
+        return listOfNotNull(exact, compact).minByOrNull { it.second }
+    }
+
+    private fun bestOf(byName: Map<String, List<String>>, name: String, east: String, country: String?): Pair<String, Int>? {
+        fun ranked(key: String) = byName[key].orEmpty().map { it to penalty(it, country) }.minByOrNull { it.second }
         val best = ranked(name)
         if (best != null && best.second and REGIONAL == 0) return best
         // "HBO" is only HBO's Pacific feed by that name; the East one is "HBO East".
-        val east = ranked("$name east")
-        return if (east != null && (best == null || east.second < best.second)) east else best
+        val eastBest = ranked("$name$east")
+        return if (eastBest != null && (best == null || eastBest.second < best.second)) eastBest else best
     }
 
     private const val REGIONAL = 1

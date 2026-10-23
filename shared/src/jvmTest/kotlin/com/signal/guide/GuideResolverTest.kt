@@ -13,7 +13,7 @@ class GuideResolverTest {
     private val indexes = mapOf(
         "p" to GuideResolver.SourceIndex(
             byId = mapOf("hbosignature.us" to "HBOSignature.us"),
-            byName = mapOf("hbo" to listOf("HBO.hu", "hbo.pl"), "espn2" to listOf("espn2.nl"), "cbs" to listOf("WCBS.us")),
+            byName = mapOf("hbo" to listOf("HBO.hu", "hbo.pl"), "espn2" to listOf("espn2.nl"), "cbs" to listOf("WCBS.us"), "hbo 2" to listOf("HBO2.bg")),
         ),
         "u" to GuideResolver.SourceIndex(
             byId = emptyMap(),
@@ -22,6 +22,7 @@ class GuideResolverTest {
                 "hbo east" to listOf("HBO.East.us2"),
                 "fx" to listOf("FX.HD.(Pacific).us2", "FX.HD.us2"),
                 "espn2" to listOf("ESPN2.HD.us2"),
+                "hbo2" to listOf("HBO2.(Pacific).us2", "HBO2.HD.us2"),
             ),
         ),
     )
@@ -46,6 +47,12 @@ class GuideResolverTest {
 
     @Test fun aFlawedMatchIsUsedWhenNothingBetterExists() {
         assertEquals("p" to "HBO.hu", resolve("HBO"))
+    }
+
+    @Test fun spacesAsideBeatsAnotherCountry() {
+        // The provider says "HBO 2", US2 says "HBO2": Bulgaria's "HBO 2" must not win.
+        assertEquals("u" to "HBO2.HD.us2", resolve("US: HBO 2 HD"))
+        assertEquals("p" to "HBO2.bg", resolve("HBO 2"))
     }
 
     @Test fun tvgIdStaysAbsolute() {

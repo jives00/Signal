@@ -38,7 +38,7 @@ class GuideReader(private val builds: () -> File?) {
     private val indexes = HashMap<String, GuideResolver.SourceIndex>()
     private var channels: List<Named>? = null
 
-    private class Named(val epgSourceId: String, val id: String, val displayName: String, val names: Set<String>, val tokens: Set<String>)
+    private class Named(val epgSourceId: String, val id: String, val displayName: String, val names: Set<String>, val tokens: Set<String>, val compact: List<String>)
 
     /** The build's version, so callers can cache what they derive from it. */
     @Synchronized fun version(): String? = current()?.let { openFile?.name }
@@ -83,7 +83,7 @@ class GuideReader(private val builds: () -> File?) {
             val extra = db.guideQueries.channelNamesForSource(source.epg_source_id).executeAsList().groupBy({ it.guide_channel_id }, { it.normalized_name })
             db.guideQueries.guideChannelsForSource(source.epg_source_id).executeAsList().filter { it.id in withPrograms }.map { c ->
                 val names = (listOf(c.normalized_name) + extra[c.id].orEmpty()).filter { it.isNotEmpty() }.toSet()
-                Named(c.epg_source_id, c.id, c.display_name, names, names.flatMap { it.split(' ') }.toSet())
+                Named(c.epg_source_id, c.id, c.display_name, names, names.flatMap { it.split(' ') }.toSet(), names.map { it.replace(" ", "") })
             }
         }
         channels = built
@@ -113,14 +113,14 @@ class GuideReader(private val builds: () -> File?) {
         return scored.map { (c, score) -> info(c, enabled.getValue(c.epgSourceId), now, score) }
     }
 
-    /** Guide channels whose name or ID contains [query], from every enabled EPG source. */
+    /** Guide channels whose name or ID contains [query], spaces aside ("hbo 2" finds "HBO2 HD"), from every enabled EPG source. */
     fun search(query: String, sources: List<EpgSource>, now: Long, limit: Int = 30): List<GuideChannelInfo> {
-        val q = GuideNames.normalize(query)
+        val q = GuideNames.normalize(query).replace(" ", "")
         val raw = query.trim().lowercase()
         if (q.isEmpty() && raw.isEmpty()) return emptyList()
         val enabled = sources.filter { it.enabled }.associateBy { it.id }
         return named().asSequence().filter { it.epgSourceId in enabled }
-            .filter { c -> (q.isNotEmpty() && c.names.any { q in it }) || c.id.lowercase().contains(raw) || c.displayName.lowercase().contains(raw) }
+            .filter { c -> (q.isNotEmpty() && c.compact.any { q in it }) || c.id.lowercase().contains(raw) || c.displayName.lowercase().contains(raw) }
             .take(limit).map { info(it, enabled.getValue(it.epgSourceId), now, 0.0) }.toList()
     }
 
