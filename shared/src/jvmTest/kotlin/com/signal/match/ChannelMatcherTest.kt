@@ -71,4 +71,12 @@ class ChannelMatcherTest {
         assertEquals("Sports", g.first { it.group == "US| SPORTS HD" }.toGroup)
         assertNull(g.first { it.group == "Kids" }.toGroup)
     }
+
+    @Test fun aGroupWithTheIdenticalNameWinsOverOneThatNormalizesTheSame() {
+        // A second account on the same provider: both normalize alike, and the other comes first.
+        val target = listOf("UK| 24/7 HD/RAW", "AL| 24/7", "US| SOCCER PPV", "CA| SOCCER PPV")
+        val g = ProviderSwitch.groups(listOf("old" to "AL| 24/7", "old" to "CA| SOCCER PPV"), target)
+        assertEquals("AL| 24/7", g.first { it.group == "AL| 24/7" }.toGroup)
+        assertEquals("CA| SOCCER PPV", g.first { it.group == "CA| SOCCER PPV" }.toGroup)
+    }
 }

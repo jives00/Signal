@@ -73,9 +73,12 @@ object ProviderSwitch {
     /** Provider groups match by normalized name, as suggestions (PLAN §4.5 → Provider groups). */
     fun groups(withSettings: List<Pair<String, String>>, targetGroups: List<String>): List<GroupProposal> {
         val byName = targetGroups.groupBy { GuideNames.normalize(it) }
+        val same = targetGroups.toSet()
         return withSettings.distinct().map { (source, group) ->
             val n = GuideNames.normalize(group)
-            val exact = byName[n]?.firstOrNull()
+            // The identical name first: normalizing drops country prefixes and quality tags, so
+            // AL| 24/7 and UK| 24/7 HD/RAW share a normalized name.
+            val exact = group.takeIf { it in same } ?: byName[n]?.firstOrNull()
             val close = exact ?: run {
                 val words = n.split(' ').filter { it.isNotEmpty() }.toSet()
                 targetGroups.map { g ->
