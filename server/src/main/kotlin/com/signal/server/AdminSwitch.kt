@@ -52,6 +52,7 @@ data class SwitchView(
 @Serializable data class AcceptRequest(val links: List<LinkRequest>)
 @Serializable data class RejectRequest(val userChannelId: String, val streamIds: List<String>)
 @Serializable data class GroupCarry(val fromSource: String, val fromGroup: String, val toSource: String, val toGroup: String)
+@Serializable data class GroupCarryAll(val toSource: String)
 
 /**
  * The provider switch on the companion (PLAN §4.5 → Switching providers): the matcher's report for
@@ -152,13 +153,28 @@ class AdminSwitch(private val companion: Companion) {
     )
 
     /** Carries a group's settings to its counterpart, in every profile that has them (PLAN §4.5 → Provider groups). */
-    suspend fun carryGroup(g: GroupCarry): EditResult {
-        val ops = companion.sync.liveItems().filter { it.type == SyncType.GROUP_OVERRIDE && it.id == "${g.fromSource}|${g.fromGroup}" }.map { o ->
-            AdminOp(
-                SyncType.GROUP_OVERRIDE, "${g.toSource}|${g.toGroup}", SyncScope.PROFILE, o.owner,
-                JsonObject(o.fields + fields("source_id" to g.toSource, "group_name" to g.toGroup)),
-            )
+    suspend fun carryGroup(g: GroupCarry): EditResult = companion.sync.edit(carryOps(companion.sync.liveItems(), listOf(g)), "Provider switch")
+
+    /**
+     * Carries every group that has the same name on [GroupCarryAll.toSource], in one edit. Loose
+     * matches stay for the review: a guess like CA| SOCCER PPV for US| SOCCER PPV would hide the wrong group.
+     */
+    suspend fun carryAllGroups(r: GroupCarryAll): EditResult {
+        val carries = report(r.toSource, SyncService.MAIN).groups
+            .filter { it.toGroup == it.group }
+            .map { GroupCarry(it.sourceId, it.group, r.toSource, it.group) }
+        return companion.sync.edit(carryOps(companion.sync.liveItems(), carries), "Provider switch")
+    }
+
+    private fun carryOps(items: List<com.signal.sync.SyncItem>, carries: List<GroupCarry>): List<AdminOp> {
+        val overrides = items.filter { it.type == SyncType.GROUP_OVERRIDE }.groupBy { it.id }
+        return carries.flatMap { g ->
+            overrides["${g.fromSource}|${g.fromGroup}"].orEmpty().map { o ->
+                AdminOp(
+                    SyncType.GROUP_OVERRIDE, "${g.toSource}|${g.toGroup}", SyncScope.PROFILE, o.owner,
+                    JsonObject(o.fields + fields("source_id" to g.toSource, "group_name" to g.toGroup)),
+                )
+            }
         }
-        return companion.sync.edit(ops, "Provider switch")
     }
 }

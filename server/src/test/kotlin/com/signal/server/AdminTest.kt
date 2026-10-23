@@ -386,6 +386,24 @@ class AdminTest {
         assertTrue(lists.all { it.s("sourceId") == newId && it.s("unavailable") == "false" }, lists.toString())
     }
 
+    @Test fun aProviderSwitchCarriesEveryGroupWithTheSameNameAtOnce() = testApplication {
+        application { signalModule(companion) }
+        client.demo()
+        val groups = obj(client.send("GET", "/api/groups?profile=main"))["groups"]!!.jsonArray.map { it.jsonObject }
+        val (hide, rename) = groups[0] to groups[1]
+        client.send("POST", "/api/groups/edit", """{"sourceId":"${hide.s("sourceId")}","group":"${hide.s("name")}","profiles":["main"],"hidden":true}""")
+        client.send("POST", "/api/groups/edit", """{"sourceId":"${rename.s("sourceId")}","group":"${rename.s("name")}","profiles":["main"],"name":"Renamed"}""")
+
+        client.send("POST", "/api/sources", """{"name":"Demo Two","kind":"DEMO","url":"demo:"}""")
+        val newId = obj(client.send("GET", "/api/sources"))["sources"]!!.jsonArray.map { it.jsonObject }.first { it.s("name") == "Demo Two" }.s("id")!!
+        repeat(200) { if (companion.catalog.streams.count { it.sourceId == newId } > 0) return@repeat; delay(50) }
+
+        client.send("POST", "/api/switch/groups/all", """{"toSource":"$newId"}""")
+        val after = obj(client.send("GET", "/api/groups?profile=main"))["groups"]!!.jsonArray.map { it.jsonObject }.filter { it.s("sourceId") == newId }
+        assertEquals("true", after.first { it.s("name") == hide.s("name") }.s("hidden"), after.toString())
+        assertEquals("Renamed", after.first { it.s("name") == rename.s("name") }.s("title"))
+    }
+
     @Test fun rejectingASuggestionKeepsItAway() = testApplication {
         application { signalModule(companion) }
         client.demo()

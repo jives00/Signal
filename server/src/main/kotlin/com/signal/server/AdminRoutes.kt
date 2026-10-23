@@ -440,6 +440,7 @@ fun Route.adminPageRoutes(companion: Companion) {
     post("/switch/accept") { val r = call.receive<AcceptRequest>(); call.edit { switch.accept(r.links) } }
     post("/switch/reject") { val r = call.receive<RejectRequest>(); call.edit { switch.reject(r) } }
     post("/switch/groups") { val r = call.receive<GroupCarry>(); call.edit { switch.carryGroup(r) } }
+    post("/switch/groups/all") { val r = call.receive<GroupCarryAll>(); call.edit { switch.carryAllGroups(r) } }
 
     // ---- Reminders ----
     get("/reminders") {

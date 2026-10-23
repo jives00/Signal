@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { acceptLinks, carryGroup, getChannels, getSources, getSwitch, rejectMatches, setSourceEnabled } from "../admin";
+import { acceptLinks, carryAllGroups, carryGroup, getChannels, getSources, getSwitch, rejectMatches, setSourceEnabled } from "../admin";
 import { useProfiles, useToast } from "../context";
 import type { ChannelRow, ProposalView, SourcesView, SwitchView } from "../schema";
 import { Program } from "./Channels";
@@ -43,6 +43,7 @@ export default function Switch() {
     );
   }
 
+  const sameName = report?.groups.filter((g) => g.toGroup === g.group).length ?? 0;
   const acceptAll = () => report && save(`Linked ${report.confident.length} channels to ${report.targetName}`, () => acceptLinks(report.confident.map((p) => ({ userChannelId: p.userChannelId, streamId: p.matches[0].streamId, confident: true }))), load);
 
   return (
@@ -101,6 +102,12 @@ export default function Switch() {
           {report.groups.length > 0 && (
             <section className="section">
               <h2 className="section-title">Groups with your settings</h2>
+              {sameName > 0 && (
+                <div className="row wrap">
+                  <p className="detail grow">{sameName} of these have the same name on {report.targetName}. Carry them all at once; check the rest one by one.</p>
+                  <button onClick={() => save(`Settings carried to ${sameName} groups`, () => carryAllGroups(report.targetSourceId), load)}>Carry all {sameName} with the same name</button>
+                </div>
+              )}
               <table className="table">
                 <thead><tr>{groups.header("group", "Group")}{groups.header("theirs", `On ${report.targetName}`)}<th /></tr></thead>
                 <tbody>
