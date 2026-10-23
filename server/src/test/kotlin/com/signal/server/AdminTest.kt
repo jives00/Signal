@@ -303,6 +303,9 @@ class AdminTest {
         assertEquals(id, obj(client.send("GET", "/api/settings?profile=${kids.id}"))["profile"]!!.jsonObject.s("hidden_sources"))
         assertEquals(0, groups(kids.id))
         assertTrue(groups("main") > 0)
+        suspend fun channels(query: String) = obj(client.send("GET", "/api/channels?$query"))["total"]!!.jsonPrimitive.content.toInt()
+        assertEquals(0, channels("profile=${kids.id}"))
+        assertTrue(channels("profile=${kids.id}&source=$id") > 0, "picking the source still lists it")
         // Saving what's already there changes nothing.
         assertEquals(HttpStatusCode.BadRequest, client.post("/api/sources/$id/profiles") { contentType(ContentType.Application.Json); setBody("""{"profiles":["main"]}""") }.status)
 

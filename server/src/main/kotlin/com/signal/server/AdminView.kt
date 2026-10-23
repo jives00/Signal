@@ -291,7 +291,8 @@ class AdminChannels(private val companion: Companion) {
         val matching = orderedStreams(view).asSequence().filter { s ->
             val uc = view.userChannelByStream[s.id]
             val cp = uc?.let { view.channelProfiles[it] }
-            (filter.sourceId == null || s.sourceId == filter.sourceId) &&
+            // All sources means the ones this profile's TVs show; picking one shows it even if hidden.
+            (if (filter.sourceId == null) view.sourceShown(s.sourceId) else s.sourceId == filter.sourceId) &&
                 (filter.group == null || s.groupName == filter.group) &&
                 (!filter.favorites || (uc != null && uc in view.favorites)) &&
                 (playlistMembers == null || (uc != null && uc in playlistMembers)) &&
