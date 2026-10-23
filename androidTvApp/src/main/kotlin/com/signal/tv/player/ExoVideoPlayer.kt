@@ -144,7 +144,8 @@ class ExoVideoPlayer(private val context: Context) : VideoPlayer {
                 AudioAttributes.Builder().setUsage(C.USAGE_MEDIA).setContentType(C.AUDIO_CONTENT_TYPE_MOVIE).build(),
                 /* handleAudioFocus = */ true,
             )
-            setHandleAudioBecomingNoisy(true)
+            // No pause on "audio becoming noisy": a TV has no headphones to pull, and the Shield sends it
+            // when auto frame rate switches the display mode (HDMI audio replugs), which froze playback.
             addListener(Listener())
             addAnalyticsListener(ZapTiming())
             // Many TS streams don't declare a frame rate, so measure it from the frames (on the
