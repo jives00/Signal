@@ -104,6 +104,8 @@ data class EpgSourceView(
     val timeShiftMinutes: Int, val isDefault: Boolean, val channels: Int, val programs: Int, val error: String?,
     /** When the companion last downloaded it; null before its first good build. */
     val refreshedAt: Long?,
+    /** A running guide build is downloading it; a single Refresh now leaves the others alone. */
+    val refreshing: Boolean = false,
 )
 
 /** [guideBuilding]: a guide build is running, so the EPG sources' Refresh buttons wait. */
@@ -549,7 +551,7 @@ fun Route.adminPageRoutes(companion: Companion) {
                 sourceViews(companion, view),
                 view.epgSources.map { e ->
                     val o = meta?.outcomes?.get(e.id)
-                    EpgSourceView(e.id, e.name, e.kind.name, e.url, e.sourceId, e.enabled, e.timeShiftMinutes, e.id == view.defaultEpgId, o?.channels ?: 0, o?.programs ?: 0, o?.error, o?.refreshedAt)
+                    EpgSourceView(e.id, e.name, e.kind.name, e.url, e.sourceId, e.enabled, e.timeShiftMinutes, e.id == view.defaultEpgId, o?.channels ?: 0, o?.programs ?: 0, o?.error, o?.refreshedAt, e.enabled && companion.guide.downloading(e.id))
                 },
                 companion.guide.running,
             )

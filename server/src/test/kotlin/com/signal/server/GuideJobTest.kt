@@ -105,11 +105,12 @@ class GuideJobTest {
     private val json = Json { ignoreUnknownKeys = true }
     private val dataDir = Files.createTempDirectory("signal-data").toFile()
 
-    private fun companion(secretKey: String? = "test-key") = Companion(
+    private fun companion(secretKey: String? = "test-key", retryDelayMs: Long = 60 * 60_000L) = Companion(
         Config(port = 0, db = null, secretKey = secretKey, dataDir = dataDir.path, webDir = "missing"),
         deviceStore = MemoryDeviceStore(),
         companionStore = MemoryCompanionStore(),
         syncStoreOverride = MemorySyncStore(),
+        guideRetryDelayMs = retryDelayMs,
     )
 
     private suspend fun HttpClient.pair(): String {
@@ -202,6 +203,32 @@ class GuideJobTest {
         assertTrue(a.programs > 0 && a.channels > 0)
         assertEquals(second.builtAt, second.outcomes.getValue("epg-b").refreshedAt)
         assertEquals(second.programs, a.programs + second.outcomes.getValue("epg-b").programs)
+    }
+
+    @Test fun failedSourcesAreRetriedWithoutRepublishing() = guideBuildTest {
+        val companion = companion(retryDelayMs = 300)
+        application { signalModule(companion) }
+        val key = client.pair()
+        val sources = listOf(
+            EpgSource(id = "epg-a", name = "epg-a", kind = EpgKind.DEMO, sourceId = "demo"),
+            // Nothing listens on port 1, so this one always fails.
+            EpgSource(id = "epg-bad", name = "epg-bad", kind = EpgKind.XMLTV, url = "http://127.0.0.1:1/guide.xml"),
+        )
+        client.post(SyncPaths.PUSH) {
+            header(HttpHeaders.Authorization, bearer(key))
+            contentType(ContentType.Application.Json)
+            setBody(json.encodeToString(PushRequest.serializer(), PushRequest(BUNDLE_SCHEMA, sources.map { SyncItem(SyncType.EPG_SOURCE, it.id, SyncScope.HOUSEHOLD, fields = SyncFields.epgSource(it, 0)) })))
+        }
+        val first = waitFor("No guide was built") { companion.guide.meta }
+        assertTrue(first.outcomes.getValue("epg-bad").error != null)
+
+        val store = companion.store!!
+        fun retries() = store.jobs(100).filter { it.detail?.startsWith(GuideJob.RETRY) == true }
+        waitFor("Didn't retry ${GuideJob.MAX_RETRIES} times") { retries().takeIf { r -> r.size == GuideJob.MAX_RETRIES && r.all { it.finishedAt != null } } }
+        delay(2_000)
+        assertEquals(GuideJob.MAX_RETRIES, retries().size, "stops after the last retry")
+        assertTrue(retries().all { it.result == "failed" && it.detail!!.contains("Still failing") }, retries().toString())
+        assertEquals(first.builtAt, companion.guide.meta?.builtAt, "nothing new, so nothing republished")
     }
 
     @Test fun guideEndpointsNeedAKey() = testApplication {

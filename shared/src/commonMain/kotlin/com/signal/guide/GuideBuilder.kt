@@ -54,8 +54,8 @@ class GuideBuilder(
             out[epg.id] = result.getOrElse { e ->
                 val message = e.message ?: e::class.simpleName ?: "Failed"
                 log.warn("Guide ${epg.name} failed: $message")
-                val carried = previous?.let { carryOver(epg, it, fresh, now, ids).second } ?: 0
-                Outcome(0, carried, error = message, carriedOver = carried > 0)
+                val (channels, carried) = previous?.let { carryOver(epg, it, fresh, now, ids) } ?: (0 to 0)
+                Outcome(channels, carried, error = message, carriedOver = carried > 0)
             }
         }
         out
@@ -74,7 +74,7 @@ class GuideBuilder(
                     readXmltv(http, url, source.headers) { XmltvParser(writer::channel, writer::program).parse(it) }
                 }.getOrElse { e ->
                     // The URL is never logged whole: it embeds the credentials (PLAN §1).
-                    throw IllegalStateException("${e.message} from ${CredentialMasking.forLog(url, source)}")
+                    throw IllegalStateException("${e.message ?: e::class.simpleName} from ${CredentialMasking.forLog(url, source)}")
                 }
             }
         }

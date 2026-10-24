@@ -13,7 +13,9 @@ import io.ktor.server.routing.get
 import io.ktor.server.routing.post
 import io.ktor.server.routing.put
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.Serializable
@@ -106,14 +108,39 @@ class GuideJob(private val companion: Companion, private val scope: CoroutineSco
         )
     }
 
-    /** Starts a run unless one is running. False when it can't start. [only]: refresh just that EPG source. */
-    fun runInBackground(trigger: String, only: String? = null): Boolean {
+    /** Starts a run unless one is running. False when it can't start. [only]: refresh just those EPG sources. */
+    fun runInBackground(trigger: String, only: Set<String>? = null): Boolean {
         if (companion.guide.running) return false
         scope.launch { run(trigger, only) }
         return true
     }
 
-    suspend fun run(trigger: String, only: String? = null) {
+    /** The pending retry of failed EPG sources, and how many have run since the last other build. */
+    private var retry: Job? = null
+    private var retries = 0
+
+    /**
+     * Retries the EPG sources a build left failing (a DNS blip at 3 AM kept three failing all day),
+     * downloading only those, every [Companion.guideRetryDelayMs] up to [MAX_RETRIES] times.
+     */
+    private fun retryFailed(retrying: Boolean) {
+        retry?.cancel()
+        retry = null
+        if (!retrying) retries = 0
+        val enabled = inputs()?.epgSources?.filter { it.enabled }?.map { it.id }?.toSet().orEmpty()
+        val failed = companion.guide.meta?.outcomes?.filter { (id, o) -> o.error != null && id in enabled }?.keys.orEmpty()
+        if (failed.isEmpty() || retries >= MAX_RETRIES) return
+        retries++
+        retry = scope.launch {
+            delay(companion.guideRetryDelayMs)
+            // So the run's own retryFailed doesn't cancel this coroutine.
+            retry = null
+            // A build running now schedules its own retry when it ends.
+            if (!companion.guide.running) run(RETRY, failed)
+        }
+    }
+
+    suspend fun run(trigger: String, only: Set<String>? = null) {
         val store = companion.store
         val inputs = inputs()
         if (store == null || inputs == null || inputs.epgSources.none { it.enabled }) {
@@ -126,7 +153,8 @@ class GuideJob(private val companion: Companion, private val scope: CoroutineSco
             return
         }
         val id = store.startJob(JOB, System.currentTimeMillis())
-        val result = companion.guide.build(inputs, System.currentTimeMillis(), only)
+        val retrying = trigger == RETRY
+        val result = companion.guide.build(inputs, System.currentTimeMillis(), only, unlessAllFail = retrying)
         val detail = result.fold(
             { m -> "$trigger: ${m.programs} programs, ${m.channels} channels" + m.outcomes.values.mapNotNull { it.error }.joinToString("") { "; failed: $it" } },
             { "$trigger: ${it.message}" },
@@ -137,6 +165,8 @@ class GuideJob(private val companion: Companion, private val scope: CoroutineSco
         if (rebuild) {
             rebuild = false
             run("sources changed")
+        } else {
+            retryFailed(retrying)
         }
     }
 
@@ -166,6 +196,8 @@ class GuideJob(private val companion: Companion, private val scope: CoroutineSco
 
     companion object Keys {
         const val JOB = "guide_build"
+        const val RETRY = "retry failed"
+        const val MAX_RETRIES = 3
         const val SOURCE_JOB = "source_refresh"
         const val INPUTS_FROM = "guide_inputs_from"
         const val INPUTS_AT = "guide_inputs_at"
@@ -200,7 +232,7 @@ fun Route.guideAdminRoutes(companion: Companion) {
             companion.store == null -> call.respondText("The database isn't connected yet.", status = HttpStatusCode.ServiceUnavailable)
             enabled.isEmpty() -> call.respondText("No EPG sources yet: add a source on a paired TV.", status = HttpStatusCode.Conflict)
             epgId != null && epg == null -> call.respondText("No such enabled EPG source.", status = HttpStatusCode.NotFound)
-            !companion.guideJob.runInBackground(epg?.let { "refresh ${it.name}" } ?: "refresh all", epg?.id) ->
+            !companion.guideJob.runInBackground(epg?.let { "refresh ${it.name}" } ?: "refresh all", epg?.let { setOf(it.id) }) ->
                 call.respondText("A guide build is already running.", status = HttpStatusCode.Conflict)
             else -> call.respond(HttpStatusCode.Accepted)
         }

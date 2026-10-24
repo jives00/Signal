@@ -44,6 +44,12 @@ class GuideBuilds(
 
     val running: Boolean get() = lock.isLocked
 
+    /** While [running]: the EPG sources being downloaded, or null when it's all of them. */
+    @Volatile private var only: Set<String>? = null
+
+    /** Whether the running build downloads [epgId] (Sources → Refreshing…). */
+    fun downloading(epgId: String): Boolean = running && only.let { it == null || epgId in it }
+
     fun file(): File? = meta?.let { gzFor(it.builtAt) }?.takeIf { it.isFile }
 
     /** The published build unpacked, for the web admin to read (GuideReader). */
@@ -54,19 +60,23 @@ class GuideBuilds(
 
     /**
      * Builds from [inputs] and publishes the result. Fails, leaving the published build alone, when
-     * a build is already running or nothing produced any programs. With [only], just that EPG source
-     * is downloaded; the others are copied from the published build (any it lacks download too).
+     * a build is already running or nothing produced any programs. With [only], just those EPG sources
+     * are downloaded; the others are copied from the published build, failed ones included (any it
+     * lacks download too). [unlessAllFail]: fail instead of publishing when every download failed,
+     * so a retry that changed nothing doesn't send devices the same guide again.
      */
-    suspend fun build(inputs: GuideInputs, now: Long, only: String? = null): Result<NasGuideMeta> {
+    suspend fun build(inputs: GuideInputs, now: Long, only: Set<String>? = null, unlessAllFail: Boolean = false): Result<NasGuideMeta> {
         if (!lock.tryLock()) return Result.failure(IllegalStateException("A guide build is already running"))
+        this.only = only
         return try {
-            runCatching { buildLocked(inputs, now, only) }.onFailure { log.error("Guide build failed: ${it.message}") }
+            runCatching { buildLocked(inputs, now, only, unlessAllFail) }.onFailure { log.error("Guide build failed: ${it.message}") }
         } finally {
+            this.only = null
             lock.unlock()
         }
     }
 
-    private suspend fun buildLocked(inputs: GuideInputs, now: Long, only: String?): NasGuideMeta {
+    private suspend fun buildLocked(inputs: GuideInputs, now: Long, only: Set<String>?, unlessAllFail: Boolean): NasGuideMeta {
         dir.mkdirs()
         val part = File(dir, "guide-$now.db.part")
         part.delete()
@@ -76,11 +86,16 @@ class GuideBuilds(
         val previous = previousFile?.let { JdbcSqliteDriver("jdbc:sqlite:${it.path}", Properties(), GuideDatabase.Schema) }
         val before = meta?.outcomes.orEmpty()
         val beforeAt = meta?.builtAt
-        val reuse = if (only == null || previous == null) emptySet() else before.filterValues { it.programs > 0 }.keys - only
+        // Failed ones too: Refresh now downloads only the source it was pressed on.
+        val reuse = if (only == null || previous == null) emptySet() else before.keys - only
         val outcomes = try {
             val driver = JdbcSqliteDriver("jdbc:sqlite:${part.path}", Properties(), GuideDatabase.Schema)
             try {
                 val outcomes = builder.build(inputs.epgSources, GuideDatabase(driver), previous?.let { GuideDatabase(it) }, now, reuse)
+                val downloaded = outcomes.filterKeys { it !in reuse }.values
+                if (unlessAllFail && downloaded.all { it.error != null }) {
+                    error("Still failing: " + downloaded.mapNotNull { it.error }.joinToString("; "))
+                }
                 if (outcomes.values.none { it.programs > 0 }) error(outcomes.values.firstNotNullOfOrNull { it.error }?.let { "No programs: $it" } ?: "No programs")
                 games?.let { lookup ->
                     val shifts = inputs.epgSources.associate { it.id to it.timeShiftMs }

@@ -36,7 +36,8 @@
             "channels": 8343,
             "programs": 118000,
             "error": null,
-            "refreshedAt": 1760000000000
+            "refreshedAt": 1760000000000,
+            "refreshing": false
         }
     ],
     "guideBuilding": false

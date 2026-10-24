@@ -110,6 +110,7 @@ export const EpgSourceView = z.object({
   programs: z.number(),
   error: z.string().nullable(),
   refreshedAt: z.number().nullable(),
+  refreshing: z.boolean().default(false),
 });
 export const SourcesView = z.object({ sources: z.array(SourceView), epgSources: z.array(EpgSourceView), guideBuilding: z.boolean() });
 

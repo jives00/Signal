@@ -241,7 +241,7 @@ export default function Sources() {
                   <td>{e.name}{e.isDefault && <span className="tag">Default</span>}{!e.enabled && <span className="tag">Disabled</span>}<div className="detail small">{e.kind === "XMLTV" ? e.url : e.kind === "XTREAM" ? "The source's own xmltv.php" : "Demo"}</div></td>
                   <td>{e.error ? <span className="error-text">{e.error}</span> : `${e.channels.toLocaleString()} channels · ${e.programs.toLocaleString()} programs`}</td>
                   <td>{e.timeShiftMinutes ? `${e.timeShiftMinutes > 0 ? "+" : ""}${e.timeShiftMinutes} min` : "None"}</td>
-                  <td>{data.guideBuilding && e.enabled ? "Refreshing…" : e.refreshedAt ? ago(e.refreshedAt) : "Never"}</td>
+                  <td>{e.refreshing ? "Refreshing…" : e.refreshedAt ? ago(e.refreshedAt) : "Never"}</td>
                   <td className="actions">
                     <button onClick={() => refreshGuide(e.id)} disabled={data.guideBuilding || !e.enabled}>Refresh now</button>
                     {!e.isDefault && e.enabled && <button onClick={() => save("Default EPG source set", () => setDefaultEpg(e.id), load)}>Make default</button>}

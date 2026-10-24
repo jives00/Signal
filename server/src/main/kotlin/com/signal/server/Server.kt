@@ -49,6 +49,8 @@ class Companion(
     private val syncStoreOverride: SyncStore? = null,
     /** Tests that add sources without wanting a 2-minute guide build each turn this off. */
     val buildGuideOnChange: Boolean = true,
+    /** How long after a build the EPG sources it left failing are tried again (GuideJob.retryFailed). */
+    val guideRetryDelayMs: Long = 60 * 60_000L,
     /** Tests: TMDB answered by a mock, and the store and titles without MySQL or a catalog. */
     private val tmdbHttp: HttpClient? = null,
     private val tmdbStoreOverride: TmdbStore? = null,
