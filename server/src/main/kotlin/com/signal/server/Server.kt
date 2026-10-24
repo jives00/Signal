@@ -182,6 +182,12 @@ fun Application.signalModule(companion: Companion) {
     }
     install(StatusPages) {
         exception<Throwable> { call, cause ->
+            // The client hung up mid-response (a device dropping /device/events, say): nothing to
+            // answer and nothing wrong, so keep it out of the error log devdash scrapes.
+            if (generateSequence(cause) { it.cause }.any { it is java.nio.channels.ClosedChannelException }) {
+                call.application.environment.log.debug("Client went away: ${call.request.path()}")
+                return@exception
+            }
             call.application.environment.log.error("Request failed: ${call.request.path()}", cause)
             call.respondText("Something went wrong", status = HttpStatusCode.InternalServerError)
         }
