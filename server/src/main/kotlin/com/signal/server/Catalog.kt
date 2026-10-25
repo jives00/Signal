@@ -80,6 +80,16 @@ class Catalog(dir: File, http: HttpClient, cipher: SecretCipher?) {
 
     suspend fun load() = withContext(io) { reloadStreams() }
 
+    /** One stream with what playing it needs (its provider ID, URL and headers), which [streams] leaves out. */
+    suspend fun stream(id: String): com.signal.model.ProviderStream? = withContext(io) {
+        db.streamQueries.byId(id).executeAsOneOrNull()?.let {
+            with(com.signal.data.ChannelRepository) {
+                com.signal.model.ProviderStream(it.id, it.source_id, it.provider_id, it.raw_name, it.group_name, it.logo_url, it.tvg_id,
+                    it.provider_number?.toInt(), it.position.toInt(), it.url, it.headers.toHeaders())
+            }
+        }
+    }
+
     private fun reloadStreams() {
         streams = db.streamQueries.allStreams().executeAsList().map {
             CatalogStream(it.id, it.source_id, it.raw_name, it.display_name, it.group_name, it.logo_url, it.tvg_id, it.provider_number?.toInt(), it.position.toInt())

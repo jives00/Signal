@@ -75,6 +75,8 @@ export const ChannelRow = z.object({
   unavailable: z.boolean().default(false),
 });
 export const ChannelPage = z.object({ total: z.number(), offset: z.number(), rows: z.array(ChannelRow) });
+/** server/WatchRoutes.kt → WatchStream: the provider's own URL for the Watch page. */
+export const WatchStream = z.object({ url: z.string(), hls: z.boolean(), headersDropped: z.boolean() });
 
 export const SourceView = z.object({
   id: z.string(),

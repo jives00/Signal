@@ -231,6 +231,7 @@ fun Application.signalModule(companion: Companion) {
                 syncAdminRoutes(companion)
                 adminPageRoutes(companion)
                 vodAdminRoutes(companion)
+                watchRoutes(companion)
             }
             webAdmin(File(companion.config.webDir))
         }

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import { Navigate, NavLink, Route, Routes } from "react-router-dom";
 import { backUpNow, getStatus, getSync, health, type Status, type SyncStatus } from "./api";
 import { ProfileProvider, ToastProvider, useProfiles, useToast } from "./context";
@@ -15,6 +15,8 @@ import { Appearance, CompanionSettings, NameCleanupSettings } from "./pages/Sett
 import Sources from "./pages/Sources";
 import Switch from "./pages/Switch";
 import VoiceCommands from "./pages/VoiceCommands";
+// Watch brings hls.js (about 500 kB), so it loads only when opened.
+const Watch = lazy(() => import("./pages/Watch"));
 import { VodCatalog, VodCategories, VodLibrary } from "./pages/Vod";
 
 type Page = { path: string; title: string };
@@ -25,6 +27,7 @@ const nav: { header?: string; pages: Page[] }[] = [
   {
     header: "Live TV",
     pages: [
+      { path: "/watch", title: "Watch" },
       { path: "/channels", title: "Channels" },
       { path: "/favorites", title: "Favorites & Playlists" },
       { path: "/groups", title: "Groups" },
@@ -130,6 +133,7 @@ function Shell() {
         <Routes>
           <Route path="/" element={<Dashboard status={status} failed={failed} />} />
           <Route path="/sources" element={<Sources />} />
+          <Route path="/watch" element={<Suspense fallback={<div className="page detail">Loading…</div>}><Watch /></Suspense>} />
           <Route path="/channels" element={<Channels />} />
           <Route path="/favorites" element={<Lists />} />
           <Route path="/groups" element={<Groups />} />

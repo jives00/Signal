@@ -48,6 +48,7 @@ class ContractTest {
         )
         check("edit-result", EditResult.serializer(), EditResult(8, 1, listOf(AdminOp("favorite", "ch:src:x:42", "profile", "main", deleted = true))))
         check("channel-page", ChannelPage.serializer(), ChannelPage(1, 0, listOf(row)))
+        check("watch", WatchStream.serializer(), WatchStream("http://p.example/live/me/secret/42.m3u8", hls = true, headersDropped = false))
         check(
             "releases", ReleasesView.serializer(),
             ReleasesView(

@@ -279,3 +279,28 @@ label.button.file input { position: absolute; inset: 0; opacity: 0; cursor: poin
 .approve .placement { margin-top: 12px; align-items: end; gap: 16px; flex-wrap: wrap; }
 .approve .placement label { display: flex; flex-direction: column; gap: 4px; color: var(--muted); font-size: 13px; }
 .approve .placement label.check { flex-direction: row; align-items: center; gap: 8px; color: var(--text); font-size: 15px; }
+
+/* Live TV → Watch (web-player.md): the channel column beside the player; stacked, player first, on a phone. */
+.page.watch { display: grid; grid-template-columns: minmax(280px, 360px) 1fr; gap: 24px; align-items: start; }
+.watch-list { min-width: 0; }
+.watch-list .filters input[type="search"] { min-width: 0; flex: 1; }
+.watch-rows { list-style: none; margin: 0; padding: 0; max-height: calc(100vh - 220px); overflow-y: auto; }
+.watch-rows button { width: 100%; display: flex; gap: 10px; align-items: center; text-align: left; font-weight: 400; background: none; padding: 8px; }
+/* The chosen channel uses the surface fill, never the accent, which means focus (CLAUDE.md conventions). */
+.watch-rows button.selected { background: var(--surface); outline: 2px solid var(--divider); }
+.watch-rows .number { width: 40px; color: var(--muted); font-variant-numeric: tabular-nums; flex-shrink: 0; }
+.watch-rows .name, .watch-rows .now { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.watch-player { position: sticky; top: 16px; min-width: 0; }
+.watch-video { position: relative; background: #000; aspect-ratio: 16 / 9; }
+.watch-video video { width: 100%; height: 100%; display: block; }
+.watch-overlay { position: absolute; inset: 0; display: flex; flex-direction: column; gap: 12px; align-items: center; justify-content: center; text-align: center; padding: 16px; pointer-events: none; }
+.watch-overlay button { pointer-events: auto; }
+.watch-info { padding: 16px 0; display: flex; flex-direction: column; gap: 8px; }
+.watch-info .section-title { margin: 0; }
+.watch-progress { height: 4px; background: var(--neutral-300); }
+.watch-progress div { height: 100%; background: var(--secondary-text); }
+@media (max-width: 760px) {
+  .page.watch { grid-template-columns: 1fr; padding: 16px; }
+  .watch-player { order: -1; top: 0; z-index: 4; background: var(--bg); }
+  .watch-rows { max-height: none; }
+}

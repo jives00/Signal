@@ -290,6 +290,33 @@ class AdminTest {
     }
 
     /** Sources per profile (PLAN §9.1): one profile leaves a source out; the other keeps it, and Undo brings it back. */
+    @Test fun watchGivesTheProviderUrlForAShownSourceOnly() = testApplication {
+        application { signalModule(companion) }
+        val id = client.demo()["sources"]!!.jsonArray.single().jsonObject.s("id")!!
+        val streamId = client.channels("limit=1").rows().single().s("streamId")!!
+        val watch = obj(client.send("GET", "/api/watch/$streamId"))
+        assertTrue(watch.s("url")!!.startsWith("https://"))
+        assertEquals("true", watch.s("hls"))
+        assertEquals("false", watch.s("headersDropped"))
+        assertEquals(HttpStatusCode.NotFound, client.get("/api/watch/nope").status)
+
+        val kids = companion.sync.createProfile("Kids", null)
+        client.send("POST", "/api/sources/$id/profiles", """{"profiles":["main"]}""")
+        assertEquals(HttpStatusCode.Conflict, client.get("/api/watch/$streamId?profile=${kids.id}").status)
+    }
+
+    @Test fun watchPlaysXtreamAsHlsAndFlagsHeadersABrowserCantSend() {
+        val stream = com.signal.model.ProviderStream("s:x:73", "s", "73", "ABC", "Locals", null, null, null, 0, null, emptyMap())
+        val source = com.signal.model.Source("s", "Provider", com.signal.model.SourceKind.XTREAM, "http://host/", "u", "p")
+        val plain = watchStream(source, stream)
+        assertEquals("http://host/live/u/p/73.m3u8", plain.url)
+        assertTrue(plain.hls)
+        assertTrue(!plain.headersDropped)
+        assertTrue(watchStream(source.copy(userAgent = "VLC/3.0"), stream).headersDropped)
+        val ts = watchStream(source.copy(kind = com.signal.model.SourceKind.M3U), stream.copy(url = "http://host/live/1.ts"))
+        assertTrue(!ts.hls)
+    }
+
     @Test fun aSourceCanBeLeftOutOfOneProfile() = testApplication {
         application { signalModule(companion) }
         val id = client.demo()["sources"]!!.jsonArray.single().jsonObject.s("id")!!

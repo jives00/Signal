@@ -50,6 +50,8 @@ export function channelQueryString(profile: string, f: ChannelQuery): string {
 
 export const getChannels = (profile: string, f: ChannelQuery) => read(S.ChannelPage, `/api/channels?${channelQueryString(profile, f)}`);
 export const getChannel = (profile: string, streamId: string) => read(S.ChannelRow, `/api/channels/${enc(streamId)}?${q(profile)}`);
+/** Watch (web-player.md): the URL to play. It carries the source's credentials, so it's fetched at play time only. */
+export const getWatchStream = (profile: string, streamId: string) => read(S.WatchStream, `/api/watch/${enc(streamId)}?${q(profile)}`);
 
 export type ChannelAction = "favorite" | "unfavorite" | "hide" | "unhide" | "reset" | "addToPlaylist" | "removeFromPlaylist" | "set";
 export const editChannels = (streamIds: string[], profiles: string[], action: ChannelAction, extra: { playlistId?: string; values?: Record<string, string | number | null> } = {}) =>

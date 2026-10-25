@@ -1,0 +1,5 @@
+{
+    "url": "http://p.example/live/me/secret/42.m3u8",
+    "hls": true,
+    "headersDropped": false
+}
