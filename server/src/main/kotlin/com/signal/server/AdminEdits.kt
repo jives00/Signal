@@ -10,6 +10,7 @@ import com.signal.model.EpgKind
 import com.signal.model.EpgSource
 import com.signal.model.GroupSort
 import com.signal.model.Source
+import com.signal.model.SourceAccount
 import com.signal.model.SourceKind
 import com.signal.sync.SyncFields
 import com.signal.sync.SyncScope
@@ -318,7 +319,8 @@ class AdminEdits(private val companion: Companion) {
         val existing = v.sources.firstOrNull { it.first.id == source.id }
         if (!isNew && existing == null) throw SyncRefused(404, "No such source")
         val password = source.password.ifEmpty { if (isNew) "" else existing!!.first.password }
-        val f = SyncFields.source(source.copy(password = password), existing?.second ?: now())
+        // The form doesn't carry the extra logins: they have their own page (saveAccounts).
+        val f = SyncFields.source(source.copy(password = password, accounts = existing?.first?.accounts.orEmpty()), existing?.second ?: now())
         batch.ops += AdminOp(SyncType.SOURCE, source.id, SyncScope.HOUSEHOLD, fields = f)
         // An Xtream or Demo source brings its own guide (PLAN §4.3.15 → EPG sources), named after it as on the TV.
         val kind = when (source.kind) {
@@ -330,6 +332,31 @@ class AdminEdits(private val companion: Companion) {
             val epg = EpgSource(id = "epg:${source.id}", name = "${source.name} guide", kind = kind, sourceId = source.id, position = FractionalIndex.after(v.epgSources.lastOrNull()?.position))
             batch.ops += AdminOp(SyncType.EPG_SOURCE, epg.id, SyncScope.HOUSEHOLD, fields = SyncFields.epgSource(epg, now()))
         }
+        return run(batch)
+    }
+
+    /**
+     * Provider accounts (PLAN §9.1): replaces the source's extra logins with [accounts], in that order.
+     * One without an ID is new; an empty password keeps the one stored for that ID.
+     */
+    suspend fun saveAccounts(id: String, accounts: List<AccountForm>): EditResult {
+        val v = view(SyncService.MAIN)
+        val source = v.sources.firstOrNull { it.first.id == id }?.first ?: throw SyncRefused(404, "No such source")
+        if (source.kind != SourceKind.XTREAM) throw SyncRefused(400, "Only Xtream Codes sources have more logins.")
+        val stored = source.accounts.associateBy { it.id }
+        val list = accounts.map { a ->
+            if (a.username.isBlank()) throw SyncRefused(400, "Enter each login's username.")
+            val password = a.password.ifEmpty { a.id?.let { stored[it]?.password }.orEmpty() }
+            if (password.isEmpty()) throw SyncRefused(400, "Enter the password for ${a.username.trim()}.")
+            SourceAccount(
+                id = a.id?.takeIf { it in stored } ?: newId(),
+                name = a.name.trim().ifEmpty { a.username.trim() }.take(100),
+                username = a.username.trim(),
+                password = password,
+            )
+        }
+        val batch = Batch(v)
+        batch.ops += AdminOp(SyncType.SOURCE, id, SyncScope.HOUSEHOLD, fields = fields(SyncFields.ACCOUNTS to SourceAccount.encode(list).ifEmpty { null }))
         return run(batch)
     }
 

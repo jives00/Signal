@@ -74,20 +74,33 @@ class SyncService(private val companion: Companion) {
 
     // ---- Passwords at rest (PLAN §5.7) ------------------------------------------------------------
 
+    // A source's password and its extra logins (Provider accounts, PLAN §9.1), which carry passwords too.
+    private val secretFields = listOf(SyncFields.PASSWORD, SyncFields.ACCOUNTS)
+
     private fun seal(type: String, fields: JsonObject): JsonObject {
-        val password = fields.str(SyncFields.PASSWORD)
-        if (type != SyncType.SOURCE || password.isNullOrEmpty() || password.startsWith(SEALED)) return fields
-        val cipher = companion.cipher ?: throw SyncRefused(503, "SIGNAL_SECRET_KEY isn't set on the companion, so it can't store passwords.")
-        return JsonObject(fields + (SyncFields.PASSWORD to JsonPrimitive(SEALED + cipher.encrypt(password))))
+        if (type != SyncType.SOURCE) return fields
+        var out = fields
+        for (name in secretFields) {
+            val value = fields.str(name)
+            if (value.isNullOrEmpty() || value.startsWith(SEALED)) continue
+            val cipher = companion.cipher ?: throw SyncRefused(503, "SIGNAL_SECRET_KEY isn't set on the companion, so it can't store passwords.")
+            out = JsonObject(out + (name to JsonPrimitive(SEALED + cipher.encrypt(value))))
+        }
+        return out
     }
 
     private fun open(type: String, fields: JsonObject): JsonObject {
-        val password = fields.str(SyncFields.PASSWORD)
-        if (type != SyncType.SOURCE || password == null || !password.startsWith(SEALED)) return fields
-        val plain = runCatching { companion.cipher!!.decrypt(password.removePrefix(SEALED)) }
-            .onFailure { log.error("A source password can't be decrypted (was SIGNAL_SECRET_KEY changed?)") }
-            .getOrDefault("")
-        return JsonObject(fields + (SyncFields.PASSWORD to JsonPrimitive(plain)))
+        if (type != SyncType.SOURCE) return fields
+        var out = fields
+        for (name in secretFields) {
+            val value = fields.str(name)
+            if (value == null || !value.startsWith(SEALED)) continue
+            val plain = runCatching { companion.cipher!!.decrypt(value.removePrefix(SEALED)) }
+                .onFailure { log.error("A source's $name can't be decrypted (was SIGNAL_SECRET_KEY changed?)") }
+                .getOrDefault("")
+            out = JsonObject(out + (name to JsonPrimitive(plain)))
+        }
+        return out
     }
 
     private fun parse(fields: String): JsonObject = runCatching { json.decodeFromString<JsonObject>(fields) }.getOrDefault(JsonObject(emptyMap()))

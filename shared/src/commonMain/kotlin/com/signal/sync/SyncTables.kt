@@ -31,6 +31,7 @@ class SyncTables(private val db: UserDatabase, private val settings: Settings, p
                     "name" to s.name, "kind" to s.kind, "url" to s.url, "username" to s.username, SyncFields.PASSWORD to password,
                     "user_agent" to s.user_agent, "referrer" to s.referrer, "enabled" to (s.enabled == 1L), "live_format" to s.live_format,
                     "connection_limit" to s.connection_limit, "created_at" to s.created_at,
+                    SyncFields.ACCOUNTS to (if (s.accounts_enc.isEmpty()) null else runCatching { secrets.decrypt(s.accounts_enc) }.getOrNull()),
                 ),
             )
         }
@@ -142,6 +143,7 @@ class SyncTables(private val db: UserDatabase, private val settings: Settings, p
                         last_refreshed_at = existing?.last_refreshed_at ?: 0,
                         last_error = existing?.last_error,
                         created_at = f.long("created_at") ?: existing?.created_at ?: 0,
+                        accounts_enc = f.str(SyncFields.ACCOUNTS)?.takeIf { it.isNotBlank() }?.let { secrets.encrypt(it) } ?: "",
                     ),
                 )
             }

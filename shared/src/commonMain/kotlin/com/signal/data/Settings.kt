@@ -85,6 +85,9 @@ class Settings(private val db: UserDatabase, private val io: CoroutineDispatcher
         VOD_BUFFER(Scope.DEVICE, "vod_buffer"),
         STREAM_TIMEOUT(Scope.DEVICE, "stream_timeout"),
         STREAM_RETRIES(Scope.DEVICE, "stream_retries"),
+        // Which login of each source this device plays from (PLAN §9.1 → Provider accounts), as a JSON
+        // object of source ID to account ID; a source not in it plays from its own login.
+        SOURCE_ACCOUNTS(Scope.DEVICE, "source_accounts"),
         RECENT_SEARCHES(Scope.DEVICE, "recent_searches"),
         SEARCH_FILTER(Scope.DEVICE, "search_filter"),
         // The NAS companion (PLAN §5.7). The key is encrypted with the SecretBox and never synced.

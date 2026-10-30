@@ -131,6 +131,9 @@ export const getSources = () => read(S.SourcesView, "/api/sources");
 export const revealPassword = (id: string) => send<{ password: string }>(`/api/sources/${enc(id)}/password`);
 export const addSource = (f: SourceForm) => post("/api/sources", f);
 export const updateSource = (id: string, f: SourceForm) => put(`/api/sources/${enc(id)}`, f);
+/** Provider accounts (PLAN §9.1): replaces the extra logins. No id is a new one; an empty password keeps the stored one. */
+export type AccountForm = { id?: string; name: string; username: string; password: string };
+export const saveAccounts = (id: string, accounts: AccountForm[]) => put(`/api/sources/${enc(id)}/accounts`, { accounts });
 export const setSourceEnabled = (id: string, enabled: boolean) => post(`/api/sources/${enc(id)}/enabled`, { enabled });
 /** Sources per profile (PLAN §9.1): the profiles that show the source; every other profile leaves it out. */
 export const setSourceProfiles = (id: string, profiles: string[]) => post(`/api/sources/${enc(id)}/profiles`, { profiles });

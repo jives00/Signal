@@ -34,6 +34,8 @@ class VodPlayback(
     private val watch: WatchRepository,
     private val scope: CoroutineScope,
     private val log: Log,
+    /** Which login of a source to play from (PLAN §9.1 → Provider accounts); null plays every source from its own. */
+    private val accounts: ProviderAccounts? = null,
 ) {
     data class Now(
         val item: VodItem,
@@ -61,7 +63,7 @@ class VodPlayback(
         val key = asKey ?: ItemKeys.movie(item, detail?.tmdbId ?: item.tmdbId)
         val start = if (fromStart) 0 else watch.current().positions[key]?.positionMs ?: 0
         if (fromStart) watch.clearPosition(key)
-        val source = sources.byId(item.sourceId) ?: return
+        val source = sources.byId(item.sourceId)?.let { accounts?.pick(it) ?: it } ?: return
         val url = StreamUrls.movie(source, item, detail?.containerExt)
         start(Now(item, key, VodRepository.displayName(item), null), url, source.headers, start)
     }
@@ -71,7 +73,7 @@ class VodPlayback(
         val key = ItemKeys.episode(seriesKey, episode)
         val start = if (fromStart) 0 else watch.current().positions[key]?.positionMs ?: 0
         if (fromStart) watch.clearPosition(key)
-        val source = sources.byId(series.sourceId) ?: return
+        val source = sources.byId(series.sourceId)?.let { accounts?.pick(it) ?: it } ?: return
         val now = Now(series, key, VodRepository.displayName(series), "${episode.code} · ${episode.title}", episode, detail, seriesKey)
         start(now, StreamUrls.episode(source, episode), source.headers, start)
     }

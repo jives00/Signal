@@ -70,8 +70,10 @@ class AppController(val platform: Platform, val log: Log) {
     )
     val vodDetails = com.signal.data.VodDetailRepository(db, sources, platform.io, log)
     val watch = com.signal.data.WatchRepository(db, settings, platform.io)
-    val vodPlayback = VodPlayback(platform.player, sources, vodDetails, watch, scope, log)
-    val playback = PlaybackController(platform.player, channels, sources, settings, scope, log, linkedStreams = { linkedStreams.value })
+    // Provider accounts (PLAN §9.1): which of a source's logins this TV plays from, live and on demand alike.
+    val accounts = ProviderAccounts(settings, log, platform.player.state, scope, check = { sources.accountInfo(it) })
+    val vodPlayback = VodPlayback(platform.player, sources, vodDetails, watch, scope, log, accounts)
+    val playback = PlaybackController(platform.player, channels, sources, settings, scope, log, linkedStreams = { linkedStreams.value }, accounts = accounts)
     // The NAS companion (PLAN §5.7): optional; the app works the same without it.
     val nas = com.signal.nas.NasConnection(settings, http, platform.secretBox, platform.appInfo, log)
     // VOD enrichment from the companion (PLAN §4.3.12): lists, genres, posters and metadata.
@@ -177,6 +179,8 @@ class AppController(val platform: Platform, val log: Log) {
         if (error == null) return ""
         if (error.kind != com.signal.player.PlaybackError.Kind.CONNECTION_LIMIT || platform.player.state.value.request?.isLive == false) return error.message
         val source = playback.current.value?.stream?.sourceId?.let { id -> sourceList.value.firstOrNull { it.id == id } } ?: return error.message
+        // Failover has already tried the source's other logins (PLAN §9.1 → Provider accounts).
+        if (source.logins.size > 1) return "Every ${source.name} login is in use. Stop playback on another device and try again."
         val limit = source.connections ?: return error.message
         val streams = if (limit == 1) "1 stream" else "$limit streams"
         return "${source.name} allows $streams at once, and they're in use. Stop playback on another device and try again."

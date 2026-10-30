@@ -81,6 +81,9 @@ data class SourceForm(
     val connectionLimit: Int = 2,
 )
 
+/** Provider accounts (PLAN §9.1): one login to the source's server. No [id] is a new one; an empty [password] keeps the stored one. */
+@Serializable data class AccountForm(val id: String? = null, val name: String, val username: String, val password: String = "")
+@Serializable data class AccountsForm(val accounts: List<AccountForm>)
 @Serializable data class EpgForm(val name: String? = null, val url: String? = null, val enabled: Boolean? = null, val timeShiftMinutes: Int? = null)
 @Serializable data class EnabledRequest(val enabled: Boolean)
 @Serializable data class DefaultRequest(val id: String)
@@ -96,7 +99,11 @@ data class SourceView(
     val providerConnections: Int? = null, val expiresAt: Long? = null,
     /** Sources per profile (PLAN §9.1): the profiles that leave this source out. */
     val hiddenFor: List<String> = emptyList(),
+    /** Provider accounts (PLAN §9.1): the extra logins, without their passwords. */
+    val accounts: List<AccountView> = emptyList(),
 )
+
+@Serializable data class AccountView(val id: String, val name: String, val username: String)
 
 @Serializable
 data class EpgSourceView(
@@ -565,6 +572,7 @@ fun Route.adminPageRoutes(companion: Companion) {
     }
     post("/sources") { val f = call.receive<SourceForm>(); call.edit { edits.saveSource(f.toSource(newId()), isNew = true) } }
     put("/sources/{id}") { val f = call.receive<SourceForm>(); call.edit { edits.saveSource(f.toSource(call.parameters["id"]!!), isNew = false) } }
+    put("/sources/{id}/accounts") { val f = call.receive<AccountsForm>(); call.edit { edits.saveAccounts(call.parameters["id"]!!, f.accounts) } }
     post("/sources/{id}/enabled") { val r = call.receive<EnabledRequest>(); call.edit { edits.setSourceEnabled(call.parameters["id"]!!, r.enabled) } }
     // Sources per profile (PLAN §9.1): [ProfileTargets.profiles] are the profiles that show it; the rest leave it out.
     post("/sources/{id}/profiles") {
@@ -644,6 +652,7 @@ private suspend fun sourceViews(companion: Companion, view: AdminView): List<Sou
             s.id, s.name, s.kind.name, s.url, s.username, s.password.isNotEmpty(), s.userAgent, s.referrer, s.enabled, s.liveFormat.name, s.connectionLimit,
             st?.lastRefreshedAt ?: 0, st?.lastError, st?.streams ?: 0, companion.catalog.refreshing == s.id,
             st?.providerConnections, st?.expiresAt, view.hiddenSourcesByProfile.filterValues { s.id in it }.keys.sorted(),
+            s.accounts.map { AccountView(it.id, it.name, it.username) },
         )
     }
 }

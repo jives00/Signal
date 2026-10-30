@@ -4,6 +4,7 @@ import com.signal.model.EpgKind
 import com.signal.model.EpgSource
 import com.signal.model.LiveFormat
 import com.signal.model.Source
+import com.signal.model.SourceAccount
 import com.signal.model.SourceKind
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
@@ -37,6 +38,8 @@ fun JsonObject.bool(name: String): Boolean? = (this[name] as? JsonPrimitive)?.le
  */
 object SyncFields {
     const val PASSWORD = "password"
+    /** Provider accounts (PLAN §9.1): the extra logins as one JSON string, sealed on the companion like [PASSWORD]. */
+    const val ACCOUNTS = "accounts"
 
     fun source(s: Source, createdAt: Long): JsonObject = fields(
         "name" to s.name,
@@ -50,6 +53,7 @@ object SyncFields {
         "live_format" to s.liveFormat.name,
         "connection_limit" to s.connectionLimit,
         "created_at" to createdAt,
+        ACCOUNTS to SourceAccount.encode(s.accounts).ifEmpty { null },
     )
 
     fun source(id: String, f: JsonObject): Source = Source(
@@ -64,6 +68,7 @@ object SyncFields {
         enabled = f.bool("enabled") ?: true,
         liveFormat = f.str("live_format")?.let { runCatching { LiveFormat.valueOf(it) }.getOrNull() } ?: LiveFormat.TS,
         connectionLimit = f.long("connection_limit")?.toInt() ?: 2,
+        accounts = SourceAccount.parse(f.str(ACCOUNTS)),
     )
 
     fun epgSource(s: EpgSource, createdAt: Long): JsonObject = fields(

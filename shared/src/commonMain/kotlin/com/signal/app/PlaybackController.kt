@@ -7,6 +7,7 @@ import com.signal.data.SourceRepository
 import com.signal.model.Channel
 import com.signal.model.ChannelGroup
 import com.signal.model.CredentialMasking
+import com.signal.model.SourceAccount
 import com.signal.model.StreamUrls
 import com.signal.player.AspectMode
 import com.signal.player.PlayRequest
@@ -32,6 +33,8 @@ class PlaybackController(
     private val log: Log,
     /** User channels with more than one playable stream, for failover (AppController.linkedStreams). */
     private val linkedStreams: () -> Map<String, List<ChannelRepository.LinkedStream>> = { emptyMap() },
+    /** Which login of a source to play from (PLAN §9.1 → Provider accounts); null plays every source from its own. */
+    private val accounts: ProviderAccounts? = null,
 ) {
     private val _current = MutableStateFlow<Channel?>(null)
     /** The channel loaded in the player, in the preview or full screen. */
@@ -52,6 +55,10 @@ class PlaybackController(
 
     /** Streams tried since the user tuned the current channel: failover tries each linked one once. */
     private val tried = HashSet<String>()
+    /** Logins of the current stream's source the provider refused over its connection limit. */
+    private val triedLogins = HashSet<String>()
+    /** The login the current stream plays through. */
+    private var login: SourceAccount? = null
     /** The URL [start] last sent to the player, to tell its errors from a stale request's. */
     private var startedUrl: String? = null
     /**
@@ -70,6 +77,7 @@ class PlaybackController(
                 if (s.status != com.signal.player.PlaybackState.Status.ERROR || s.request?.isLive != true) return@collect
                 val playing = _current.value ?: return@collect
                 if (s.request.url != startedUrl) return@collect
+                if (s.error?.kind == com.signal.player.PlaybackError.Kind.CONNECTION_LIMIT && otherLogin(playing)) return@collect
                 failover(playing)
             }
         }
@@ -119,6 +127,21 @@ class PlaybackController(
         starting = scope.launch { start(channel) }
     }
 
+    /**
+     * The provider refused the stream over the login's connection limit: the same stream through another
+     * of the source's logins with a free stream (PLAN §9.1 → Provider accounts). False when there's none.
+     */
+    private suspend fun otherLogin(playing: Channel): Boolean {
+        val accounts = accounts ?: return false
+        val source = sources.byId(playing.stream.sourceId) ?: return false
+        login?.let { triedLogins += it.id }
+        val next = accounts.another(source, triedLogins) ?: return false
+        if (_current.value?.key != playing.key) return true
+        log.info("Failover: ${source.name} refused ${login?.name ?: "its login"}; trying ${next.name}")
+        start(playing, next)
+        return true
+    }
+
     private suspend fun failover(playing: Channel) {
         val uc = playing.userChannelId ?: return
         tried += playing.stream.id
@@ -132,13 +155,17 @@ class PlaybackController(
         start(alternative)
     }
 
-    private suspend fun start(channel: Channel) {
-        val source = sources.byId(channel.stream.sourceId) ?: return
+    private suspend fun start(channel: Channel, through: SourceAccount? = null) {
+        val own = sources.byId(channel.stream.sourceId) ?: return
+        val chosen = through ?: accounts?.pickLogin(own) ?: own.logins.first()
+        if (through == null) triedLogins.clear()
+        login = chosen
+        val source = own.withLogin(chosen)
         val url = StreamUrls.live(source, channel.stream)
         val remembered = channels.remembered(channel)
         _aspect.value = remembered?.aspect?.let { runCatching { AspectMode.valueOf(it) }.getOrNull() } ?: AspectMode.FIT
         startedUrl = url
-        log.info("Tune ${channel.displayName} (${CredentialMasking.forLog(url, source)})")
+        log.info("Tune ${channel.displayName} (${CredentialMasking.forLog(url, source)})" + if (chosen.id != SourceAccount.MAIN) " through ${chosen.name}" else "")
         // The channel's remembered audio and subtitles beat the Playback settings (PLAN §4.3.3 → Remembered choices).
         player.play(
             PlayRequest(

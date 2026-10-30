@@ -98,6 +98,8 @@ export const SourceView = z.object({
   expiresAt: z.number().nullable().default(null),
   /** Sources per profile (PLAN §9.1): the profiles that leave this source out. */
   hiddenFor: z.array(z.string()).default([]),
+  /** Provider accounts (PLAN §9.1): the extra logins to the same server, without their passwords. */
+  accounts: z.array(z.object({ id: z.string(), name: z.string(), username: z.string() })).default([]),
 });
 export const EpgSourceView = z.object({
   id: z.string(),

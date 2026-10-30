@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { Link } from "react-router-dom";
 import {
-  addEpgSource, addSource, deleteEpgSource, deleteSource, getSources, moveEpgSource, refreshSource, revealPassword, setDefaultEpg,
-  setSourceEnabled, setSourceProfiles, testSource, updateEpgSource, updateSource, type SourceForm,
+  addEpgSource, addSource, deleteEpgSource, deleteSource, getSources, moveEpgSource, refreshSource, revealPassword, saveAccounts, setDefaultEpg,
+  setSourceEnabled, setSourceProfiles, testSource, updateEpgSource, updateSource, type AccountForm, type SourceForm,
 } from "../admin";
 import { ago, buildGuide } from "../api";
 import { profileNames, useProfiles, useToast } from "../context";
@@ -25,6 +25,8 @@ export default function Sources() {
   const { profiles } = useProfiles();
   /** Sources per profile (PLAN §9.1): the source being edited and the profiles ticked to show it. */
   const [choosing, setChoosing] = useState<{ source: SourceView; showOn: string[] } | null>(null);
+  /** Provider accounts (PLAN §9.1): the source whose extra logins are being edited. */
+  const [logins, setLogins] = useState<{ source: SourceView; accounts: AccountForm[] } | null>(null);
 
   /** The profiles that show the source: every profile but the ones that leave it out. */
   const shownOn = (s: SourceView) => profiles.filter((p) => !s.hiddenFor.includes(p.id)).map((p) => p.id);
@@ -34,6 +36,14 @@ export default function Sources() {
     if (on.length === profiles.length) return profiles.length > 1 ? "All profiles" : "Shown";
     return on.length === 0 ? "No profiles" : profileNames(on, profiles);
   }
+
+  async function saveLogins(event: FormEvent) {
+    event.preventDefault();
+    if (!logins) return;
+    if (await save("Logins saved · TVs pick theirs in device settings", () => saveAccounts(logins.source.id, logins.accounts), load)) setLogins(null);
+  }
+  const setLogin = (i: number, change: Partial<AccountForm>) =>
+    logins && setLogins({ ...logins, accounts: logins.accounts.map((a, j) => (j === i ? { ...a, ...change } : a)) });
 
   async function saveProfiles(event: FormEvent) {
     event.preventDefault();
@@ -133,6 +143,10 @@ export default function Sources() {
                   <td>
                     {s.username || "—"}
                     {s.hasPassword && <> · <span className="mono">{revealed[s.id] ?? "••••••"}</span> <button className="link" onClick={() => reveal(s)}>{revealed[s.id] ? "Hide" : "Reveal"}</button></>}
+                    {s.kind === "XTREAM" && <div className="detail small">
+                      {s.accounts.length > 0 ? `+ ${s.accounts.map((a) => a.name).join(", ")}` : "One login"}{" "}
+                      <button className="link" onClick={() => setLogins({ source: s, accounts: s.accounts.map((a) => ({ id: a.id, name: a.name, username: a.username, password: "" })) })}>Logins</button>
+                    </div>}
                   </td>
                   <td>{s.streams.toLocaleString()}</td>
                   <td>
@@ -175,6 +189,33 @@ export default function Sources() {
             <div className="row">
               <button className="primary" type="submit" disabled={[...choosing.showOn].sort().join() === shownOn(choosing.source).sort().join()}>Save</button>
               <button type="button" onClick={() => setChoosing(null)}>Cancel</button>
+            </div>
+          </form>
+        )}
+
+        {logins && (
+          <form className="card form" onSubmit={saveLogins}>
+            <h2>Logins for {logins.source.name}</h2>
+            <p className="detail">
+              More subscriptions to the same server, for TVs that share a profile. Each TV plays from the login chosen in its device
+              settings (Devices &amp; Profiles), or {logins.source.name}&apos;s own ({logins.source.username || "its login"}) when none is. If the
+              provider says that login is in use when the TV starts watching, it borrows one with a free stream.
+            </p>
+            {logins.accounts.length === 0 && <p className="detail">No other logins yet.</p>}
+            {logins.accounts.map((a, i) => (
+              <div className="row" key={a.id ?? `new-${i}`}>
+                <label>Name<input value={a.name} onChange={(e) => setLogin(i, { name: e.target.value })} placeholder={a.username || "Living room"} /></label>
+                <label>Username<input value={a.username} onChange={(e) => setLogin(i, { username: e.target.value })} autoComplete="off" required /></label>
+                <label>Password<input type="password" value={a.password} onChange={(e) => setLogin(i, { password: e.target.value })} autoComplete="new-password" placeholder={a.id ? "Unchanged" : ""} required={!a.id} /></label>
+                <button type="button" onClick={() => setLogins({ ...logins, accounts: logins.accounts.filter((_, j) => j !== i) })}>Remove</button>
+              </div>
+            ))}
+            <div className="row">
+              <button type="button" onClick={() => setLogins({ ...logins, accounts: [...logins.accounts, { name: "", username: "", password: "" }] })}>Add login</button>
+            </div>
+            <div className="row">
+              <button className="primary" type="submit">Save</button>
+              <button type="button" onClick={() => setLogins(null)}>Cancel</button>
             </div>
           </form>
         )}

@@ -225,10 +225,25 @@ private fun connectionsPage(app: AppController, s: Source): PanelPage {
     return PanelPage.Actions("Connections", options, subtitle = subtitle)
 }
 
+/**
+ * Provider accounts (PLAN §9.1 → Provider accounts): the login this TV plays [s] from. When the provider
+ * says it's in use as playback starts, the TV borrows another with a free stream.
+ */
+private fun accountPage(app: AppController, s: Source): PanelPage {
+    val chosen = app.accounts.chosen(s)
+    val options = s.logins.map { login -> PanelAction(login.name, selected = login.id == chosen.id) { app.accounts.choose(s.id, login.id); null } }
+    return PanelPage.Actions(
+        "Account on this TV", options,
+        subtitle = "This TV plays from this login. If another TV is using it when you start watching, it borrows a free one.",
+    )
+}
+
 private fun sourceActions(app: AppController, s: Source, onEdit: (Source) -> Unit, returnTo: FocusRequester): PanelPage = PanelPage.Actions(s.name, buildList {
     add(PanelAction("Refresh now") { app.scope.launch { app.refresh(s.id) }; null })
     if (s.kind != SourceKind.DEMO) add(PanelAction("Edit") { onEdit(s); null })
     if (s.kind != SourceKind.DEMO) add(PanelAction("Connections", detail = s.connections?.let(::connectionsLabel) ?: "The provider's limit") { connectionsPage(app, s) })
+    // Provider accounts (PLAN §9.1): logins are added in the web admin; each TV picks its own here.
+    if (s.logins.size > 1) add(PanelAction("Account on this TV", detail = app.accounts.chosen(s).name) { accountPage(app, s) })
     // With another source beside this one: the provider switch review (PLAN §4.5).
     if (app.sourceList.value.size > 1) add(PanelAction("Match channels to this source", detail = "Link your channels to its streams before switching") {
         com.signal.ui.menus.SwitchReview.open(app, s, returnTo); null

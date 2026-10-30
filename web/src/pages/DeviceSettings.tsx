@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
+import { getSources } from "../admin";
 import { send, type Device } from "../api";
-import { EditResult } from "../schema";
+import { EditResult, type SourceView } from "../schema";
 import { useToast } from "../context";
 import { useSorted } from "../sort";
 
@@ -30,6 +31,12 @@ const playback: { key: string; label: string; options: [string | null, string][]
   { key: "stream_retries", label: "Retries", options: [["0", "None"], [null, "1 retry"], ["2", "2 retries"], ["3", "3 retries"]] },
 ];
 const playbackKeys = new Set(playback.map((p) => p.key));
+/** Provider accounts (PLAN §9.1): source ID → the login this TV plays from; a source not in it uses its own. */
+const ACCOUNTS = "source_accounts";
+
+function parseAccounts(value: string | undefined): Record<string, string> {
+  try { return value ? (JSON.parse(value) as Record<string, string>) : {}; } catch { return {}; }
+}
 
 /**
  * One device's own settings (PLAN §4.3.18 → Devices), synced only between it and the companion.
@@ -42,8 +49,10 @@ export default function DeviceSettings({ device, onClose }: { device: Device; on
     send<{ settings: Record<string, string> }>(`/api/devices/${encodeURIComponent(device.id)}/settings`).then((r) => setSettings(r.settings)).catch(() => setSettings({}));
   }, [device.id]);
   useEffect(load, [load]);
+  const [sources, setSources] = useState<SourceView[]>([]);
+  useEffect(() => { getSources().then((d) => setSources(d.sources.filter((s) => s.accounts.length > 0))).catch(() => setSources([])); }, []);
 
-  const table = useSorted(settings ? Object.entries(settings).filter(([k]) => !playbackKeys.has(k)) : null, { key: ([k]) => labels[k] ?? k, value: ([, v]) => v });
+  const table = useSorted(settings ? Object.entries(settings).filter(([k]) => !playbackKeys.has(k) && k !== ACCOUNTS) : null, { key: ([k]) => labels[k] ?? k, value: ([, v]) => v });
   const put = (key: string, value: string | null) => save("Saved · applies on the TV", async () => EditResult.parse(
     await send<unknown>(`/api/devices/${encodeURIComponent(device.id)}/settings`, { method: "PUT", body: JSON.stringify({ key, value }) }),
   ), load);
@@ -73,6 +82,29 @@ export default function DeviceSettings({ device, onClose }: { device: Device; on
             </label>
           ))}
         </div>
+        {sources.length > 0 && <>
+          <h3>Provider accounts</h3>
+          <p className="detail">The login this TV plays from. If another TV is using it when this one starts watching, it borrows a free one.</p>
+          <div className="settings">
+            {sources.map((s) => {
+              const chosen = parseAccounts(settings[ACCOUNTS]);
+              const choose = (id: string) => {
+                const next = { ...chosen };
+                if (id) next[s.id] = id; else delete next[s.id];
+                put(ACCOUNTS, Object.keys(next).length ? JSON.stringify(next) : null);
+              };
+              return (
+                <label key={s.id}>
+                  <span>{s.name}</span>
+                  <select value={chosen[s.id] ?? ""} onChange={(e) => choose(e.target.value)}>
+                    <option value="">{s.name}'s own ({s.username})</option>
+                    {s.accounts.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+                  </select>
+                </label>
+              );
+            })}
+          </div>
+        </>}
         <h3>Other</h3>
       </>}
       {settings && table.rows.length === 0 && <p className="detail">None synced yet.</p>}

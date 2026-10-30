@@ -25,6 +25,7 @@ import java.nio.file.Files
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /** The web admin's pages against a real companion with the Demo source (PLAN §4.3.18). */
@@ -462,5 +463,28 @@ class AdminTest {
         assertNotNull(syncStore.all().firstOrNull { it.type == SyncType.EPG_SOURCE && it.id == "epg:$id" && !it.deleted })
         client.send("DELETE", "/api/sources/$id")
         assertTrue(syncStore.all().filter { it.scope == SyncScope.HOUSEHOLD && it.type in setOf(SyncType.SOURCE, SyncType.EPG_SOURCE) }.all { it.deleted })
+    }
+
+    /** Provider accounts (PLAN §9.1): extra logins are sealed at rest, kept by a source edit, and keep their passwords. */
+    @Test fun sourceLoginsAreSealedAndKept() = testApplication {
+        application { signalModule(companion) }
+        companion.startCatalog()
+        client.send("POST", "/api/sources", """{"name":"Provider","kind":"XTREAM","url":"http://p.invalid","username":"me","password":"secret"}""")
+        val id = obj(client.send("GET", "/api/sources"))["sources"]!!.jsonArray.single().jsonObject.s("id")!!
+        client.send("PUT", "/api/sources/$id/accounts", """{"accounts":[{"name":"Bedroom","username":"two","password":"pw-two"}]}""")
+        assertTrue(syncStore.all().none { "pw-two" in it.fields }, "sealed at rest")
+        suspend fun logins() = obj(client.send("GET", "/api/sources"))["sources"]!!.jsonArray.single().jsonObject["accounts"]!!.jsonArray.map { it.jsonObject }
+        val login = logins().single()
+        assertEquals("Bedroom", login.s("name"))
+        assertEquals("two", login.s("username"))
+        assertNull(login["password"], "never sent to the browser")
+
+        // Editing the source keeps them; saving a login without a password keeps its own.
+        client.send("PUT", "/api/sources/$id", """{"name":"Renamed","kind":"XTREAM","url":"http://p.invalid","username":"me"}""")
+        client.send("PUT", "/api/sources/$id/accounts", """{"accounts":[{"id":"${login.s("id")}","name":"Den","username":"two"},{"name":"","username":"three","password":"pw-3"}]}""")
+        assertEquals(listOf("Den", "three"), logins().map { it.s("name") })
+        val source = companion.sync.liveItems().single { it.type == SyncType.SOURCE && it.id == id }.let { com.signal.sync.SyncFields.source(it.id, it.fields) }
+        assertEquals(listOf("pw-two", "pw-3"), source.accounts.map { it.password })
+        assertEquals(login.s("id"), source.accounts.first().id)
     }
 }

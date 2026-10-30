@@ -14,6 +14,7 @@ import com.signal.model.CredentialMasking
 import com.signal.model.LiveFormat
 import com.signal.model.ProviderStream
 import com.signal.model.Source
+import com.signal.model.SourceAccount
 import com.signal.model.SourceKind
 import com.signal.parse.JsonArrayObjects
 import com.signal.parse.M3uParser
@@ -88,6 +89,7 @@ class SourceRepository(
                 last_refreshed_at = existing?.last_refreshed_at ?: 0,
                 last_error = existing?.last_error,
                 created_at = existing?.created_at ?: Clock.System.now().toEpochMilliseconds(),
+                accounts_enc = SourceAccount.encode(source.accounts).let { if (it.isEmpty()) "" else secrets.encrypt(it) },
             ),
         )
     }
@@ -305,6 +307,25 @@ class SourceRepository(
         response.bodyAsText()
     }
 
+    /**
+     * An Xtream login's account as the provider reports it now, streams in use included (PLAN §9.1 →
+     * Provider accounts). Null when it doesn't answer within [timeoutMs]: a tune doesn't wait longer.
+     */
+    suspend fun accountInfo(source: Source, timeoutMs: Long = 3_000): XtreamParser.AccountInfo? = withContext(io) {
+        kotlinx.coroutines.withTimeoutOrNull(timeoutMs) {
+            runCatching {
+                // No action: player_api.php then answers with the login's user_info.
+                val response = http.get(source.url.trimEnd('/') + "/player_api.php") {
+                    parameter("username", source.username)
+                    parameter("password", source.password)
+                    source.headers.forEach { (k, v) -> header(k, v) }
+                }
+                response.ensureOk(source)
+                XtreamParser.accountInfo(response.bodyAsText())
+            }.getOrNull()
+        }
+    }
+
     private fun HttpResponse.ensureOk(source: Source) {
         if (!status.isSuccess()) {
             // The URL is never logged whole: it can embed credentials (PLAN Â§1).
@@ -329,6 +350,7 @@ class SourceRepository(
         providerConnections = provider_connections?.toInt(),
         expiresAt = expires_at,
         hiddenHere = hiddenHere,
+        accounts = if (accounts_enc.isEmpty()) emptyList() else SourceAccount.parse(runCatching { secrets.decrypt(accounts_enc) }.getOrNull()),
     )
 
     private fun VodCategory.toRow() = com.signal.db.user.Vod_category(sourceId, kind.name, categoryId, CharacterCleanup.clean(name, true).ifEmpty { name }, position.toLong())

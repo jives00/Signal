@@ -357,9 +357,16 @@ class GuideTest {
 }
 
 class UserDatabaseMigrationTest {
-    /** What 10.sqm adds: older schemas don't have it. */
-    private fun dropVersion11(d: JdbcSqliteDriver) {
+    /** What 11.sqm adds: older schemas don't have it. The view over source goes while the column does. */
+    private fun dropVersion12(d: JdbcSqliteDriver, keepView: Boolean = false) {
         d.execute(null, "DROP VIEW active_source", 0)
+        d.execute(null, "ALTER TABLE source DROP COLUMN accounts_enc", 0)
+        if (keepView) d.execute(null, "CREATE VIEW active_source AS SELECT * FROM source WHERE enabled = 1 AND id NOT IN (SELECT source_id FROM source_hidden)", 0)
+    }
+
+    /** What 10.sqm adds, and everything after it: older schemas don't have it. */
+    private fun dropVersion11(d: JdbcSqliteDriver) {
+        dropVersion12(d)
         d.execute(null, "DROP TABLE source_hidden", 0)
     }
 
@@ -447,6 +454,23 @@ class UserDatabaseMigrationTest {
             assertEquals(listOf("s"), db.sourceQueries.active().executeAsList().map { it.id })
             db.sourceQueries.hideHere("s")
             assertTrue(db.sourceQueries.active().executeAsList().isEmpty())
+        }
+    }
+
+    /** A 1.1.x user.db (schema version 11) gains the sources' extra logins, with none, and keeps its sources. */
+    @Test fun version11GainsSourceAccounts() {
+        val file = java.io.File.createTempFile("user-v11", ".db").apply { delete(); deleteOnExit() }
+        val url = "jdbc:sqlite:${file.absolutePath}"
+        JdbcSqliteDriver(url).use { d ->
+            UserDatabase.Schema.create(d)
+            dropVersion12(d, keepView = true)
+            d.execute(null, "INSERT INTO source(id, name, kind, url, created_at) VALUES ('s', 'Kept', 'XTREAM', 'http://x', 1)", 0)
+            d.execute(null, "PRAGMA user_version = 11", 0)
+        }
+        JdbcSqliteDriver(url, java.util.Properties(), UserDatabase.Schema).use { d ->
+            val db = UserDatabase(d)
+            assertEquals("", db.sourceQueries.byId("s").executeAsOne().accounts_enc)
+            assertEquals(listOf("s"), db.sourceQueries.active().executeAsList().map { it.id })
         }
     }
 

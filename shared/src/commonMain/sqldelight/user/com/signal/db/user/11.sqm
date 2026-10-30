@@ -1,0 +1,4 @@
+-- Provider accounts (PLAN §9.1 → Provider accounts): more logins to the same Xtream server, as one
+-- SecretBox-encrypted JSON list beside the source's own login; empty is none. Each device picks the
+-- one it plays from, so devices sharing a profile don't take the same connection.
+ALTER TABLE source ADD COLUMN accounts_enc TEXT NOT NULL DEFAULT '';
