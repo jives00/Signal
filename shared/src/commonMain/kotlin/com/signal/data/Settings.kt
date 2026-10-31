@@ -13,6 +13,9 @@ import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.map
 
 /** Who shares a setting (PLAN §9.1). */
@@ -124,6 +127,15 @@ class Settings(private val db: UserDatabase, private val io: CoroutineDispatcher
 
     private fun cacheKey(scope: String, owner: String, key: String) = "$scope/$owner/$key"
 
+    private val _profile = MutableStateFlow(profileId)
+
+    /**
+     * The device's profile, live. Anything built once and kept (AppController's group list, reminders)
+     * must follow this: a move to another profile happens while the app runs, at pairing for one, and
+     * a flow that captured the old ID keeps reading rows the move just dropped.
+     */
+    val profile: StateFlow<String> = _profile.asStateFlow()
+
     fun raw(key: Key): String? = synchronized(this) { cache[cacheKey(key.scope.id, owner(key), key.id)] }
 
     fun put(key: Key, value: String?) {
@@ -133,6 +145,7 @@ class Settings(private val db: UserDatabase, private val io: CoroutineDispatcher
         }
         writes.trySend { if (value == null) db.settingQueries.remove(key.scope.id, owner(key), key.id) else db.settingQueries.put(key.scope.id, owner(key), key.id, value) }
         if (key == Key.HIDDEN_SOURCES || key == Key.PROFILE_ID) writes.trySend { mirrorHiddenSources() }
+        if (key == Key.PROFILE_ID) _profile.value = profileId
     }
 
     /** The sources this device's profile leaves out. */

@@ -11,6 +11,7 @@ import com.signal.model.Program
 import com.signal.model.Reminder
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
 import kotlin.time.Clock
@@ -27,7 +28,9 @@ class ReminderRepository(
 ) {
     private val profile get() = settings.profileId
 
-    fun reminders(): Flow<List<Reminder>> = db.reminderQueries.remindersFor(profile).asFlow().mapToList(io).map { rows -> rows.map { it.toModel() } }
+    /** Follows a move to another profile: AppController keeps this for the life of the process. */
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    fun reminders(): Flow<List<Reminder>> = settings.profile.flatMapLatest { p -> db.reminderQueries.remindersFor(p).asFlow().mapToList(io) }.map { rows -> rows.map { it.toModel() } }
 
     suspend fun all(): List<Reminder> = withContext(io) { db.reminderQueries.remindersFor(profile).executeAsList().map { it.toModel() } }
 

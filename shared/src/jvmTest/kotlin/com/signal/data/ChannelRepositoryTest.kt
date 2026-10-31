@@ -14,6 +14,7 @@ import io.ktor.client.engine.mock.respond
 import io.ktor.http.HttpStatusCode
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.runBlocking
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -71,6 +72,32 @@ class ChannelRepositoryTest {
         settings.put(Settings.Key.PROFILE_ID, "kids")
         kotlinx.coroutines.withTimeout(5_000) { channels.groups().first { providerGroups(it) == listOf("s1", "s2") } }
         assertFalse(sources.byId("s2")!!.hiddenHere)
+    }
+
+    /**
+     * A device moved to another profile while running (a new TV paired, then assigned to Parents,
+     * 2026-10-31): the group list AppController keeps must show that profile's hidden and renamed
+     * groups, not go on reading the old profile's.
+     */
+    @Test
+    fun aKeptGroupListFollowsAMoveToAnotherProfile(): Unit = runBlocking {
+        setup()
+        val scope = kotlinx.coroutines.CoroutineScope(Dispatchers.IO)
+        try {
+            val kept = channels.groups().stateIn(scope, kotlinx.coroutines.flow.SharingStarted.Eagerly, emptyList())
+            fun titles() = kept.value.filter { it.group is ChannelGroup.Provider }.map { it.group.title }
+            kotlinx.coroutines.withTimeout(5_000) { kept.first { it.size > 1 } }
+            assertEquals(listOf("Sports", "News"), titles())
+
+            // What the sync writes for the new profile before it switches.
+            db.syncQueries.upsertGroupOverride(com.signal.db.user.Group_override("parents", "s1", "News", 1, null, null, null))
+            db.syncQueries.upsertGroupOverride(com.signal.db.user.Group_override("parents", "s1", "Sports", 0, "Games", null, null))
+            settings.put(Settings.Key.PROFILE_ID, "parents")
+
+            kotlinx.coroutines.withTimeout(5_000) { kept.first { s -> s.filter { it.group is ChannelGroup.Provider }.map { it.group.title } == listOf("Games") } }
+        } finally {
+            scope.coroutineContext[kotlinx.coroutines.Job]?.cancel()
+        }
     }
 
     @Test

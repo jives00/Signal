@@ -14,6 +14,7 @@ import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.merge
 import kotlinx.coroutines.withContext
@@ -71,7 +72,11 @@ class ChannelRepository(
         db.listsQueries.setPlaylistSort(sort?.name, id)
     }
 
-    fun groups(includeHidden: Boolean = false): Flow<List<GroupEntry>> = combine(
+    /** Rebuilt on a move to another profile: AppController keeps this for the life of the process. */
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    fun groups(includeHidden: Boolean = false): Flow<List<GroupEntry>> = settings.profile.flatMapLatest { groupsFor(includeHidden) }
+
+    private fun groupsFor(includeHidden: Boolean): Flow<List<GroupEntry>> = combine(
         db.streamQueries.groups().asFlow().mapToList(io),
         db.listsQueries.groupOverrides(profile).asFlow().mapToList(io),
         db.listsQueries.playlists(profile).asFlow().mapToList(io),
