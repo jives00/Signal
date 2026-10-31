@@ -461,6 +461,51 @@ class SyncTest {
         assertEquals(emptyList(), a.favorites())
     }
 
+    /**
+     * A full sync of nothing new changes nothing. Items the web admin wrote carry only the fields it
+     * set, and a TV's copy has every column, so they never compared equal: the new Parents TV
+     * rewrote about 1,947 unchanged items on each of four full syncs (2026-10-31).
+     */
+    @Test fun aRepeatFullSyncRewritesNothing() = testApplication {
+        application { signalModule(companion) }
+        val a = paired(Tv("a"))
+        a.addSource("src-1", "pw")
+        val uc = a.addChannel("src-1:x:1")
+        a.db.listsQueries.addFavorite("main", uc, "a0")
+        a.settings.put(Settings.Key.CLOCK_24H, "true")
+        a.sync()
+        // Web-admin-style edits: only the fields they set.
+        a.transport.push(PushRequest(BUNDLE_SCHEMA, listOf(
+            SyncItem(SyncType.GROUP_OVERRIDE, "src-1|News", SyncScope.PROFILE, "main", JsonObject(mapOf("source_id" to JsonPrimitive("src-1"), "group_name" to JsonPrimitive("News"), "hidden" to JsonPrimitive(true)))),
+            SyncItem(SyncType.GROUP_OVERRIDE, "src-1|Sports", SyncScope.PROFILE, "main", JsonObject(mapOf("source_id" to JsonPrimitive("src-1"), "group_name" to JsonPrimitive("Sports"), "custom_name" to JsonPrimitive("Games")))),
+            SyncItem(SyncType.CHANNEL_PROFILE, uc, SyncScope.PROFILE, "main", JsonObject(mapOf("custom_name" to JsonPrimitive("Local")))),
+        )))
+
+        val b = paired(Tv("b"))
+        assertTrue(assertNotNull(b.engine.sync(b.transport, full = true)).pulled > 0)
+        val again = assertNotNull(b.engine.sync(b.transport, full = true))
+        assertEquals(0, again.pulled, "a second full sync with nothing new")
+        assertEquals("Games", b.db.listsQueries.groupOverrides("main").executeAsList().first { it.group_name == "Sports" }.custom_name)
+    }
+
+    /** Syncs started together at launch or pairing: only the first is full, the rest queue as ordinary ones. */
+    @Test fun syncsStartedTogetherRunOneFull() = testApplication {
+        application { signalModule(companion) }
+        val a = paired(Tv("a"))
+        a.settings.put(Settings.Key.CLOCK_24H, "true")
+        a.sync()
+        val sinces = java.util.concurrent.CopyOnWriteArrayList<Long>()
+        val counting = object : SyncTransport {
+            override suspend fun push(request: PushRequest) = a.transport.push(request)
+            override suspend fun pull(since: Long) = a.transport.pull(since).also { sinces += since }
+        }
+        kotlinx.coroutines.coroutineScope {
+            repeat(3) { launch { assertNotNull(a.engine.sync(counting, firstFull = true)) } }
+        }
+        assertEquals(3, sinces.size)
+        assertEquals(1, sinces.count { it == 0L }, "pulls asked from: $sinces")
+    }
+
     // On a real Netty server: Ktor's in-memory test client only hands over a response body once it ends.
     @Test fun theEventStreamSaysHelloThenAnnouncesChanges(): Unit = runBlocking {
         val server = embeddedServer(Netty, port = 0) { signalModule(companion) }.start()

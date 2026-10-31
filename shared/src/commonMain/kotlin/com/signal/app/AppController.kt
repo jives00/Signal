@@ -228,8 +228,6 @@ class AppController(val platform: Platform, val log: Log) {
     /** True while the NAS's event stream is connected; Settings shows it. */
     val eventsConnected = kotlinx.coroutines.flow.MutableStateFlow(false)
 
-    private var fullSyncDone = false
-
     private val reminderCheck = kotlinx.coroutines.sync.Mutex()
 
     init {
@@ -388,8 +386,7 @@ class AppController(val platform: Platform, val log: Log) {
     suspend fun syncNow(): Boolean {
         if (!nas.isPaired) return false
         // The first sync after launch is a full one (see SyncEngine.sync).
-        val report = sync.sync(nas, full = !fullSyncDone) ?: return false
-        fullSyncDone = true
+        val report = sync.sync(nas, firstFull = true) ?: return false
         for (id in report.sourcesToRefresh) {
             val source = sources.byId(id) ?: continue
             // A source this profile leaves out isn't loaded here; showing it again refreshes it.

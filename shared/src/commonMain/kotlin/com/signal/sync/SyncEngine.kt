@@ -13,6 +13,7 @@ import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlin.time.Clock
 
 /** How the engine reaches the companion: NasConnection on the device, a fake in tests. Null means unreachable. */
@@ -37,6 +38,9 @@ class SyncEngine(
 ) {
     private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
     private val lock = Mutex()
+
+    // Only touched under [lock].
+    private var fullDone = false
 
     data class State(
         val lastSyncAt: Long? = null,
@@ -78,12 +82,16 @@ class SyncEngine(
      */
     /**
      * [full] asks for every item instead of the changes, which also removes anything agreed before that
-     * the companion no longer has: the app does one at launch, so a missed change can never stick.
+     * the companion no longer has. [firstFull] makes this one full unless one already succeeded: the app
+     * asks that at launch, so a missed change can never stick. It's decided here, under the lock: syncs
+     * started together at pairing all queued as full ones when the app decided before waiting (2026-10-31).
      */
-    suspend fun sync(transport: SyncTransport, full: Boolean = false): Report? = lock.withLock {
+    suspend fun sync(transport: SyncTransport, full: Boolean = false, firstFull: Boolean = false): Report? = lock.withLock {
         _state.value = _state.value.copy(running = true)
+        val asFull = full || (firstFull && !fullDone)
         try {
-            runSync(transport, full).also { report ->
+            runSync(transport, asFull).also { report ->
+                if (report != null && asFull) fullDone = true
                 _state.value = _state.value.copy(error = if (report == null) "Couldn't reach the NAS" else null)
             }
         } catch (e: Exception) {
@@ -179,7 +187,7 @@ class SyncEngine(
                         if (agreed == null) value != JsonNull else value != (agreed.fields[name] ?: JsonNull)
                     },
                 )
-                if (mine?.fields == merged) {
+                if (mine != null && sameHere(mine.fields, merged)) {
                     putBase(key, item.fields)
                     continue
                 }
@@ -204,6 +212,18 @@ class SyncEngine(
             }
         }
         return Report(pushed, applied, refresh.toList(), sourcesRemoved, epgChanged, profileChanged)
+    }
+
+    /**
+     * Whether writing [incoming] would leave the row as [here] (every field this version stores) has
+     * it. The NAS's copy holds only the fields someone set (a web admin edit sends one), so a field
+     * it lacks is the column's default once written: equal when ours is empty. One it has that we
+     * don't store came from a newer version and can't change anything here. Comparing the objects
+     * whole made every full sync rewrite those items (about 1,947 on a new TV, 2026-10-31).
+     */
+    private fun sameHere(here: JsonObject, incoming: JsonObject): Boolean = here.all { (name, value) ->
+        val theirs = incoming[name]
+        if (theirs == null) value == JsonNull || value == JsonPrimitive(false) || value == JsonPrimitive("") else theirs == value
     }
 
     private fun needsRefresh(before: JsonObject?, after: JsonObject): Boolean {
