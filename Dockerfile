@@ -11,12 +11,13 @@ COPY server/build/install/server /app/server
 COPY web/dist /app/web
 
 ENV PORT=3013 \
+    VIEWER_PORT=3017 \
     DATA_DIR=/data \
     WEB_DIR=/app/web \
     TZ=America/Chicago \
     JAVA_OPTS="-XX:MaxRAMPercentage=50 -Djava.awt.headless=true"
 
 VOLUME /data
-EXPOSE 3013
+EXPOSE 3013 3017
 HEALTHCHECK --interval=60s --timeout=5s --start-period=60s CMD wget -qO- http://127.0.0.1:3013/health > /dev/null || exit 1
 CMD ["/app/server/bin/server"]

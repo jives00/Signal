@@ -69,10 +69,7 @@ class ProviderAccounts(
         if (held?.first == sourceId) held = null
     }
 
-    private fun chosenIds(): Map<String, String> = runCatching {
-        Json.parseToJsonElement(settings.raw(Settings.Key.SOURCE_ACCOUNTS) ?: return emptyMap()).jsonObject
-            .mapNotNull { (k, v) -> (v as? JsonPrimitive)?.contentOrNull?.let { k to it } }.toMap()
-    }.getOrDefault(emptyMap())
+    private fun chosenIds(): Map<String, String> = parseChosen(settings.raw(Settings.Key.SOURCE_ACCOUNTS))
 
     /** [source] with the login to play from now. A source with one login comes back as it is. */
     suspend fun pick(source: Source): Source = source.withLogin(pickLogin(source))
@@ -112,17 +109,25 @@ class ProviderAccounts(
         logins.map { async { it to free(source, it) } }.awaitAll().firstOrNull { it.second == true }?.first
     }
 
-    /** True or false when the provider says; null when it can't tell (no answer, no counts). */
-    private suspend fun free(source: Source, login: SourceAccount): Boolean? {
-        val info = check(source.withLogin(login)) ?: return null
-        if (!info.authenticated) return false
-        val max = info.maxConnections?.takeIf { it > 0 } ?: return null
-        val active = info.activeConnections ?: return null
-        return active < max
-    }
+    private suspend fun free(source: Source, login: SourceAccount): Boolean? = isFree(check(source.withLogin(login)))
 
     companion object {
         /** How long after a stop this device still counts a login as its own. */
         const val HOLD_MS = 60_000L
+
+        /** The device setting source_accounts: source ID → account ID. */
+        fun parseChosen(raw: String?): Map<String, String> = runCatching {
+            Json.parseToJsonElement(raw ?: return emptyMap()).jsonObject
+                .mapNotNull { (k, v) -> (v as? JsonPrimitive)?.contentOrNull?.let { k to it } }.toMap()
+        }.getOrDefault(emptyMap())
+
+        /** True or false when the provider says; null when it can't tell (no answer, no counts). */
+        fun isFree(info: XtreamParser.AccountInfo?): Boolean? {
+            info ?: return null
+            if (!info.authenticated) return false
+            val max = info.maxConnections?.takeIf { it > 0 } ?: return null
+            val active = info.activeConnections ?: return null
+            return active < max
+        }
     }
 }

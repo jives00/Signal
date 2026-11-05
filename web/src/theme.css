@@ -297,6 +297,10 @@ label.button.file input { position: absolute; inset: 0; opacity: 0; cursor: poin
 .watch-overlay button { pointer-events: auto; }
 .watch-info { padding: 16px 0; display: flex; flex-direction: column; gap: 8px; }
 .watch-info .section-title { margin: 0; }
+@media (hover: none) { .watch-keys { display: none; } }
+.pair { max-width: 420px; margin: 0 auto; padding: 40px 20px; display: flex; flex-direction: column; gap: 16px; }
+.pair .code { font-size: 40px; font-weight: 800; letter-spacing: 0.1em; font-variant-numeric: tabular-nums; }
+.pair input { width: 100%; }
 .watch-progress { height: 4px; background: var(--neutral-300); }
 .watch-progress div { height: 100%; background: var(--secondary-text); }
 @media (max-width: 760px) {

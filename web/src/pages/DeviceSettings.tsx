@@ -4,6 +4,7 @@ import { send, type Device } from "../api";
 import { EditResult, type SourceView } from "../schema";
 import { useToast } from "../context";
 import { useSorted } from "../sort";
+import { WEB_VIEWER } from "../viewer/model";
 
 const labels: Record<string, string> = {
   last_played_channel: "Last played channel",
@@ -61,18 +62,20 @@ export default function DeviceSettings({ device, onClose }: { device: Device; on
     await send<unknown>(`/api/devices/${encodeURIComponent(device.id)}/settings`, { method: "PUT", body: JSON.stringify({ key, value: null }) }),
   ), load);
 
+  const viewer = device.model === WEB_VIEWER;
+
   return (
     <div className="card form section">
       <div className="row heading">
         <h2>{device.name}: device settings</h2>
         <span className="spacer" />
         {/* The last logs the TV sent: Settings → About & updates → Send logs on the TV. */}
-        <a className="link" href={`/api/devices/${encodeURIComponent(device.id)}/logs`} title="The last logs this TV sent from Settings → About & updates → Send logs">Logs</a>
+        {!viewer && <a className="link" href={`/api/devices/${encodeURIComponent(device.id)}/logs`} title="The last logs this TV sent from Settings → About & updates → Send logs">Logs</a>}
         <button className="link" onClick={onClose}>Close</button>
       </div>
       {settings && <>
-        <h3>Playback</h3>
-        <div className="settings">
+        {!viewer && <h3>Playback</h3>}
+        {!viewer && <div className="settings">
           {playback.map((p) => (
             <label key={p.key}>
               <span>{p.label}</span>
@@ -81,10 +84,10 @@ export default function DeviceSettings({ device, onClose }: { device: Device; on
               </select>
             </label>
           ))}
-        </div>
+        </div>}
         {sources.length > 0 && <>
           <h3>Provider accounts</h3>
-          <p className="detail">The login this TV plays from. If another TV is using it when this one starts watching, it borrows a free one.</p>
+          <p className="detail">The login this device plays from. If something else is using it when this one starts watching, it borrows a free one.</p>
           <div className="settings">
             {sources.map((s) => {
               const chosen = parseAccounts(settings[ACCOUNTS]);
@@ -105,10 +108,10 @@ export default function DeviceSettings({ device, onClose }: { device: Device; on
             })}
           </div>
         </>}
-        <h3>Other</h3>
+        {!viewer && <h3>Other</h3>}
       </>}
-      {settings && table.rows.length === 0 && <p className="detail">None synced yet.</p>}
-      {settings && table.rows.length > 0 && (
+      {settings && !viewer && table.rows.length === 0 && <p className="detail">None synced yet.</p>}
+      {settings && !viewer && table.rows.length > 0 && (
         <table className="table">
           <thead><tr>{table.header("key", "Setting")}{table.header("value", "Value")}<th /></tr></thead>
           <tbody>

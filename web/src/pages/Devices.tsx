@@ -5,6 +5,7 @@ import DeviceSettings from "./DeviceSettings";
 import Updates from "./Updates";
 import VoiceSetup from "./VoiceSetup";
 import { useSorted } from "../sort";
+import { WEB_VIEWER } from "../viewer/model";
 import {
   ago, approveDevice, cleanCode, createProfile, deleteProfile, forgetDevice, getDevices, getSync, renameDevice, renameProfile,
   setDeviceProfile, type Device, type ProfileSummary,
@@ -121,7 +122,7 @@ export default function Devices() {
 
       <form className="card approve" onSubmit={approve}>
         <h2>Approve device</h2>
-        <p className="detail">On the TV, choose Connect to NAS (or Settings → NAS &amp; sync → Pair), then enter the code it shows.</p>
+        <p className="detail">On the TV, choose Connect to NAS (or Settings → NAS &amp; sync → Pair), then enter the code it shows. A phone or computer gets a code from the viewer, on port 3017. Pick the profile it should show.</p>
         <div className="row">
           <input
             className="code"
@@ -176,7 +177,7 @@ export default function Devices() {
                 <td>{d.model}</td>
                 <td>{d.appVersion}</td>
                 <td>{ago(d.lastSeenAt)}</td>
-                <td>{d.lastSyncAt ? ago(d.lastSyncAt) : "Never"}</td>
+                <td>{d.model === WEB_VIEWER ? "—" : d.lastSyncAt ? ago(d.lastSyncAt) : "Never"}</td>
                 <td className="actions">
                   <button onClick={() => setSettingsFor(settingsFor?.id === d.id ? null : d)}>Settings</button>
                   <button onClick={() => giveOwn(d)}>Own profile</button>

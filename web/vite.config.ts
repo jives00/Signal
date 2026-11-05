@@ -5,6 +5,7 @@ import react from "@vitejs/plugin-react";
 // SIGNAL_API points it elsewhere, such as the NAS (SIGNAL_API=http://synology:3013): real data, so edits are real.
 declare const process: { env: Record<string, string | undefined> }; // no @types/node here
 const api = process.env.SIGNAL_API ?? "http://localhost:3013";
+const viewerApi = process.env.SIGNAL_VIEWER_API ?? "http://localhost:3017";
 
 export default defineConfig({
   plugins: [react()],
@@ -14,7 +15,13 @@ export default defineConfig({
       "/api": api,
       "/health": api,
       "/images": api,
+      "/viewer/": viewerApi,
+      "/device/": viewerApi,
     },
+  },
+  build: {
+    // Two pages: the web admin, and the viewer the companion serves on its own port.
+    rollupOptions: { input: { main: "index.html", viewer: "viewer.html" } },
   },
   test: {
     environment: "node",

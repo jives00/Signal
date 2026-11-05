@@ -53,6 +53,9 @@ class Catalog(dir: File, http: HttpClient, cipher: SecretCipher?) {
     private val lock = Mutex()
     private val db: UserDatabase
     private val repo: SourceRepository
+
+    /** What the provider says about one login now, streams in use included (PLAN §9.1 → Provider accounts). */
+    suspend fun accountInfo(source: Source) = repo.accountInfo(source)
     private val vod: com.signal.data.VodRepository
 
     init {

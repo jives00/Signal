@@ -9,6 +9,7 @@ import io.ktor.http.HttpStatusCode
 import io.ktor.server.response.respond
 import io.ktor.server.response.respondText
 import io.ktor.server.routing.Route
+import io.ktor.server.routing.RoutingCall
 import io.ktor.server.routing.get
 import kotlinx.serialization.Serializable
 import org.slf4j.LoggerFactory
@@ -27,14 +28,26 @@ private val log = LoggerFactory.getLogger("Watch")
 fun Route.watchRoutes(companion: Companion) {
     get("/watch/{streamId}") {
         val profile = call.request.queryParameters["profile"]?.takeIf { it.isNotBlank() } ?: SyncService.MAIN
-        val view = AdminView(companion.sync.liveItems(), profile)
-        val stream = companion.catalog.stream(call.parameters["streamId"]!!)
-        val source = stream?.let { s -> view.sources.firstOrNull { it.first.id == s.sourceId }?.first }
-        if (stream == null || source == null) return@get call.respondText("No such channel", status = HttpStatusCode.NotFound)
-        if (!source.enabled || !view.sourceShown(source.id)) return@get call.respondText("That channel's source is off for this profile.", status = HttpStatusCode.Conflict)
+        val (source, stream) = call.watchTarget(companion, profile) ?: return@get
         log.info("Watch: ${stream.rawName} (${source.name})")
         call.respond(watchStream(source, stream))
     }
+}
+
+/** The channel in the path with its source, or null after refusing: unknown, or its source is off for [profile]. */
+internal suspend fun RoutingCall.watchTarget(companion: Companion, profile: String): Pair<Source, ProviderStream>? {
+    val view = AdminView(companion.sync.liveItems(), profile)
+    val stream = companion.catalog.stream(parameters["streamId"]!!)
+    val source = stream?.let { s -> view.sources.firstOrNull { it.first.id == s.sourceId }?.first }
+    if (stream == null || source == null) {
+        respondText("No such channel", status = HttpStatusCode.NotFound)
+        return null
+    }
+    if (!source.enabled || !view.sourceShown(source.id)) {
+        respondText("That channel's source is off for this profile.", status = HttpStatusCode.Conflict)
+        return null
+    }
+    return source to stream
 }
 
 /** Xtream serves every live channel as HLS too, whatever the source plays on the TV; browsers only play HLS. */

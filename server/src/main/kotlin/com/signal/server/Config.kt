@@ -12,6 +12,8 @@ data class Config(
     val dataDir: String,
     /** The built web admin (web/dist); served as static files. */
     val webDir: String,
+    /** The viewer's own port (web-player.md): the watching page and its API, none of the web admin. */
+    val viewerPort: Int = 3017,
 ) {
     data class DbConfig(val host: String, val port: Int, val name: String, val user: String, val password: String) {
         // The database name is never quoted in SQL anywhere, so SIGNAL being a reserved word doesn't matter.
@@ -37,6 +39,7 @@ data class Config(
                 secretKey = env["SIGNAL_SECRET_KEY"]?.takeIf { it.isNotBlank() },
                 dataDir = env["DATA_DIR"] ?: "data",
                 webDir = env["WEB_DIR"] ?: "web",
+                viewerPort = env["VIEWER_PORT"]?.toIntOrNull() ?: 3017,
             )
         }
     }

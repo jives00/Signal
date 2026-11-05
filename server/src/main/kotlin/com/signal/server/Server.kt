@@ -203,9 +203,19 @@ fun Application.signalModule(companion: Companion) {
             call.respond(if (ok) HttpStatusCode.OK else HttpStatusCode.ServiceUnavailable, Health(if (ok) "ok" else "degraded", companion.version, db))
         }
 
+        // The viewer's port serves only the viewer (web-player.md), so Tailscale can let someone reach
+        // this port and not the web admin.
+        onViewerPort(companion.config.viewerPort, viewer = true) {
+            trusted {
+                deviceRoutes(companion)
+                viewerRoutes(companion)
+                webViewer(File(companion.config.webDir))
+            }
+        }
+
         // Everything else is for the home network and Tailscale only (PLAN §5.7). The web admin's
         // API stops there; device endpoints also need the device's own key (Pairing.kt).
-        trusted {
+        onViewerPort(companion.config.viewerPort, viewer = false) { trusted {
             deviceRoutes(companion)
             guideDeviceRoutes(companion)
             syncDeviceRoutes(companion)
@@ -234,8 +244,19 @@ fun Application.signalModule(companion: Companion) {
                 watchRoutes(companion)
             }
             webAdmin(File(companion.config.webDir))
-        }
+        } }
     }
+}
+
+/** A transparent node that matches requests on the viewer's port, or everything else when [viewer] is false. */
+private fun Route.onViewerPort(port: Int, viewer: Boolean, build: Route.() -> Unit): Route {
+    val node = createChild(object : RouteSelector() {
+        override suspend fun evaluate(context: RoutingResolveContext, segmentIndex: Int) =
+            if ((context.call.request.local.localPort == port) == viewer) RouteSelectorEvaluation.Transparent else RouteSelectorEvaluation.FailedPath
+        override fun toString() = "(viewer port: $viewer)"
+    })
+    node.build()
+    return node
 }
 
 /** Routes inside are network-trust only. A transparent node, like Ktor's authenticate { }: it adds no path. */
@@ -254,6 +275,22 @@ val TrustedOnly = createRouteScopedPlugin("TrustedOnly") {
     onCall { call ->
         if (!NetworkTrust.isTrusted(call.request.origin.remoteAddress, call.request.headers.names())) {
             call.respondText("Signal's admin is only available on the home network or Tailscale.", ContentType.Text.Plain, HttpStatusCode.Forbidden)
+        }
+    }
+}
+
+/** The viewer's page and what it loads. Nothing else in the web directory is served on its port. */
+private fun Route.webViewer(dir: File) {
+    get("{path...}") {
+        val requested = call.parameters.getAll("path").orEmpty().joinToString("/")
+        val root = dir.canonicalFile
+        val file = File(root, requested).canonicalFile
+        val page = File(root, "viewer.html")
+        when {
+            file.path.startsWith(root.path + File.separator) && file.isFile && (requested.startsWith("assets/") || requested.startsWith("fonts/")) -> call.respondFile(file)
+            requested.startsWith("viewer/") || requested.startsWith("device/") -> call.respondText("Not found", status = HttpStatusCode.NotFound)
+            page.isFile -> call.respondFile(page)
+            else -> call.respondText("The viewer isn't built. Run pnpm build in web/.", status = HttpStatusCode.NotFound)
         }
     }
 }

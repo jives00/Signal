@@ -7,6 +7,8 @@ services:
     container_name: signal
     ports:
       - "3013:3013"
+      # The viewer (web-player.md): the watching page only, so Tailscale can allow it without the admin.
+      - "3017:3017"
     env_file:
       - .env
     environment:

@@ -189,7 +189,7 @@ private suspend fun RoutingCall.edit(block: suspend () -> EditResult) {
     }
 }
 
-private suspend fun RoutingCall.answer(block: suspend () -> Any) {
+internal suspend fun RoutingCall.answer(block: suspend () -> Any) {
     try {
         when (val r = block()) {
             is HttpStatusCode -> respond(r)
@@ -203,6 +203,15 @@ private suspend fun RoutingCall.answer(block: suspend () -> Any) {
 private fun RoutingCall.profile(): String = request.queryParameters["profile"]?.takeIf { it.isNotBlank() } ?: SyncService.MAIN
 
 private fun targets(profiles: List<String>) = profiles.ifEmpty { listOf(SyncService.MAIN) }
+
+internal fun listsView(channels: AdminChannels, profile: String, now: Long): ListsView {
+    val view = channels.view(profile)
+    return ListsView(
+        favorites = channels.favoriteRows(view, now),
+        playlists = view.playlists.map { p -> PlaylistView(p.id, p.name, channels.playlistRows(view, p, now), p.sort?.name) },
+        favoritesSort = view.favoritesSort?.name,
+    )
+}
 
 /** The web admin's pages (PLAN §4.3.18). Reads take ?profile=; edits answer with an EditResult for Undo. */
 fun Route.adminPageRoutes(companion: Companion) {
@@ -284,14 +293,7 @@ fun Route.adminPageRoutes(companion: Companion) {
 
     // ---- Favorites & playlists ----
     get("/lists") {
-        call.answer {
-            val view = channels.view(call.profile())
-            ListsView(
-                favorites = channels.favoriteRows(view, now()),
-                playlists = view.playlists.map { p -> PlaylistView(p.id, p.name, channels.playlistRows(view, p, now()), p.sort?.name) },
-                favoritesSort = view.favoritesSort?.name,
-            )
-        }
+        call.answer { listsView(channels, call.profile(), now()) }
     }
     post("/favorites/{uc}/move") {
         val m = call.receive<MoveRequest>()
@@ -673,7 +675,7 @@ internal suspend fun vodCategoriesView(companion: Companion, view: AdminView): V
 }
 
 /** Provider groups in the order the profile shows them (PLAN §4.3.2 → Groups), hidden ones included. */
-private fun groupsView(companion: Companion, view: AdminView): GroupsView {
+internal fun groupsView(companion: Companion, view: AdminView): GroupsView {
     data class G(val sourceId: String, val name: String, val count: Int, val first: Int)
     val groups = companion.catalog.streams.filter { view.sourceShown(it.sourceId) }
         .groupBy { it.sourceId to it.groupName }

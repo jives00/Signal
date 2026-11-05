@@ -1,5 +1,6 @@
 package com.signal.server
 
+import io.ktor.server.engine.connector
 import io.ktor.server.engine.embeddedServer
 import io.ktor.server.netty.Netty
 import org.slf4j.LoggerFactory
@@ -19,8 +20,14 @@ fun main() {
     config.db?.let { db -> connectInBackground(companion, db) }
     companion.startCatalog()
     companion.guideJob.start()
-    log.info("Signal companion ${companion.version} on port ${config.port}")
-    embeddedServer(Netty, port = config.port) { signalModule(companion) }.start(wait = true)
+    log.info("Signal companion ${companion.version} on port ${config.port}, viewer on ${config.viewerPort}")
+    embeddedServer(
+        Netty,
+        configure = {
+            connector { port = config.port }
+            connector { port = config.viewerPort }
+        },
+    ) { signalModule(companion) }.start(wait = true)
 }
 
 /** Connects and migrates, retrying every 30 seconds until it works (MySQL may start after us). */
