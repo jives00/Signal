@@ -6,6 +6,7 @@ import com.signal.nas.NasConnection
 import com.signal.nas.NasRecording
 import com.signal.nas.NasRecordings
 import com.signal.nas.RecordingAnswer
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -26,7 +27,7 @@ fun recordNote(answer: RecordingAnswer): String? = when (answer) {
  * look keeps what was known: a marker shouldn't vanish because the TV lost the NAS for a moment. A
  * request that can't reach the companion is never queued, since it would look set and not be.
  */
-class RecordingSchedule(private val nas: NasConnection) {
+class RecordingSchedule(private val nas: NasConnection, private val settleMs: Long = 1_500) {
     private val _list = MutableStateFlow<List<NasRecording>>(emptyList())
     val list: StateFlow<List<NasRecording>> = _list.asStateFlow()
 
@@ -47,9 +48,29 @@ class RecordingSchedule(private val nas: NasConnection) {
         return answer
     }
 
-    suspend fun cancel(r: NasRecording): Boolean = nas.deleteRecording(r.id).also { if (it) refresh() }
+    /**
+     * Takes it back. It may have started since this TV last looked: the companion won't delete one
+     * running, so stop it, and then leave no row behind if nothing was saved.
+     */
+    suspend fun cancel(r: NasRecording): Boolean {
+        if (nas.deleteRecording(r.id)) {
+            refresh()
+            return true
+        }
+        if (!nas.stopRecording(r.id)) return false
+        delay(settleMs)
+        val stopped = refresh()?.recordings?.firstOrNull { it.id == r.id }
+        if (stopped != null && !stopped.running && stopped.durationMs == 0L && nas.deleteRecording(r.id)) refresh()
+        return true
+    }
 
-    suspend fun stop(r: NasRecording): Boolean = nas.stopRecording(r.id).also { if (it) refresh() }
+    /** The companion takes a moment to finish, and until then the row still says it is recording. */
+    suspend fun stop(r: NasRecording): Boolean {
+        if (!nas.stopRecording(r.id)) return false
+        delay(settleMs)
+        refresh()
+        return true
+    }
 
     suspend fun keepLonger(r: NasRecording): Boolean = nas.extendRecording(r.id, RecordingText.KEEP_LONGER_MINUTES)
 

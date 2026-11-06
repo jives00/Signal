@@ -40,12 +40,15 @@ import com.signal.ui.components.requestFocusWhenReady
 import com.signal.ui.panel.PanelPage
 import com.signal.ui.components.labelOf
 import com.signal.ui.theme.SignalTheme
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 /**
  * Program details (PLAN §4.3.4): a side panel with everything the guide has about one program, in
  * full, and only the actions that apply.
  */
+private const val RECORDING_LOOK_MS = 15_000L
+
 internal fun programDetails(app: AppController, ch: Channel, p: Program, now: Long, watching: Boolean = false): PanelPage =
     PanelPage.Custom(p.title) { ProgramDetailsContent(app, ch, p, now, watching) }
 
@@ -64,6 +67,14 @@ private fun ProgramDetailsContent(app: AppController, ch: Channel, p: Program, n
     val recording = findRecording(set, ch.stream.id, p)
     // What came of the last press: the panel stays open, so it's said here.
     var recordNote by remember(p.id) { mutableStateOf<String?>(null) }
+    // A recording set for now starts within seconds, and Cancel becomes Stop.
+    val watchingId = recording?.id
+    LaunchedEffect(watchingId) {
+        while (watchingId != null) {
+            delay(RECORDING_LOOK_MS)
+            runCatching { app.recordings.refresh() }
+        }
+    }
     fun recordAction(action: suspend () -> String?) {
         recordNote = null
         app.scope.launch { recordNote = action() }

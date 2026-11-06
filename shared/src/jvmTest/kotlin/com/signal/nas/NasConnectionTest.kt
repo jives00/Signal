@@ -42,6 +42,33 @@ class NasConnectionTest {
         if (request.url.host == "192.168.0.105") throw java.io.IOException("unreachable")
     }
 
+    @Test fun cancelingOneAlreadyStartedStopsItAndLeavesNoEmptyRow() = runBlocking {
+        settings.put(Settings.Key.NAS_API_KEY, box.encrypt("key"))
+        var running = true
+        var deleted = false
+        val row = { state: String -> """{"id":"r","title":"Show","channelName":"C","startMs":1,"stopMs":2,"state":"$state"}""" }
+        val nas = nas { r ->
+            when {
+                r.url.encodedPath == NasPaths.HEALTH -> respond(health)
+                r.method == HttpMethod.Delete && running -> respond("Stop it first.", HttpStatusCode.Conflict)
+                r.method == HttpMethod.Delete -> { deleted = true; respond("", HttpStatusCode.NoContent) }
+                r.url.encodedPath.endsWith("/stop") -> { running = false; respond("", HttpStatusCode.NoContent) }
+                else -> respond("""{"recordings":[${if (deleted) "" else row("FAILED")}]}""")
+            }
+        }
+        val schedule = com.signal.app.RecordingSchedule(nas, settleMs = 0)
+        assertTrue(schedule.cancel(NasRecording("r", "Show", "C", 1, 2, "SCHEDULED")))
+        assertFalse(running)
+        assertTrue(deleted)
+        assertEquals(emptyList(), schedule.list.value)
+    }
+
+    @Test fun cancelingWhileOutOfReachSaysItFailed() = runBlocking {
+        settings.put(Settings.Key.NAS_API_KEY, box.encrypt("key"))
+        val nas = nas { throw java.io.IOException("down") }
+        assertFalse(com.signal.app.RecordingSchedule(nas, settleMs = 0).cancel(NasRecording("r", "Show", "C", 1, 2, "SCHEDULED")))
+    }
+
     @Test fun findsWhicheverAddressAnswers() = runBlocking {
         val nas = nas { homeDown(it); respond(health) }
         assertEquals(NasConnection.Via.TAILSCALE to "http://synology:3013", nas.findAddress())
