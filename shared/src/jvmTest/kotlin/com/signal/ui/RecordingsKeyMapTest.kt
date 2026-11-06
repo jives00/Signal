@@ -51,7 +51,8 @@ class RecordingsKeyMapTest {
         focusedStartsWith("Oldest")
         press(RemoteAction.Select)
         eventually("the player") { app.navigator.current == Route.VodPlayer }
-        assertEquals(1, platform.player.played.size)
+        // Last, not only: Home may have tuned its preview first.
+        assertEquals("ESPN", platform.player.played.last())
         press(RemoteAction.Back)
         eventually("the list") { app.navigator.current == Route.Recordings }
         focusedStartsWith("Oldest")
