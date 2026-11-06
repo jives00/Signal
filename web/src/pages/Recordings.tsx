@@ -13,7 +13,7 @@ function status(r: Recording): string {
   switch (r.state) {
     case "WAITING": return "Waiting for a free login";
     case "RECORDING": return `Recording until ${clock(r.stopMs)}`;
-    case "DONE": return "Done";
+    case "DONE": return `Done: ${minutes(r.durationMs)}`;
     case "PARTIAL": return `Partial: ${minutes(r.gapMs)} missing`;
     case "FAILED": return "Failed";
   }
