@@ -88,7 +88,12 @@ class VodPlayback(
         start(now, StreamUrls.episode(source, episode), source.headers, start)
     }
 
+    /** The recording played last, for the Recordings page to put focus back on. */
+    var lastRecordingId: String? = null
+        private set
+
     fun playRecording(id: String, title: String, channelName: String, url: String, headers: Map<String, String>, startMs: Long) {
+        lastRecordingId = id
         start(Now(null, "recording:$id", title, channelName, recording = RecordingTarget(id, url, headers)), url, headers, startMs)
     }
 

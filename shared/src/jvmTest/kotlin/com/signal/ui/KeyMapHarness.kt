@@ -32,8 +32,11 @@ import com.signal.player.VideoInfo
 import com.signal.player.VideoPlayer
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.mock.MockEngine
+import io.ktor.client.engine.mock.respond
 import io.ktor.client.engine.mock.respondError
+import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
+import io.ktor.http.headersOf
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -111,7 +114,12 @@ class TestPlatform : Platform {
     override fun createUserDatabaseDriver() = JdbcSqliteDriver("jdbc:sqlite:${dbFile.absolutePath}", java.util.Properties().apply { put("journal_mode", "WAL"); put("busy_timeout", "5000") }, UserDatabase.Schema)
     override val guideDirectory: String = java.nio.file.Files.createTempDirectory("signal-guide").toFile().apply { deleteOnExit() }.absolutePath
     override fun createGuideDatabaseDriver(path: String) = JdbcSqliteDriver("jdbc:sqlite:$path", java.util.Properties(), com.signal.db.guide.GuideDatabase.Schema)
-    override fun createHttpClient() = HttpClient(MockEngine { respondError(HttpStatusCode.NotFound) })
+    /** What the NAS answers for a path, as JSON; null is a 404. */
+    var nas: (String) -> String? = { null }
+    override fun createHttpClient() = HttpClient(MockEngine { request ->
+        nas(request.url.encodedPath)?.let { respond(it, HttpStatusCode.OK, headersOf(HttpHeaders.ContentType, "application/json")) }
+            ?: respondError(HttpStatusCode.NotFound)
+    })
     override fun systemUses24HourClock() = true
     override fun exitApp() { exits++ }
 }
@@ -232,9 +240,11 @@ fun keyMapTest(
     favorites: Int = 0,
     update: com.signal.update.UpdateState? = null,
     voice: com.signal.platform.VoiceSetup? = null,
+    nas: ((String) -> String?)? = null,
     block: suspend KeyMapScope.() -> Unit,
 ) = runSkikoComposeUiTest(size = androidx.compose.ui.geometry.Size(1920f, 1080f), density = androidx.compose.ui.unit.Density(1f)) {
     val platform = TestPlatform()
+    if (nas != null) platform.nas = nas
     if (update != null) platform.updater = TestUpdater(update)
     platform.voiceSetup = voice
     startApp(platform, start, withDemo, favorites, block)

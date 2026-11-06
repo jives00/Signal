@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -15,6 +16,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.text.font.FontWeight
@@ -49,6 +51,18 @@ internal fun recordingSections(all: List<NasRecording>): List<Pair<String, List<
     all.filter { !it.running && !it.upcoming }.sortedByDescending { it.at }.takeIf { it.isNotEmpty() }?.let { "Recorded" to it },
 )
 
+/** Where [id] sits in the list, counting each section's title; the top if it's gone. */
+internal fun recordingListIndex(sections: List<Pair<String, List<NasRecording>>>, id: String?): Int {
+    var index = 0
+    sections.forEach { (_, rows) ->
+        index++
+        val at = rows.indexOfFirst { it.id == id }
+        if (at >= 0) return index + at
+        index += rows.size
+    }
+    return 0
+}
+
 private fun Long.ago(now: Long, app: AppController): String {
     val h24 = use24(app)
     return "${dayLabel(this, now)} ${localTime(this, h24)}"
@@ -68,10 +82,29 @@ fun RecordingsPage() {
     var loaded by remember { mutableStateOf(false) }
     var view by remember { mutableStateOf<NasRecordings?>(null) }
     val first = chrome.contentFocus
+    val list = rememberLazyListState()
+
+    /** The row focus belongs on: the one played last, or else the top one. */
+    fun focusRow(rows: List<NasRecording>): String? =
+        (rows.firstOrNull { it.id == app.vodPlayback.lastRecordingId } ?: rows.firstOrNull())?.id
 
     suspend fun load() {
         view = app.nas.recordings()
         loaded = true
+    }
+
+    /**
+     * The rows arrive after the page has asked for focus, so ask again once they're there: two frames
+     * on, for the list to lay out, or a row just deleted is still there to take it with it.
+     */
+    suspend fun focusList() {
+        repeat(2) { withFrameNanos { } }
+        if (chrome.navHasFocus) return
+        val sections = recordingSections(view?.recordings.orEmpty())
+        val index = recordingListIndex(sections, focusRow(sections.flatMap { it.second }))
+        // One up, so a section's first row shows its title.
+        list.requestScrollToItem((index - 1).coerceAtLeast(0))
+        first.requestFocusWhenReady()
     }
 
     fun play(r: NasRecording, fromStart: Boolean) {
@@ -87,12 +120,12 @@ fun RecordingsPage() {
             if (!r.running) {
                 val label = if (r.upcoming) "Cancel recording" else "Delete"
                 add(PanelAction(label) {
-                    PanelPage.Confirm(label, r.title, label) {
+                    PanelPage.Confirm(label, "${r.title} · ${r.at.ago(Clock.System.now().toEpochMilliseconds(), app)}", label) {
                         scope.launch {
                             app.nas.deleteRecording(r.id)
                             load()
                             // The focused row went: put focus back on the list.
-                            first.requestFocusWhenReady()
+                            focusList()
                         }
                     }
                 })
@@ -102,33 +135,37 @@ fun RecordingsPage() {
     }
 
     LaunchedEffect(Unit) {
+        load()
+        focusList()
         while (true) {
-            load()
             delay(REFRESH_MS)
+            load()
         }
     }
 
     TopLevelPage(Route.Recordings, chrome) {
         val current = view
         val sections = recordingSections(current?.recordings.orEmpty())
+        val focused = focusRow(sections.flatMap { it.second })
         Box(Modifier.fillMaxSize().padding(horizontal = SignalSizes.EDGE_MARGIN.dp)) {
             when {
                 !loaded -> {}
                 current == null -> Column(Modifier.padding(top = 48.dp), verticalArrangement = Arrangement.spacedBy(24.dp)) {
                     SText(RecordingText.OUT_OF_REACH, 28, maxLines = 3)
-                    SButton("Try again", { scope.launch { load() } }, focusRequester = first)
+                    SButton("Try again", { scope.launch { load(); focusList() } }, focusRequester = first)
                 }
                 sections.isEmpty() -> Column(Modifier.padding(top = 48.dp), verticalArrangement = Arrangement.spacedBy(24.dp)) {
                     SText(current.problem ?: "No recordings yet.", 28, maxLines = 3)
-                    SButton("Refresh", { scope.launch { load() } }, focusRequester = first)
+                    SButton("Refresh", { scope.launch { load(); focusList() } }, focusRequester = first)
                 }
                 else -> {
                     val now = Clock.System.now().toEpochMilliseconds()
-                    LazyColumn(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        sections.forEachIndexed { sectionIndex, (title, rows) ->
+                    LazyColumn(Modifier.fillMaxWidth(), state = list, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        sections.forEach { (title, rows) ->
                             item(key = title) { SText(title, 24, Modifier.padding(top = 24.dp, bottom = 8.dp), weight = FontWeight.SemiBold, color = c.muted) }
                             items(rows, key = { it.id }) { r ->
-                                val row = if (sectionIndex == 0 && r === rows.first()) first else remember { FocusRequester() }
+                                val own = remember { FocusRequester() }
+                                val row = if (r.id == focused) first else own
                                 ListRow(
                                     r.title,
                                     detail = "${r.channelName} · ${r.at.ago(now, app)} · ${RecordingText.status(r, now)}",
