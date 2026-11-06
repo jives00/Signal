@@ -50,6 +50,16 @@ class ContractTest {
         check("channel-page", ChannelPage.serializer(), ChannelPage(1, 0, listOf(row)))
         check("watch", WatchStream.serializer(), WatchStream("http://p.example/live/me/secret/42.m3u8", hls = true, headersDropped = false))
         check(
+            "recordings", RecordingsView.serializer(),
+            RecordingsView(
+                null, 500_000_000_000,
+                listOf(
+                    Recording("r1", "main", "src:x:42", "Live football", "FOX Sports 1", 1_791_828_000_000, 1_791_835_200_000, RecordingState.RECORDING, "Provider", updatedAt = 1_791_828_010_000, bytes = 3_000_000, durationMs = 10_000),
+                    Recording("r2", "main", "src:x:42", "News", "FOX Sports 1", 1_791_820_000_000, 1_791_823_600_000, RecordingState.PARTIAL, "Provider", 1_791_823_600_000, 1_791_823_600_000, 1_500_000_000, 3_000_000, 1, 600_000, "The stream dropped.", 1_794_415_600_000),
+                ),
+            ),
+        )
+        check(
             "releases", ReleasesView.serializer(),
             ReleasesView(
                 listOf(

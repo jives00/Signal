@@ -78,6 +78,31 @@ export const ChannelPage = z.object({ total: z.number(), offset: z.number(), row
 /** server/WatchRoutes.kt → WatchStream: the provider's own URL for the Watch page. */
 export const WatchStream = z.object({ url: z.string(), hls: z.boolean(), headersDropped: z.boolean() });
 
+/** server/RecordingStore.kt → Recording (dvr.md). */
+export const Recording = z.object({
+  id: z.string(),
+  profileId: z.string(),
+  streamId: z.string(),
+  title: z.string(),
+  channelName: z.string(),
+  startMs: z.number(),
+  stopMs: z.number(),
+  state: z.enum(["WAITING", "RECORDING", "DONE", "PARTIAL", "FAILED"]),
+  loginName: z.string().nullable(),
+  endedAt: z.number().nullable(),
+  updatedAt: z.number(),
+  bytes: z.number(),
+  durationMs: z.number(),
+  gaps: z.number(),
+  gapMs: z.number(),
+  reason: z.string().nullable(),
+  expiresAt: z.number().nullable(),
+});
+export type Recording = z.infer<typeof Recording>;
+/** server/RecordingRoutes.kt → RecordingsView. */
+export const RecordingsView = z.object({ problem: z.string().nullable(), freeBytes: z.number(), recordings: z.array(Recording) });
+export type RecordingsView = z.infer<typeof RecordingsView>;
+
 export const SourceView = z.object({
   id: z.string(),
   name: z.string(),

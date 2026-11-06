@@ -12,6 +12,7 @@ import Lists from "./pages/Lists";
 import Mapping from "./pages/Mapping";
 import Reminders from "./pages/Reminders";
 import { Appearance, CompanionSettings, NameCleanupSettings } from "./pages/Settings";
+import Recordings from "./pages/Recordings";
 import Sources from "./pages/Sources";
 import Switch from "./pages/Switch";
 import VoiceCommands from "./pages/VoiceCommands";
@@ -33,6 +34,7 @@ const nav: { header?: string; pages: Page[] }[] = [
       { path: "/groups", title: "Groups" },
       { path: "/mapping", title: "EPG Mapping" },
       { path: "/reminders", title: "Reminders" },
+      { path: "/recordings", title: "Recordings" },
     ],
   },
   {
@@ -133,6 +135,7 @@ function Shell() {
         <Routes>
           <Route path="/" element={<Dashboard status={status} failed={failed} />} />
           <Route path="/sources" element={<Sources />} />
+          <Route path="/recordings" element={<Recordings />} />
           <Route path="/watch" element={<Suspense fallback={<div className="page detail">Loading…</div>}><Watch /></Suspense>} />
           <Route path="/channels" element={<Channels />} />
           <Route path="/favorites" element={<Lists />} />

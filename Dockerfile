@@ -13,6 +13,7 @@ COPY web/dist /app/web
 ENV PORT=3013 \
     VIEWER_PORT=3017 \
     DATA_DIR=/data \
+    RECORDINGS_DIR=/recordings \
     WEB_DIR=/app/web \
     TZ=America/Chicago \
     JAVA_OPTS="-XX:MaxRAMPercentage=50 -Djava.awt.headless=true"

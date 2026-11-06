@@ -53,6 +53,13 @@ export const getChannel = (profile: string, streamId: string) => read(S.ChannelR
 /** Watch (web-player.md): the URL to play. It carries the source's credentials, so it's fetched at play time only. */
 export const getWatchStream = (profile: string, streamId: string) => read(S.WatchStream, `/api/watch/${enc(streamId)}?${q(profile)}`);
 
+// ---- Recordings (dvr.md) ----
+export const getRecordings = (profile: string) => read(S.RecordingsView, `/api/recordings?${q(profile)}`);
+export const startRecording = (profile: string, streamId: string, minutes: number) =>
+  send<unknown>("/api/recordings", { method: "POST", body: JSON.stringify({ profile, streamId, minutes }) }).then((r) => S.Recording.parse(r));
+export const stopRecording = (id: string) => send<void>(`/api/recordings/${enc(id)}/stop`, { method: "POST" });
+export const deleteRecording = (id: string) => send<void>(`/api/recordings/${enc(id)}`, { method: "DELETE" });
+
 export type ChannelAction = "favorite" | "unfavorite" | "hide" | "unhide" | "reset" | "addToPlaylist" | "removeFromPlaylist" | "set";
 export const editChannels = (streamIds: string[], profiles: string[], action: ChannelAction, extra: { playlistId?: string; values?: Record<string, string | number | null> } = {}) =>
   post("/api/channels/edit", { streamIds, profiles, action, ...extra });

@@ -14,6 +14,8 @@ data class Config(
     val webDir: String,
     /** The viewer's own port (web-player.md): the watching page and its API, none of the web admin. */
     val viewerPort: Int = 3017,
+    /** The recordings share (dvr.md); unset, recording is off. It's a mount, so it's never created. */
+    val recordingsDir: String? = null,
 ) {
     data class DbConfig(val host: String, val port: Int, val name: String, val user: String, val password: String) {
         // The database name is never quoted in SQL anywhere, so SIGNAL being a reserved word doesn't matter.
@@ -40,6 +42,7 @@ data class Config(
                 dataDir = env["DATA_DIR"] ?: "data",
                 webDir = env["WEB_DIR"] ?: "web",
                 viewerPort = env["VIEWER_PORT"]?.toIntOrNull() ?: 3017,
+                recordingsDir = env["RECORDINGS_DIR"]?.takeIf { it.isNotBlank() },
             )
         }
     }

@@ -20,6 +20,8 @@ fun main() {
     config.db?.let { db -> connectInBackground(companion, db) }
     companion.startCatalog()
     companion.guideJob.start()
+    // Docker's SIGTERM: closes open segments, and recover() picks the recordings up after the restart.
+    Runtime.getRuntime().addShutdownHook(thread(start = false, name = "recorder-shutdown") { companion.recorder.shutdown() })
     log.info("Signal companion ${companion.version} on port ${config.port}, viewer on ${config.viewerPort}")
     embeddedServer(
         Netty,
@@ -41,6 +43,7 @@ private fun connectInBackground(companion: Companion, db: Config.DbConfig) = thr
                 log.info("Database ${db.host}:${db.port}/${db.name} connected")
                 // The catalog follows the synced sources (PLAN §5.2 → Source refresh).
                 companion.onSourcesChanged()
+                companion.recorder.recover()
             }
             .onFailure {
                 // The first failure, then every tenth, so a long outage doesn't flood the log.

@@ -3,6 +3,7 @@ package com.signal.server
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.cio.CIO
 import io.ktor.client.plugins.HttpTimeout
+import io.ktor.client.plugins.HttpTimeoutConfig
 import io.ktor.http.ContentType
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -55,6 +56,7 @@ class Companion(
     private val tmdbHttp: HttpClient? = null,
     private val tmdbStoreOverride: TmdbStore? = null,
     private val vodItemsOverride: (suspend () -> List<com.signal.model.VodItem>)? = null,
+    private val recordingStoreOverride: RecordingStore? = null,
 ) {
     /** Set once the database connects; it may not be there yet at start-up (see Main). */
     @Volatile var database: Database? = database
@@ -64,6 +66,7 @@ class Companion(
     val devices: DeviceStore? get() = deviceStore ?: database?.devices
     val store: CompanionStore? get() = companionStore ?: database?.store
     val syncStore: SyncStore? get() = syncStoreOverride ?: database?.sync
+    val recordingStore: RecordingStore? get() = recordingStoreOverride ?: database?.recordings
     val cipher: SecretCipher? = config.secretKey?.let(::SecretCipher)
 
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -75,6 +78,27 @@ class Companion(
                 requestTimeoutMillis = 15 * 60_000
             }
         }
+    }
+    /** Live streams never finish, so only a silent connection times out (dvr.md). */
+    private val recordingHttp by lazy {
+        HttpClient(CIO) {
+            engine { requestTimeout = 0 }
+            install(HttpTimeout) {
+                connectTimeoutMillis = 15_000
+                socketTimeoutMillis = 30_000
+                requestTimeoutMillis = HttpTimeoutConfig.INFINITE_TIMEOUT_MS
+            }
+        }
+    }
+    val recorder by lazy {
+        Recorder(
+            config.recordingsDir?.let(::File),
+            { recordingStore },
+            { recordingLogins(this, it) },
+            { catalog.accountInfo(it) },
+            HttpStreamFetch(recordingHttp),
+            scope,
+        )
     }
     val guide by lazy { GuideBuilds(File(config.dataDir, "guide"), http) }
     val guideJob = GuideJob(this, scope)
@@ -203,6 +227,9 @@ fun Application.signalModule(companion: Companion) {
             call.respond(if (ok) HttpStatusCode.OK else HttpStatusCode.ServiceUnavailable, Health(if (ok) "ok" else "degraded", companion.version, db))
         }
 
+        // For Watchtower's pre-update hook (dvr.md → Deploy guard): only busy or idle, so open like /health.
+        get("/health/recording") { call.respondText(if (companion.recorder.busy()) "busy" else "idle") }
+
         // The viewer's port serves only the viewer (web-player.md), so Tailscale can let someone reach
         // this port and not the web admin.
         onViewerPort(companion.config.viewerPort, viewer = true) {
@@ -242,6 +269,7 @@ fun Application.signalModule(companion: Companion) {
                 adminPageRoutes(companion)
                 vodAdminRoutes(companion)
                 watchRoutes(companion)
+                recordingRoutes(companion)
             }
             webAdmin(File(companion.config.webDir))
         } }

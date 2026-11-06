@@ -1,0 +1,44 @@
+{
+    "problem": null,
+    "freeBytes": 500000000000,
+    "recordings": [
+        {
+            "id": "r1",
+            "profileId": "main",
+            "streamId": "src:x:42",
+            "title": "Live football",
+            "channelName": "FOX Sports 1",
+            "startMs": 1791828000000,
+            "stopMs": 1791835200000,
+            "state": "RECORDING",
+            "loginName": "Provider",
+            "endedAt": null,
+            "updatedAt": 1791828010000,
+            "bytes": 3000000,
+            "durationMs": 10000,
+            "gaps": 0,
+            "gapMs": 0,
+            "reason": null,
+            "expiresAt": null
+        },
+        {
+            "id": "r2",
+            "profileId": "main",
+            "streamId": "src:x:42",
+            "title": "News",
+            "channelName": "FOX Sports 1",
+            "startMs": 1791820000000,
+            "stopMs": 1791823600000,
+            "state": "PARTIAL",
+            "loginName": "Provider",
+            "endedAt": 1791823600000,
+            "updatedAt": 1791823600000,
+            "bytes": 1500000000,
+            "durationMs": 3000000,
+            "gaps": 1,
+            "gapMs": 600000,
+            "reason": "The stream dropped.",
+            "expiresAt": 1794415600000
+        }
+    ]
+}

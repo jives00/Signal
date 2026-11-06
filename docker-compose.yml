@@ -14,13 +14,23 @@ services:
     environment:
       - PORT=3013
       - DATA_DIR=/data
+      - RECORDINGS_DIR=/recordings
       # Logs read in local time; the nightly schedule uses its own named time zone either way.
       - TZ=America/Chicago
     volumes:
       # guide.db builds, cached images and logs.
       - /volume2/docker/signal/data:/data
+      # The recordings share (dvr.md): a top-level folder, left out of backups and snapshots.
+      - /volume2/SignalRecordings:/recordings
     networks:
       - shared-db
+    labels:
+      # Holds a deploy back while a recording runs: exit 75 tells Watchtower to skip this container and
+      # try again at its next poll. Anything else, a hung companion included, lets the update through.
+      # Needs WATCHTOWER_LIFECYCLE_HOOKS=true on Watchtower. $$ is compose's escape for $.
+      - com.centurylinklabs.watchtower.lifecycle.pre-update=[ "$$(wget -qO- -T 5 http://127.0.0.1:3013/health/recording)" = "busy" ] && exit 75 || exit 0
+    # Time on a stop to close the open segments.
+    stop_grace_period: 30s
     restart: unless-stopped
 
 networks:

@@ -23,6 +23,7 @@ import library from "./contract/library.json";
 import voiceHelp from "./contract/voice-help.json";
 import releases from "./contract/releases.json";
 import watch from "./contract/watch.json";
+import recordings from "./contract/recordings.json";
 
 const cases: [string, ZodTypeAny, unknown][] = [
   ["settings-file", S.SettingsFile, settingsFile],
@@ -45,6 +46,7 @@ const cases: [string, ZodTypeAny, unknown][] = [
   ["voice-help", S.VoiceHelp, voiceHelp],
   ["releases", S.ReleasesView, releases],
   ["watch", S.WatchStream, watch],
+  ["recordings", S.RecordingsView, recordings],
 ];
 
 describe("contract", () => {
