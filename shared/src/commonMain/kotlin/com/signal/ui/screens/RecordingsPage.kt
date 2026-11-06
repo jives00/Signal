@@ -89,7 +89,7 @@ fun RecordingsPage() {
         (rows.firstOrNull { it.id == app.vodPlayback.lastRecordingId } ?: rows.firstOrNull())?.id
 
     suspend fun load() {
-        view = app.nas.recordings()
+        view = app.recordings.refresh()
         loaded = true
     }
 
@@ -117,7 +117,12 @@ fun RecordingsPage() {
         val actions = buildList {
             if (r.playable && r.resumeMs > 0) add(PanelAction("Play from the start") { play(r, fromStart = true); null })
             if (r.expiresAt != null) add(PanelAction("Keep 30 more days") { scope.launch { app.nas.keepRecording(r.id); load() }; null })
-            if (!r.running) {
+            if (r.running || r.upcoming) add(PanelAction(RecordingText.KEEP_LONGER) { scope.launch { app.recordings.keepLonger(r); load() }; null })
+            if (r.running) {
+                add(PanelAction("Stop recording") {
+                    PanelPage.Confirm("Stop recording", r.title, "Stop recording") { scope.launch { app.recordings.stop(r); load() } }
+                })
+            } else {
                 val label = if (r.upcoming) "Cancel recording" else "Delete"
                 add(PanelAction(label) {
                     PanelPage.Confirm(label, "${r.title} · ${r.at.ago(Clock.System.now().toEpochMilliseconds(), app)}", label) {
@@ -168,7 +173,7 @@ fun RecordingsPage() {
                                 val row = if (r.id == focused) first else own
                                 ListRow(
                                     r.title,
-                                    detail = "${r.channelName} · ${r.at.ago(now, app)} · ${RecordingText.status(r, now)}",
+                                    detail = "${r.channelName} · ${r.at.ago(now, app)} · ${RecordingText.status(r, now, r.id in current?.conflicts.orEmpty())}",
                                     focusRequester = row,
                                     onSelect = { if (r.playable) play(r, fromStart = false) else menu(r, row) },
                                     onOptions = { menu(r, row) },

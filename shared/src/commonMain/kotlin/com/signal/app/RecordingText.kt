@@ -7,6 +7,13 @@ object RecordingText {
     /** Shown when the TV is paired but neither of the companion's addresses answers. */
     const val OUT_OF_REACH = "Can't reach the companion. Recordings need this TV on your home network or Tailscale."
 
+    /** Set, but it won't all fit: said straight away, since the user can still change it. */
+    const val CONFLICT = "Set, but no source is free for all of it, so some of it may be missed."
+    const val MAY_MISS = "No free source for all of it"
+    const val KEEP_LONGER = "Keep recording 30 more minutes"
+    const val KEPT_LONGER = "It'll keep recording 30 minutes longer."
+    const val KEEP_LONGER_MINUTES = 30
+
     private const val MINUTE = 60_000L
     private const val DAY = 24 * 60 * MINUTE
 
@@ -29,10 +36,10 @@ object RecordingText {
     }
 
     /** What's going on with it, in a few words. */
-    fun status(r: NasRecording, now: Long): String {
+    fun status(r: NasRecording, now: Long, conflict: Boolean = false): String {
         val parts = buildList {
             when (r.state) {
-                "SCHEDULED" -> add("Scheduled")
+                "SCHEDULED" -> add(if (conflict) MAY_MISS else "Scheduled")
                 "WAITING" -> add("Waiting for a free source")
                 "RECORDING" -> add("Recording now")
                 "FAILED" -> add(r.reason ?: "Failed")

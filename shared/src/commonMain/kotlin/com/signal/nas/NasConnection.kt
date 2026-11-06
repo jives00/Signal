@@ -316,6 +316,34 @@ class NasConnection(
         return (base + NasRecordingPaths.playlist(id)) to mapOf(DEVICE_KEY_HEADER to bearer(key))
     }
 
+    /** Sets a recording. The answer says why not: a TV away from home must be told, never left thinking it's set (dvr.md). */
+    suspend fun scheduleRecording(streamId: String, start: Long, stop: Long, title: String): RecordingAnswer {
+        val response = if (!isPaired) null else call { base ->
+            http.post(base + NasRecordingPaths.LIST) {
+                asDevice()
+                contentType(ContentType.Application.Json)
+                setBody(json.encodeToString(NasRecordingRequest(streamId, start, stop, title)))
+            }
+        }
+        response ?: return RecordingAnswer.OutOfReach
+        val body = response.bodyAsText()
+        if (!response.status.isSuccess()) return RecordingAnswer.Refused(body)
+        val set = runCatching { json.decodeFromString<NasRecordingSet>(body) }.getOrNull() ?: return RecordingAnswer.OutOfReach
+        return RecordingAnswer.Set(set.conflict)
+    }
+
+    suspend fun stopRecording(id: String): Boolean =
+        isPaired && call { base -> http.post(base + NasRecordingPaths.stop(id)) { asDevice() } }?.status?.isSuccess() == true
+
+    suspend fun extendRecording(id: String, minutes: Int): Boolean =
+        isPaired && call { base ->
+            http.post(base + NasRecordingPaths.extend(id)) {
+                asDevice()
+                contentType(ContentType.Application.Json)
+                setBody(json.encodeToString(NasRecordingExtend(minutes)))
+            }
+        }?.status?.isSuccess() == true
+
     suspend fun saveRecordingPosition(id: String, positionMs: Long): Boolean {
         if (!isPaired) return false
         return call { base ->

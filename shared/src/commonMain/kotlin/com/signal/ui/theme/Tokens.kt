@@ -18,6 +18,8 @@ data class SignalColors(
     val tagBg: Color,
     val tagText: Color,
     val onAccent: Color,
+    /** Marks what's recording. Never focus or selection: only focus uses the accent. */
+    val record: Color,
     val neutral300: Color,
     val neutral400: Color,
     val muted: Color,
@@ -42,6 +44,7 @@ val DarkSlate = SignalColors(
     tagBg = Color(0xFF24365A),
     tagText = Color(0xFFBCD4FF),
     onAccent = Color(0xFFFFFFFF),
+    record = Color(0xFFE5484D),
     neutral300 = Color(0xFF474C55),
     neutral400 = Color(0xFF575D67),
     muted = Color(0xFFAEB4BD),

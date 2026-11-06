@@ -133,6 +133,30 @@ class RecordingRoutesTest {
         assertEquals(HttpStatusCode.NoContent, client.delete("/device/recordings/r1") { header(HttpHeaders.Authorization, "Bearer $key") }.status)
     }
 
+    @Test fun aDeviceOnlyTouchesItsOwnRunningRecordingsAndCantSetNonsense() = testApplication {
+        val devices = MemoryDeviceStore()
+        val key = "device-key"
+        devices.save(Device("d1", "Shield", "SHIELD", "1.0", 1, 1, "main"), DeviceKeys.hash(key))
+        val c = Companion(
+            Config(port = 0, db = null, secretKey = "test-key", dataDir = Files.createTempDirectory("signal-rec").toFile().path, webDir = "missing", viewerPort = 3017, recordingsDir = Files.createTempDirectory("recordings").toFile().path),
+            deviceStore = devices, companionStore = MemoryCompanionStore(), syncStoreOverride = MemorySyncStore(), buildGuideOnChange = false, recordingStoreOverride = store,
+        )
+        store.save(unfinished().copy(id = "theirs", profileId = "parents"))
+        application { signalModule(c) }
+        suspend fun post(path: String, body: String = "{}") = client.post(path) {
+            header(HttpHeaders.Authorization, "Bearer $key")
+            header(HttpHeaders.ContentType, ContentType.Application.Json.toString())
+            setBody(body)
+        }
+        val program = """{"streamId":"nope","start":1000,"stop":2000,"title":"Show"}"""
+        assertEquals(HttpStatusCode.Unauthorized, client.post("/device/recordings") { setBody(program) }.status)
+        assertEquals(HttpStatusCode.NotFound, post("/device/recordings", program).status, "a channel it doesn't have")
+        assertEquals(HttpStatusCode.BadRequest, post("/device/recordings", """{"streamId":"s","start":2000,"stop":1000,"title":"Show"}""").status)
+        assertEquals(HttpStatusCode.BadRequest, post("/device/recordings", """{"streamId":"s","start":1000,"stop":2000,"title":" "}""").status)
+        assertEquals(HttpStatusCode.NotFound, post("/device/recordings/theirs/stop").status)
+        assertEquals(HttpStatusCode.NotFound, post("/device/recordings/theirs/extend", """{"minutes":30}""").status)
+    }
+
     @Test fun servesAFinishedRecordingsFilesAndDeletesThem() = testApplication {
         val dir = Files.createTempDirectory("recordings").toFile()
         val files = RecordingFiles(dir.resolve("main/r1"))

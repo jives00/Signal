@@ -62,7 +62,7 @@ class RecordingsKeyMapTest {
         keyMapTest(nas = { path ->
             when (path) {
                 NasPaths.HEALTH -> health
-                NasRecordingPaths.one("a") -> { deleted = true; "{}" }
+                "DELETE ${NasRecordingPaths.one("a")}" -> { deleted = true; "{}" }
                 NasRecordingPaths.LIST -> if (deleted) oldestOnly else two
                 else -> null
             }

@@ -32,6 +32,9 @@ import java.io.File
 /** [title] as well as [start]: a channel's guide can list two programs at one time. */
 @Serializable data class ScheduleRecording(val profile: String, val streamId: String, val start: Long, val title: String? = null)
 @Serializable data class ExtendRecording(val minutes: Int)
+/** From a TV: what its guide showed, so what's set is what the user chose, whichever guide it has. */
+@Serializable data class DeviceSchedule(val streamId: String, val start: Long, val stop: Long, val title: String)
+@Serializable data class DeviceScheduled(val recording: Recording, val conflict: Boolean)
 
 private const val MAX_MINUTES = 12 * 60
 private const val HOUR_MS = 60 * 60_000L
@@ -103,6 +106,12 @@ suspend fun recordingLogins(companion: Companion, recording: Recording): List<Re
         .map { (source, name) -> RecordingLogin(name, source.username, StreamUrls.live(source, stream), StreamUrls.headers(source, stream), source) }
 }
 
+private suspend fun conflicts(companion: Companion): List<String> {
+    val store = companion.recordingStore
+    val upcoming = store?.scheduled().orEmpty()
+    return if (upcoming.isEmpty()) emptyList() else recordingConflicts(upcoming, store?.unfinished().orEmpty()) { recordingLogins(companion, it).size }
+}
+
 private suspend fun RoutingCall.respondRecordingFile(file: File) {
     // A player re-reads the playlist while it records, so it's never cached.
     if (file.name == RecordingFiles.PLAYLIST) respondBytes(file.readBytes(), ContentType("application", "vnd.apple.mpegurl"))
@@ -112,6 +121,7 @@ private suspend fun RoutingCall.respondRecordingFile(file: File) {
 /** For the TV and the viewer: the device key says whose recordings these are, and it travels as a header, never in a URL (dvr.md). */
 fun Route.recordingDeviceRoutes(companion: Companion) {
     val recorder = companion.recorder
+    val channels = AdminChannels(companion)
 
     /** The recording, when it's this device's profile's. */
     suspend fun RoutingCall.own(): Recording? {
@@ -124,7 +134,33 @@ fun Route.recordingDeviceRoutes(companion: Companion) {
     route("/device/recordings") {
         get {
             val device = call.device(companion) ?: return@get
-            call.respond(RecordingsView(recorder.problem(), recorder.freeBytes(), companion.recordingStore?.forProfile(device.profileId).orEmpty()))
+            call.respond(RecordingsView(recorder.problem(), recorder.freeBytes(), companion.recordingStore?.forProfile(device.profileId).orEmpty(), conflicts(companion)))
+        }
+        // Set from the TV's guide. Also takes a program already on, which records from now.
+        post {
+            val device = call.device(companion) ?: return@post
+            val body = call.receive<DeviceSchedule>()
+            if (body.title.isBlank() || body.stop <= body.start) return@post call.respondText("That isn't a program.", status = HttpStatusCode.BadRequest)
+            val row = channels.channel(device.profileId, body.streamId, System.currentTimeMillis())
+                ?: return@post call.respondText("The companion doesn't have that channel.", status = HttpStatusCode.NotFound)
+            val settings = companion.settings
+            runCatching {
+                recorder.schedule(device.profileId, body.streamId, body.title, row.name, body.start, body.stop, settings.recordBeforeMinutes * 60_000L, settings.recordAfterMinutes * 60_000L)
+            }
+                .onSuccess { call.respond(DeviceScheduled(it, it.id in conflicts(companion))) }
+                .onFailure { call.respondText(it.message ?: "Couldn't set that.", status = HttpStatusCode.Conflict) }
+        }
+        post("/{id}/stop") {
+            val recording = call.own() ?: return@post
+            if (recorder.stop(recording.id)) call.respond(HttpStatusCode.NoContent)
+            else call.respondText("That isn't recording.", status = HttpStatusCode.Conflict)
+        }
+        post("/{id}/extend") {
+            val recording = call.own() ?: return@post
+            val body = call.receive<ExtendRecording>()
+            if (body.minutes !in KEEP_RECORDING) return@post call.respondText("Keep recording 15, 30 or 60 minutes.", status = HttpStatusCode.BadRequest)
+            if (recorder.extend(recording.id, body.minutes * 60_000L)) call.respond(HttpStatusCode.NoContent)
+            else call.respondText("That recording has finished.", status = HttpStatusCode.Conflict)
         }
         get("/{id}/files/{name}") {
             val recording = call.own() ?: return@get
@@ -156,10 +192,7 @@ fun Route.recordingRoutes(companion: Companion) {
 
     get("/recordings") {
         val profile = call.request.queryParameters["profile"]?.takeIf { it.isNotBlank() } ?: SyncService.MAIN
-        val store = companion.recordingStore
-        val upcoming = store?.scheduled().orEmpty()
-        val conflicts = if (upcoming.isEmpty()) emptyList() else recordingConflicts(upcoming, store?.unfinished().orEmpty()) { recordingLogins(companion, it).size }
-        call.respond(RecordingsView(recorder.problem(), recorder.freeBytes(), store?.forProfile(profile).orEmpty(), conflicts))
+        call.respond(RecordingsView(recorder.problem(), recorder.freeBytes(), companion.recordingStore?.forProfile(profile).orEmpty(), conflicts(companion)))
     }
 
     // What a channel has coming up, to choose from.

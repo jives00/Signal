@@ -4,6 +4,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -139,6 +141,8 @@ fun LiveTvPage() {
     val rows = remember(guideState) { GuideRows(app, scope, "guide v${guideState.version}, ${guideState.mappings.size} mappings") }
     val reminderList by app.reminderList.collectAsState()
     val reminderKeys = remember(reminderList) { reminderList.mapTo(HashSet()) { "${it.userChannelId}|${it.title}|${it.start}" } }
+    val recordingList by app.recordings.list.collectAsState()
+    val recordingKeys = remember(recordingList) { recordingList.filter { it.upcoming || it.running }.mapTo(HashSet()) { "${it.streamId}|${it.title}|${it.programStart}" } }
 
     // The clock the grid runs on: ended programs drop off and the now line moves.
     var now by remember { mutableLongStateOf(Clock.System.now().toEpochMilliseconds()) }
@@ -422,6 +426,7 @@ fun LiveTvPage() {
                                 playing = current?.stream?.id == ch.stream.id,
                                 moving = move.movingKey == ch.key,
                                 hasReminder = { p -> ch.userChannelId != null && "${ch.userChannelId}|${p.title}|${p.start}" in reminderKeys },
+                                isRecording = { p -> "${ch.stream.id}|${p.title}|${p.start}" in recordingKeys },
                             )
                             HDivider(Modifier.nowLineOver(dividerNowX))
                         }
@@ -548,6 +553,7 @@ private fun GuideRow(
     playing: Boolean,
     moving: Boolean,
     hasReminder: (Program) -> Boolean,
+    isRecording: (Program) -> Boolean,
 ) {
     val c = SignalTheme.colors
     val windowEnd = windowStart + GuideGeometry.windowMs
@@ -583,14 +589,14 @@ private fun GuideRow(
                     if (programs != null) SText("No information", 24, weight = FontWeight.SemiBold, color = if (focused) c.onAccent else c.muted)
                 }
             } else {
-                for (p in visible) ProgramCell(p, windowStart, windowEnd, now, nowX, focused = rowFocused && !channelFocused && focusTime in p.start until p.stop, reminder = hasReminder(p))
+                for (p in visible) ProgramCell(p, windowStart, windowEnd, now, nowX, focused = rowFocused && !channelFocused && focusTime in p.start until p.stop, reminder = hasReminder(p), recording = isRecording(p))
             }
         }
     }
 }
 
 @Composable
-private fun ProgramCell(p: Program, windowStart: Long, windowEnd: Long, now: Long, nowX: Float?, focused: Boolean, reminder: Boolean) {
+private fun ProgramCell(p: Program, windowStart: Long, windowEnd: Long, now: Long, nowX: Float?, focused: Boolean, reminder: Boolean, recording: Boolean) {
     val c = SignalTheme.colors
     val app = LocalApp.current
     val from = maxOf(p.start, windowStart)
@@ -611,6 +617,9 @@ private fun ProgramCell(p: Program, windowStart: Long, windowEnd: Long, now: Lon
             // A sliver at the window's edge has no room for text, only for "…".
             if (width >= MIN_TEXT_WIDTH) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
+                    // A red dot marks a program set to record (dvr.md): on the focused cell it takes the
+                    // cell's own text color, since red on the accent would be hard to see.
+                    if (recording) Box(Modifier.padding(end = 8.dp).size(16.dp).background(if (focused) c.onAccent else c.record, CircleShape))
                     // A bell marks a program with a reminder (PLAN §4.3.4).
                     if (reminder) Icon(SignalIcons.bell, 20, if (focused) c.onAccent else c.accentText, Modifier.padding(end = 8.dp))
                     SText(p.title, 24, weight = FontWeight.SemiBold, color = if (focused) c.onAccent else if (ended) c.muted else c.text)

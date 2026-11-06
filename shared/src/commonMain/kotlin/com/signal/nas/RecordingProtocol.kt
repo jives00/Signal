@@ -20,6 +20,7 @@ data class NasRecording(
     val programStart: Long? = null,
     val positionMs: Long = 0,
     val watchedAt: Long? = null,
+    val streamId: String = "",
 ) {
     val upcoming: Boolean get() = state == "SCHEDULED"
     val running: Boolean get() = state == "RECORDING" || state == "WAITING"
@@ -33,10 +34,27 @@ data class NasRecording(
 }
 
 @Serializable
-data class NasRecordings(val problem: String? = null, val recordings: List<NasRecording> = emptyList())
+data class NasRecordings(val problem: String? = null, val recordings: List<NasRecording> = emptyList(), val conflicts: List<String> = emptyList())
+
+@Serializable
+internal data class NasRecordingRequest(val streamId: String, val start: Long, val stop: Long, val title: String)
+
+@Serializable
+internal data class NasRecordingSet(val recording: NasRecording, val conflict: Boolean = false)
+
+@Serializable
+internal data class NasRecordingExtend(val minutes: Int)
 
 @Serializable
 internal data class NasRecordingProgress(val positionMs: Long)
+
+/** What the companion said to setting a recording. */
+sealed interface RecordingAnswer {
+    /** [conflict]: more recordings overlap than there are sources. */
+    data class Set(val conflict: Boolean) : RecordingAnswer
+    data object OutOfReach : RecordingAnswer
+    data class Refused(val message: String) : RecordingAnswer
+}
 
 object NasRecordingPaths {
     const val LIST = "/device/recordings"
@@ -44,4 +62,6 @@ object NasRecordingPaths {
     fun playlist(id: String) = "$LIST/$id/files/index.m3u8"
     fun progress(id: String) = "$LIST/$id/progress"
     fun keep(id: String) = "$LIST/$id/keep"
+    fun stop(id: String) = "$LIST/$id/stop"
+    fun extend(id: String) = "$LIST/$id/extend"
 }

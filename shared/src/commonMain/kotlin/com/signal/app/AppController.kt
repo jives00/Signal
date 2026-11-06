@@ -32,6 +32,7 @@ import com.signal.db.user.UserDatabase
 import com.signal.input.RemoteDispatcher
 import com.signal.model.Source
 import com.signal.model.SourceKind
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -1435,6 +1436,19 @@ class AppController(val platform: Platform, val log: Log) {
         private set
     /** Counts returns from the background, for screens that must catch up with the clock (the guide). */
     val foregrounds = kotlinx.coroutines.flow.MutableStateFlow(0)
+    /** What's set to record, for the guide's markers and the Record buttons. */
+    val recordings = RecordingSchedule(nas)
+    init {
+        // Looked up again on a return from the background, and when a profile changes: it's the profile's list.
+        scope.launch {
+            combine(settings.profile, foregrounds, ::Pair).collectLatest {
+                while (true) {
+                    if (!inBackground) runCatching { recordings.refresh() }
+                    kotlinx.coroutines.delay(RecordingSchedule.REFRESH_MS)
+                }
+            }
+        }
+    }
     /** What a voice command asked for while the app was in the background: done on return. */
     private var voicePending: (() -> Unit)? = null
 

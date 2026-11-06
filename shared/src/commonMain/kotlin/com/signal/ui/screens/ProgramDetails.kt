@@ -15,15 +15,20 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.signal.app.AppController
+import com.signal.app.RecordingText
 import com.signal.app.Route
+import com.signal.app.findRecording
+import com.signal.app.recordNote
 import com.signal.model.Channel
 import com.signal.model.Program
 import com.signal.model.VodItem
@@ -41,11 +46,11 @@ import kotlinx.coroutines.launch
  * Program details (PLAN §4.3.4): a side panel with everything the guide has about one program, in
  * full, and only the actions that apply.
  */
-internal fun programDetails(app: AppController, ch: Channel, p: Program, now: Long): PanelPage =
-    PanelPage.Custom(p.title) { ProgramDetailsContent(app, ch, p, now) }
+internal fun programDetails(app: AppController, ch: Channel, p: Program, now: Long, watching: Boolean = false): PanelPage =
+    PanelPage.Custom(p.title) { ProgramDetailsContent(app, ch, p, now, watching) }
 
 @Composable
-private fun ProgramDetailsContent(app: AppController, ch: Channel, p: Program, now: Long) {
+private fun ProgramDetailsContent(app: AppController, ch: Channel, p: Program, now: Long, watching: Boolean) {
     val c = SignalTheme.colors
     val first = remember { FocusRequester() }
     val onNow = p.isOn(now)
@@ -55,13 +60,38 @@ private fun ProgramDetailsContent(app: AppController, ch: Channel, p: Program, n
     val reminder = app.reminders.find(reminders, userChannelId, p)
     // Find in Movies / Find in Series (PLAN §4.3.4), looked up once the panel is open.
     val find by produceState<VodFind?>(null, p.id) { value = findInVod(app, p) }
+    val set by app.recordings.list.collectAsState()
+    val recording = findRecording(set, ch.stream.id, p)
+    // What came of the last press: the panel stays open, so it's said here.
+    var recordNote by remember(p.id) { mutableStateOf<String?>(null) }
+    fun recordAction(action: suspend () -> String?) {
+        recordNote = null
+        app.scope.launch { recordNote = action() }
+    }
     val actions = buildList<Pair<String, () -> Unit>> {
-        if (onNow) add("Watch" to {
+        if (onNow && !watching) add("Watch" to {
             app.panel.close()
             val group = groupFor(ch)
             app.playback.tune(ch, fullScreen = true, group = group)
             app.navigator.go(Route.FullScreen(group))
         })
+        // Only with a companion, which does the recording; one out of reach keeps the button and says so (dvr.md).
+        if (app.nas.isPaired && p.stop > now) {
+            when {
+                recording == null -> add((if (onNow) "Record from now" else "Record") to { recordAction { recordNote(app.recordings.record(ch, p)) } })
+                recording.running -> add("Stop recording" to {
+                    app.panel.push(PanelPage.Confirm("Stop recording", p.title, "Stop recording") {
+                        app.scope.launch { app.recordings.stop(recording) }
+                    })
+                })
+                else -> add("Cancel recording" to {
+                    recordAction { if (app.recordings.cancel(recording)) null else RecordingText.OUT_OF_REACH }
+                })
+            }
+            if (recording != null) add(RecordingText.KEEP_LONGER to {
+                recordAction { if (app.recordings.keepLonger(recording)) RecordingText.KEPT_LONGER else RecordingText.OUT_OF_REACH }
+            })
+        }
         // Remind me / Remove reminder, only for a future program (PLAN §4.3.4).
         if (p.start > now) {
             if (reminder != null) add("Remove reminder" to { app.scope.launch { app.reminders.remove(reminder.id) } })
@@ -98,6 +128,7 @@ private fun ProgramDetailsContent(app: AppController, ch: Channel, p: Program, n
             }
             // A platform limit, said plainly (PLAN §4.3.4): Android TV can't show reminders while the app is closed.
             if (reminder != null) SText("You'll be reminded while the app is open.", 22, Modifier.padding(top = 16.dp), color = c.muted)
+            recordNote?.let { SText(it, 22, Modifier.padding(top = 16.dp), color = c.text, maxLines = 3) }
         }
         item {
             // The full description, never truncated (PLAN §4.3.4).

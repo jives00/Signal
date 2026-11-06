@@ -296,6 +296,8 @@ private fun InfoBar(
 @Composable
 private fun OptionsRow(channel: Channel, state: PlaybackState, first: FocusRequester, row: FocusRequester, onRecall: () -> Unit) {
     val app = LocalApp.current
+    val now = rememberNow()
+    val (on, _) = rememberNowAndNext(channel, now)
     // A picker returns focus to the button that opened it: the row's focusRestorer doesn't restore on a
     // direct requestFocus(), so handing the panel the row put focus back on the first button.
     val options = buildList<Pair<String, (FocusRequester) -> Unit>> {
@@ -303,6 +305,7 @@ private fun OptionsRow(channel: Channel, state: PlaybackState, first: FocusReque
         add("Subtitles" to { back -> app.panel.open(subtitlePicker(app, channel, state), back) })
         add("Aspect ratio" to { back -> app.panel.open(aspectPicker(app, channel), back) })
         if (app.menus.linkedStreams(channel) != null) add("Stream" to { back -> app.panel.open(app.menus.streamPage(channel), back) })
+        if (app.nas.isPaired && on != null) add("Record this" to { back -> app.panel.open(programDetails(app, channel, on, now, watching = true), back) })
         add((if (channel.isFavorite) "Remove favorite" else "Favorite") to { _ -> app.scope.launch { app.channels.setFavorite(channel, !channel.isFavorite) } })
         add("Add to playlist…" to { back -> app.panel.open(app.menus.addToPlaylistPage { listOf(channel) }, back) })
         add("Previous channel" to { _ -> onRecall() })

@@ -35,6 +35,7 @@ import io.ktor.client.engine.mock.MockEngine
 import io.ktor.client.engine.mock.respond
 import io.ktor.client.engine.mock.respondError
 import io.ktor.http.HttpHeaders
+import io.ktor.http.HttpMethod
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.headersOf
 import kotlinx.coroutines.Dispatchers
@@ -114,10 +115,11 @@ class TestPlatform : Platform {
     override fun createUserDatabaseDriver() = JdbcSqliteDriver("jdbc:sqlite:${dbFile.absolutePath}", java.util.Properties().apply { put("journal_mode", "WAL"); put("busy_timeout", "5000") }, UserDatabase.Schema)
     override val guideDirectory: String = java.nio.file.Files.createTempDirectory("signal-guide").toFile().apply { deleteOnExit() }.absolutePath
     override fun createGuideDatabaseDriver(path: String) = JdbcSqliteDriver("jdbc:sqlite:$path", java.util.Properties(), com.signal.db.guide.GuideDatabase.Schema)
-    /** What the NAS answers for a path, as JSON; null is a 404. */
+    /** What the NAS answers, as JSON, for a path, or "POST path" and so on for a write; null is a 404. */
     var nas: (String) -> String? = { null }
     override fun createHttpClient() = HttpClient(MockEngine { request ->
-        nas(request.url.encodedPath)?.let { respond(it, HttpStatusCode.OK, headersOf(HttpHeaders.ContentType, "application/json")) }
+        val path = request.url.encodedPath
+        nas(if (request.method == HttpMethod.Get) path else "${request.method.value} $path")?.let { respond(it, HttpStatusCode.OK, headersOf(HttpHeaders.ContentType, "application/json")) }
             ?: respondError(HttpStatusCode.NotFound)
     })
     override fun systemUses24HourClock() = true
