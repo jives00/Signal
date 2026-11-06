@@ -70,7 +70,7 @@ export default function Recordings() {
   };
   const schedule = (program: ProgramBrief) => {
     if (!channel) return;
-    void save("Recording set", () => scheduleRecording(profile, channel.streamId, program.start).then(() => undefined), done);
+    void save("Recording set", () => scheduleRecording(profile, channel.streamId, program.start, program.title).then(() => undefined), done);
   };
 
   return (
@@ -114,7 +114,7 @@ export default function Recordings() {
         <table className="table">
           <tbody>
             {programs.map((p) => (
-              <tr key={p.start}>
+              <tr key={`${p.start}:${p.title}`}>
                 <td>{day(p.start)} {clock(p.start)}</td>
                 <td>{p.title}</td>
                 <td className="actions"><button onClick={() => schedule(p)}>Record</button></td>

@@ -173,7 +173,7 @@ class Recorder(
         val at = now()
         if (programStop <= at) error("That program has ended.")
         (store.scheduled() + store.unfinished())
-            .firstOrNull { it.profileId == profileId && it.streamId == streamId && it.programStart == programStart }
+            .firstOrNull { it.profileId == profileId && it.streamId == streamId && it.programStart == programStart && it.title == title }
             ?.let { return it }
         val recording = Recording(
             UUID.randomUUID().toString(), profileId, streamId, title, channelName,

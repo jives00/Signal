@@ -20,7 +20,8 @@ import kotlinx.serialization.Serializable
 /** [conflicts] are the recordings still to come that may not get a source, because more overlap than there are sources. */
 @Serializable data class RecordingsView(val problem: String?, val freeBytes: Long, val recordings: List<Recording>, val conflicts: List<String> = emptyList())
 @Serializable data class StartRecording(val profile: String, val streamId: String, val minutes: Int)
-@Serializable data class ScheduleRecording(val profile: String, val streamId: String, val start: Long)
+/** [title] as well as [start]: a channel's guide can list two programs at one time. */
+@Serializable data class ScheduleRecording(val profile: String, val streamId: String, val start: Long, val title: String? = null)
 @Serializable data class ExtendRecording(val minutes: Int)
 
 private const val MAX_MINUTES = 12 * 60
@@ -118,7 +119,8 @@ fun Route.recordingRoutes(companion: Companion) {
         val body = call.receive<ScheduleRecording>()
         val now = System.currentTimeMillis()
         val row = channels.channel(body.profile, body.streamId, now) ?: return@post call.respondText("No such channel", status = HttpStatusCode.NotFound)
-        val program = channels.programs(body.profile, body.streamId, body.start, body.start + 1).firstOrNull { it.start == body.start }
+        val program = channels.programs(body.profile, body.streamId, body.start, body.start + 1)
+            .firstOrNull { it.start == body.start && (body.title == null || it.title == body.title) }
             ?: return@post call.respondText("The guide doesn't have that program.", status = HttpStatusCode.NotFound)
         val settings = companion.settings
         runCatching {

@@ -435,6 +435,7 @@ class RecorderTest {
         assertEquals(a.id, b.id)
         assertEquals(1, store.scheduled().size)
         assertNotEquals(a.id, rec.schedule("parents", "s:x:1", "Show", "Channel", start, start + 1_000, 0, 0).id)
+        assertNotEquals(a.id, rec.schedule("main", "s:x:1", "The other show at that time", "Channel", start, start + 1_000, 0, 0).id)
         assertEquals("That program has ended.", runCatching { schedule(rec, -2_000, 1_000) }.exceptionOrNull()?.message)
     }
 
