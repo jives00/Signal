@@ -44,6 +44,7 @@ private fun connectInBackground(companion: Companion, db: Config.DbConfig) = thr
                 // The catalog follows the synced sources (PLAN §5.2 → Source refresh).
                 companion.onSourcesChanged()
                 companion.recorder.recover()
+                companion.recorder.runSchedule()
             }
             .onFailure {
                 // The first failure, then every tenth, so a long outage doesn't flood the log.

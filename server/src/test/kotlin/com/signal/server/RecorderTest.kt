@@ -8,6 +8,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
@@ -16,9 +17,11 @@ import java.io.File
 import java.io.IOException
 import java.nio.file.Files
 import java.util.concurrent.CopyOnWriteArrayList
+import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNotEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -174,7 +177,7 @@ class RecorderTest {
     private val root = Files.createTempDirectory("signal-recordings").toFile()
     private val store = MemoryRecordingStore()
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-    private val timing = Recorder.Timing(retryMs = 20, reconnectMs = 20, recheckMs = 1, minFreeBytes = 1, keepMs = 1_000)
+    private val timing = Recorder.Timing(retryMs = 20, reconnectMs = 20, recheckMs = 1, minFreeBytes = 1, keepMs = 1_000, tickMs = 5, scheduleMs = 5, graceMs = 150)
     private fun info(active: Int?) = XtreamParser.AccountInfo(true, "Active", 1, active, null)
     private fun login(name: String) = RecordingLogin(name, name, "http://p/$name", emptyMap(), Source(name, name, SourceKind.XTREAM, "http://p", name, "secret-$name"))
 
@@ -193,6 +196,14 @@ class RecorderTest {
         { url, _, send -> val name = url.substringAfterLast('/'); connected += name; serve(name, send) },
         scope, timing,
     )
+
+    @AfterTest fun stopScheduling() = scope.cancel()
+
+    /** A program starting in [inMs]. */
+    private fun schedule(r: Recorder, inMs: Long, lengthMs: Long, beforeMs: Long = 0, afterMs: Long = 0, stream: String = "s:x:1"): Recording {
+        val start = System.currentTimeMillis() + inMs
+        return r.schedule("main", stream, "Show", "Channel", start, start + lengthMs, beforeMs, afterMs)
+    }
 
     private fun start(r: Recorder, ms: Long = 500) = r.start("main", "s:x:1", "Show", "Channel", System.currentTimeMillis() + ms)
 
@@ -401,6 +412,215 @@ class RecorderTest {
         assertNull(store.get(started.id))
         assertFalse(File(root, "main/${started.id}").exists())
         assertNull(rec.delete("nothing"))
+    }
+
+    @Test fun aScheduledRecordingWaitsForItsTimeWithNoConnection() {
+        val rec = recorder()
+        val r = schedule(rec, 300, 200)
+        rec.startDue()
+        assertEquals(RecordingState.SCHEDULED, store.get(r.id)!!.state)
+        assertTrue(connected.isEmpty())
+        rec.runSchedule()
+        val done = finished(r.id)
+        assertEquals(RecordingState.DONE, done.state)
+        assertEquals(listOf("own"), connected)
+        assertTrue(done.updatedAt >= r.programStart!! + 200, "it ran to the program's end")
+    }
+
+    @Test fun settingAProgramTwiceGivesTheFirstAndAnEndedOneIsRefused() {
+        val rec = recorder()
+        val start = System.currentTimeMillis() + 60_000
+        val a = rec.schedule("main", "s:x:1", "Show", "Channel", start, start + 1_000, 0, 0)
+        val b = rec.schedule("main", "s:x:1", "Show", "Channel", start, start + 1_000, 0, 0)
+        assertEquals(a.id, b.id)
+        assertEquals(1, store.scheduled().size)
+        assertNotEquals(a.id, rec.schedule("parents", "s:x:1", "Show", "Channel", start, start + 1_000, 0, 0).id)
+        assertEquals("That program has ended.", runCatching { schedule(rec, -2_000, 1_000) }.exceptionOrNull()?.message)
+    }
+
+    @Test fun aProgramAlreadyOnRecordsFromNowWithNoGap() {
+        val rec = recorder()
+        rec.runSchedule()
+        val r = finished(schedule(rec, -5_000, 5_300).id)
+        assertEquals(RecordingState.DONE, r.state)
+        assertEquals(0, r.gaps)
+    }
+
+    @Test fun aDeployWaitsForARecordingAboutToStartButNotOneHoursOff() {
+        val rec = recorder()
+        val soon = schedule(rec, 10 * 60_000, 1_000)
+        assertTrue(rec.busy())
+        store.delete(soon.id)
+        schedule(rec, 20 * 60_000, 1_000)
+        assertFalse(rec.busy())
+    }
+
+    @Test fun aScheduledRowLongPastItsEndDoesntHoldADeployBack() {
+        val at = System.currentTimeMillis()
+        store.save(Recording("old", "main", "s:x:1", "Show", "Channel", at - 3_600_000, at - 6 * 60_000, RecordingState.SCHEDULED, updatedAt = at, programStart = at - 3_600_000, programStop = at - 6 * 60_000))
+        assertFalse(recorder().busy())
+    }
+
+    @Test fun aRecordingMissedWhileTheCompanionWasDownFailsAndSaysWhy() {
+        val at = System.currentTimeMillis()
+        store.save(Recording("old", "main", "s:x:1", "Show", "Channel", at - 60_000, at - 1_000, RecordingState.SCHEDULED, updatedAt = at, programStart = at - 60_000, programStop = at - 1_000))
+        val rec = recorder()
+        rec.startDue()
+        val r = store.get("old")!!
+        assertEquals(RecordingState.FAILED, r.state)
+        assertEquals("The companion wasn't running.", r.reason)
+        assertTrue(connected.isEmpty())
+    }
+
+    @Test fun whenTheShareIsGoneAtTheStartItFailsAndNeverWritesToTheContainerDisk() {
+        val missing = File(root, "unmounted")
+        val at = System.currentTimeMillis()
+        store.save(Recording("r", "main", "s:x:1", "Show", "Channel", at, at + 60_000, RecordingState.SCHEDULED, updatedAt = at, programStart = at, programStop = at + 60_000))
+        recorder(missing).startDue()
+        assertEquals("The recordings folder isn't mounted.", store.get("r")!!.reason)
+        assertFalse(missing.exists())
+    }
+
+    @Test fun missingOnlyThePaddingIsntAGap() {
+        val free = System.currentTimeMillis() + 150
+        answers = { info(if (System.currentTimeMillis() < free) 1 else 0) }
+        val rec = recorder()
+        rec.runSchedule()
+        val r = finished(schedule(rec, 200, 300, beforeMs = 195, afterMs = 100).id)
+        assertEquals(RecordingState.DONE, r.state)
+        assertEquals(0, r.gaps)
+    }
+
+    @Test fun missingTheStartOfTheProgramIsAGap() {
+        val free = System.currentTimeMillis() + 500
+        answers = { info(if (System.currentTimeMillis() < free) 1 else 0) }
+        val rec = recorder()
+        rec.runSchedule()
+        val r = finished(schedule(rec, 0, 800).id)
+        assertEquals(RecordingState.PARTIAL, r.state)
+        assertEquals(1, r.gaps)
+        assertTrue(r.gapMs >= 300, "${r.gapMs}")
+    }
+
+    @Test fun backToBackOnOneSourceTheEarlierGivesUpItsPaddingForTheLater() {
+        logins = listOf(login("own"))
+        val rec = recorder()
+        rec.runSchedule()
+        val a = schedule(rec, 0, 300, afterMs = 60_000)
+        val b = schedule(rec, 300, 300, beforeMs = 100, stream = "s:x:2")
+        val first = finished(a.id)
+        assertTrue(first.stopMs < a.programStop!! + 2_000, "cut at the program's end, not its padding")
+        assertEquals(RecordingState.DONE, first.state)
+        val second = finished(b.id)
+        assertEquals("own", second.loginName)
+        assertTrue(second.bytes > 0)
+        assertEquals(listOf("own", "own"), connected)
+    }
+
+    @Test fun withASpareSourceNobodyLosesTheirPadding() {
+        val rec = recorder()
+        rec.runSchedule()
+        val a = schedule(rec, 0, 200, afterMs = 400)
+        val b = schedule(rec, 200, 200, beforeMs = 150, stream = "s:x:2")
+        val first = finished(a.id)
+        finished(b.id)
+        assertEquals(a.stopMs, first.stopMs)
+    }
+
+    @Test fun keepRecordingMovesTheEndWhileItRuns() {
+        val rec = recorder()
+        val r = start(rec, 200)
+        assertTrue(rec.extend(r.id, 400))
+        val done = finished(r.id)
+        assertEquals(r.stopMs + 400, done.stopMs)
+        assertEquals(400, done.extraMs)
+        assertTrue(done.endedAt!! >= r.stopMs + 400)
+        assertFalse(rec.extend(r.id, 400), "it's finished")
+    }
+
+    @Test fun keepRecordingWorksBeforeItStartsAndTheExtraTimeIsntGivenUp() {
+        logins = listOf(login("own"))
+        val rec = recorder()
+        val a = schedule(rec, 0, 100, afterMs = 0)
+        assertTrue(rec.extend(a.id, 500))
+        assertEquals(a.stopMs + 500, store.get(a.id)!!.stopMs)
+        rec.runSchedule()
+        schedule(rec, 100, 800, stream = "s:x:2")
+        val first = finished(a.id)
+        assertEquals(a.stopMs + 500, first.stopMs, "a game running long beats the next show's start")
+    }
+
+    @Test fun followsTheGuideAndKeepsAddedTimeAndFlagsAProgramItCantFind() {
+        val rec = recorder()
+        val r = schedule(rec, 3_600_000, 1_000, beforeMs = 100, afterMs = 200)
+        rec.extend(r.id, 900_000)
+        val moved = r.programStart!! + 1_800_000
+        rec.follow(r, ProgramBrief("Show", moved, moved + 5_000), 100, 200)
+        store.get(r.id)!!.let {
+            assertEquals(moved, it.programStart)
+            assertEquals(moved - 100, it.startMs)
+            assertEquals(moved + 5_000 + 200 + 900_000, it.stopMs)
+        }
+        rec.follow(r, null, 100, 200)
+        assertEquals(moved, store.get(r.id)!!.programStart, "it stays at its old time")
+        assertTrue(store.get(r.id)!!.reason!!.contains("no longer shows"))
+        rec.follow(r, ProgramBrief("Show", moved, moved + 5_000), 100, 200)
+        assertNull(store.get(r.id)!!.reason, "found again")
+    }
+
+    @Test fun aRunningRecordingFollowsANewEndButNeverItsStart() {
+        val got = CompletableDeferred<Unit>()
+        serve = { _, send -> feed(send); got.complete(Unit); awaitCancellation() }
+        val rec = recorder()
+        rec.runSchedule()
+        val r = schedule(rec, 0, 60_000)
+        runBlocking { withTimeout(5_000) { got.await() } }
+        val stop = System.currentTimeMillis() + 200
+        rec.follow(r, ProgramBrief("Show", r.programStart!! + 5_000, stop), 0, 0)
+        val done = finished(r.id)
+        assertEquals(r.startMs, done.startMs)
+        assertEquals(stop, done.stopMs)
+        assertEquals(RecordingState.DONE, done.state)
+    }
+
+    @Test fun aFinishedRecordingIsLeftAloneByTheGuide() {
+        val at = System.currentTimeMillis()
+        val r = Recording("old", "main", "s:x:1", "Show", "Channel", at - 2_000, at - 1_000, RecordingState.DONE, updatedAt = at, programStart = at - 2_000, programStop = at - 1_000)
+        store.save(r)
+        recorder().follow(r, ProgramBrief("Show", at, at + 1_000), 0, 0)
+        assertEquals(r, store.get("old"))
+    }
+
+    @Test fun cancellingAScheduledRecordingLeavesNothing() {
+        val rec = recorder()
+        val r = schedule(rec, 60_000, 1_000)
+        assertEquals(true, rec.delete(r.id))
+        assertTrue(store.scheduled().isEmpty())
+    }
+
+    @Test fun findsAMovedProgramByTitleNearestWhereItWas() {
+        val hour = 3_600_000L
+        val news = listOf(ProgramBrief("News", 0, hour), ProgramBrief("Game", hour, 2 * hour), ProgramBrief("News", 3 * hour, 4 * hour))
+        assertEquals(news[2], sameProgram(news, " news ", 2 * hour + 60_000))
+        assertEquals(news[1], sameProgram(news, "Game", 90 * 60_000L))
+        assertNull(sameProgram(news, "Game", 4 * hour), "more than 2 hours away")
+        assertNull(sameProgram(news, "Movie", hour))
+    }
+
+    @Test fun flagsRecordingsThatCantAllGetASource() {
+        fun at(id: String, start: Long, stop: Long, state: RecordingState = RecordingState.SCHEDULED, extra: Long = 0) =
+            Recording(id, "main", "s:x:1", id, "Channel", start - 60, stop + 300, state, updatedAt = 0, programStart = start, programStop = stop, extraMs = extra)
+        suspend fun check(sources: Int, vararg rows: Recording) =
+            recordingConflicts(rows.filter { it.state == RecordingState.SCHEDULED }, rows.filter { it.state != RecordingState.SCHEDULED }) { sources }
+        runBlocking {
+            assertEquals(emptyList(), check(1, at("a", 0, 100), at("b", 100, 200)), "back to back fits, padding aside")
+            assertEquals(listOf("a", "b"), check(1, at("a", 0, 150), at("b", 100, 200)))
+            assertEquals(emptyList(), check(2, at("a", 0, 150), at("b", 100, 200)))
+            assertEquals(listOf("b"), check(1, at("a", 0, 150, RecordingState.RECORDING), at("b", 100, 200)), "something already recording counts")
+            assertEquals(listOf("a", "b"), check(1, at("a", 0, 100, extra = 50), at("b", 100, 200)), "added time counts")
+            // Three overlap "c", but never all at once.
+            assertEquals(emptyList(), check(2, at("a", 0, 100), at("b", 100, 200), at("c", 50, 150)))
+        }
     }
 
     @Test fun servesOnlyItsOwnFiles() {

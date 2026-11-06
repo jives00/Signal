@@ -87,7 +87,7 @@ export const Recording = z.object({
   channelName: z.string(),
   startMs: z.number(),
   stopMs: z.number(),
-  state: z.enum(["WAITING", "RECORDING", "DONE", "PARTIAL", "FAILED"]),
+  state: z.enum(["SCHEDULED", "WAITING", "RECORDING", "DONE", "PARTIAL", "FAILED"]),
   loginName: z.string().nullable(),
   endedAt: z.number().nullable(),
   updatedAt: z.number(),
@@ -97,11 +97,15 @@ export const Recording = z.object({
   gapMs: z.number(),
   reason: z.string().nullable(),
   expiresAt: z.number().nullable(),
+  programStart: z.number().nullable(),
+  programStop: z.number().nullable(),
+  extraMs: z.number(),
 });
 export type Recording = z.infer<typeof Recording>;
 /** server/RecordingRoutes.kt → RecordingsView. */
-export const RecordingsView = z.object({ problem: z.string().nullable(), freeBytes: z.number(), recordings: z.array(Recording) });
+export const RecordingsView = z.object({ problem: z.string().nullable(), freeBytes: z.number(), recordings: z.array(Recording), conflicts: z.array(z.string()) });
 export type RecordingsView = z.infer<typeof RecordingsView>;
+export const ProgramList = z.array(ProgramBrief);
 
 export const SourceView = z.object({
   id: z.string(),
@@ -193,6 +197,8 @@ export const CompanionSettingsView = z.object({
   imageCacheGb: z.number().default(20),
   githubTokenSet: z.boolean().default(false),
   githubToken: z.string().nullable().default(null),
+  recordBeforeMinutes: z.number().default(1),
+  recordAfterMinutes: z.number().default(5),
 });
 export const SettingsView = z.object({
   household: z.record(z.string()),

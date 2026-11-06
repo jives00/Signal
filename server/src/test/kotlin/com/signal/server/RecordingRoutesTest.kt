@@ -62,6 +62,27 @@ class RecordingRoutesTest {
         assertEquals(HttpStatusCode.NotFound, start(30).status)
     }
 
+    @Test fun schedulingNeedsAChannelInTheGuideAndKeepRecordingNeedsARealChoice() = testApplication {
+        val dir = Files.createTempDirectory("recordings").toFile()
+        application { signalModule(companion(dir.path)) }
+        val json = ContentType.Application.Json.toString()
+        val scheduled = client.post("/api/recordings/schedule") {
+            header(HttpHeaders.ContentType, json)
+            setBody("""{"profile":"main","streamId":"nope","start":1}""")
+        }
+        assertEquals(HttpStatusCode.NotFound, scheduled.status)
+        suspend fun extend(minutes: Int) = client.post("/api/recordings/r1/extend") {
+            header(HttpHeaders.ContentType, json)
+            setBody("""{"minutes":$minutes}""")
+        }
+        assertEquals(HttpStatusCode.BadRequest, extend(5).status)
+        assertEquals(HttpStatusCode.Conflict, extend(15).status)
+        store.save(unfinished().copy(state = RecordingState.SCHEDULED, stopMs = 1_000))
+        assertEquals(HttpStatusCode.NoContent, extend(15).status)
+        assertEquals(1_000 + 15 * 60_000L, store.get("r1")!!.stopMs)
+        assertEquals("[]", client.get("/api/recordings/programs?streamId=nope").bodyAsText())
+    }
+
     @Test fun servesAFinishedRecordingsFilesAndDeletesThem() = testApplication {
         val dir = Files.createTempDirectory("recordings").toFile()
         val files = RecordingFiles(dir.resolve("main/r1"))

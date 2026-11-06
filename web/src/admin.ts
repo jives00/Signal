@@ -57,6 +57,10 @@ export const getWatchStream = (profile: string, streamId: string) => read(S.Watc
 export const getRecordings = (profile: string) => read(S.RecordingsView, `/api/recordings?${q(profile)}`);
 export const startRecording = (profile: string, streamId: string, minutes: number) =>
   send<unknown>("/api/recordings", { method: "POST", body: JSON.stringify({ profile, streamId, minutes }) }).then((r) => S.Recording.parse(r));
+export const getPrograms = (profile: string, streamId: string) => read(S.ProgramList, `/api/recordings/programs?${q(profile)}&streamId=${enc(streamId)}`);
+export const scheduleRecording = (profile: string, streamId: string, start: number) =>
+  send<unknown>("/api/recordings/schedule", { method: "POST", body: JSON.stringify({ profile, streamId, start }) }).then((r) => S.Recording.parse(r));
+export const keepRecording = (id: string, minutes: number) => send<void>(`/api/recordings/${enc(id)}/extend`, { method: "POST", body: JSON.stringify({ minutes }) });
 export const stopRecording = (id: string) => send<void>(`/api/recordings/${enc(id)}/stop`, { method: "POST" });
 export const deleteRecording = (id: string) => send<void>(`/api/recordings/${enc(id)}`, { method: "DELETE" });
 

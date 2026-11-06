@@ -365,6 +365,14 @@ class AdminChannels(private val companion: Companion) {
         }
     }
 
+    /** A channel's guide between two times; empty when it has no guide. */
+    fun programs(profileId: String, streamId: String, from: Long, to: Long): List<ProgramBrief> {
+        val view = view(profileId)
+        val s = companion.catalog.streams.firstOrNull { it.id == streamId } ?: return emptyList()
+        val ref = guideRefFor(view, s)[s.id] ?: return emptyList()
+        return companion.guideReader.programs(ref.epgSourceId, ref.guideChannelId, ref.timeShiftMs, from, to)
+    }
+
     /** Rows for user channels in order (Favorites, a playlist), falling back to "unavailable". */
     fun rowsFor(view: AdminView, userChannels: List<String>, now: Long): List<ChannelRow> {
         val byId = companion.catalog.streams.associateBy { it.id }

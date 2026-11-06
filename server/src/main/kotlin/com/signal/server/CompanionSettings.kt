@@ -21,6 +21,9 @@ data class CompanionSettingsView(
     val githubTokenSet: Boolean = false,
     /** On save: a new token, "" to remove it, or null to keep the saved one. */
     val githubToken: String? = null,
+    /** How long a scheduled recording starts ahead of its program, and runs past it (dvr.md). */
+    val recordBeforeMinutes: Int = 1,
+    val recordAfterMinutes: Int = 5,
 )
 
 class CompanionSettings(private val companion: Companion) {
@@ -30,6 +33,9 @@ class CompanionSettings(private val companion: Companion) {
     val tombstoneDays: Int get() = get(TOMBSTONE_DAYS)?.toIntOrNull()?.coerceIn(7, 3650) ?: 90
     val newDeviceProfile: String get() = get(NEW_DEVICE_PROFILE)?.takeIf { it == OWN } ?: MAIN
     val imageCacheGb: Int get() = get(IMAGE_CACHE_GB)?.toIntOrNull()?.coerceIn(1, 500) ?: 20
+
+    val recordBeforeMinutes: Int get() = get(RECORD_BEFORE)?.toIntOrNull()?.coerceIn(0, 60) ?: 1
+    val recordAfterMinutes: Int get() = get(RECORD_AFTER)?.toIntOrNull()?.coerceIn(0, 120) ?: 5
 
     /** Decrypted with the secret key (PLAN §5.7); null when unset or the key can't decrypt it. */
     val tmdbKey: String? get() = get(TMDB_KEY)?.takeIf { it.isNotEmpty() }?.let { enc -> runCatching { companion.cipher?.decrypt(enc) }.getOrNull() }
@@ -51,6 +57,8 @@ class CompanionSettings(private val companion: Companion) {
         if (v.tombstoneDays !in 7..3650) return "Keep deletes between 7 and 3650 days."
         if (v.newDeviceProfile != MAIN && v.newDeviceProfile != OWN) return "New devices join Main or get their own profile."
         if (v.imageCacheGb !in 1..500) return "Keep the image cache between 1 and 500 GB."
+        if (v.recordBeforeMinutes !in 0..60) return "Start recordings up to 60 minutes early."
+        if (v.recordAfterMinutes !in 0..120) return "Run recordings up to 120 minutes over."
         val key = v.tmdbKey?.trim()
         if (!key.isNullOrEmpty() && companion.cipher == null) return "SIGNAL_SECRET_KEY isn't set, so the TMDB key can't be stored."
         if (!key.isNullOrEmpty() && !key.all { it.isLetterOrDigit() || it in "._-" }) return "That doesn't look like a TMDB API key or read access token."
@@ -62,6 +70,8 @@ class CompanionSettings(private val companion: Companion) {
         store.putSetting(TOMBSTONE_DAYS, v.tombstoneDays.toString())
         store.putSetting(NEW_DEVICE_PROFILE, v.newDeviceProfile)
         store.putSetting(IMAGE_CACHE_GB, v.imageCacheGb.toString())
+        store.putSetting(RECORD_BEFORE, v.recordBeforeMinutes.toString())
+        store.putSetting(RECORD_AFTER, v.recordAfterMinutes.toString())
         when {
             key == null -> {}
             key.isEmpty() -> store.putSetting(TMDB_KEY, "")
@@ -82,6 +92,8 @@ class CompanionSettings(private val companion: Companion) {
         const val TMDB_KEY = "tmdb_api_key"
         const val IMAGE_CACHE_GB = "image_cache_gb"
         const val GITHUB_TOKEN = "github_token"
+        const val RECORD_BEFORE = "record_before_minutes"
+        const val RECORD_AFTER = "record_after_minutes"
         const val MAIN = "main"
         const val OWN = "own"
     }

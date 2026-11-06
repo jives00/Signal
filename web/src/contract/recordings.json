@@ -19,7 +19,10 @@
             "gaps": 0,
             "gapMs": 0,
             "reason": null,
-            "expiresAt": null
+            "expiresAt": null,
+            "programStart": null,
+            "programStop": null,
+            "extraMs": 0
         },
         {
             "id": "r2",
@@ -38,7 +41,35 @@
             "gaps": 1,
             "gapMs": 600000,
             "reason": "The stream dropped.",
-            "expiresAt": 1794415600000
+            "expiresAt": 1794415600000,
+            "programStart": null,
+            "programStop": null,
+            "extraMs": 0
+        },
+        {
+            "id": "r3",
+            "profileId": "main",
+            "streamId": "src:x:42",
+            "title": "The game",
+            "channelName": "FOX Sports 1",
+            "startMs": 1791900000000,
+            "stopMs": 1791910000000,
+            "state": "SCHEDULED",
+            "loginName": null,
+            "endedAt": null,
+            "updatedAt": 1791828010000,
+            "bytes": 0,
+            "durationMs": 0,
+            "gaps": 0,
+            "gapMs": 0,
+            "reason": null,
+            "expiresAt": null,
+            "programStart": 1791900060000,
+            "programStop": 1791909700000,
+            "extraMs": 900000
         }
+    ],
+    "conflicts": [
+        "r3"
     ]
 }

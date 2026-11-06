@@ -162,6 +162,8 @@ class GuideJob(private val companion: Companion, private val scope: CoroutineSco
         store.finishJob(id, System.currentTimeMillis(), if (result.isSuccess) "ok" else "failed", detail)
         // Open apps swap the new build in without waiting for their 30-minute check (PLAN §9.2).
         result.onSuccess { companion.events.tryEmit(com.signal.sync.SyncEvent(com.signal.sync.SyncEvent.GUIDE, builtAt = it.builtAt)) }
+        // A problem here mustn't stop the job's own follow-up below.
+        result.onSuccess { runCatching { followGuide(companion) }.onFailure { e -> log.warn("Couldn't follow the guide: ${e.javaClass.simpleName}") } }
         if (rebuild) {
             rebuild = false
             run("sources changed")

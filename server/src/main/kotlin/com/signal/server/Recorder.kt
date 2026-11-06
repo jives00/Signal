@@ -13,7 +13,13 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
@@ -90,21 +96,33 @@ class Recorder(
         val minFreeBytes: Long = 5L shl 30,
         /** Replaced by the retention settings in the next stage. */
         val keepMs: Long = 30 * 24 * 60 * 60_000L,
+        /** How soon a recording's end is noticed. It can move while it runs. */
+        val tickMs: Long = 1_000,
+        /** How often scheduled recordings are looked at. */
+        val scheduleMs: Long = 10_000,
+        /** Missing less than this at the very start isn't a gap: the provider sends about 25 s of buffer on connect. */
+        val graceMs: Long = 20_000,
     )
 
     private companion object Limits {
         const val STUCK_AFTER_MS = 5 * 60_000L
+        /** A deploy waits this long ahead of a scheduled recording, padding included (dvr.md). */
+        const val HOLD_AHEAD_MS = 15 * 60_000L
+        const val GUIDE_LOST = "The guide no longer shows this, so it'll record at the original time."
     }
 
     private class Run(@Volatile var recording: Recording, val resumed: Boolean) {
         lateinit var job: Job
         var reason: String? = null
+        @Volatile var wantsSource = false
     }
 
     private val runs = ConcurrentHashMap<String, Run>()
     private val picking = Mutex()
     /** Logins our own recordings are on, which the provider may not count yet. */
     private val held = ConcurrentHashMap.newKeySet<String>()
+    /** Goes up each time a recording lets go of a login, so one that's waiting can look again. */
+    private val released = MutableStateFlow(0)
     @Volatile private var stopping = false
 
     /** Why recording can't start now, or null. The folder has to be the mounted share: never fall back to the container's disk. */
@@ -121,11 +139,16 @@ class Recorder(
     fun freeBytes(): Long = root?.takeIf { it.isDirectory }?.usableSpace ?: 0
 
     /**
-     * For the deploy guard: true while anything is recording or waiting to, restarted or not. A row
-     * well past its end with nothing running is stuck, and must never hold deploys back for good.
+     * For the deploy guard: true while anything is recording or waiting to, restarted or not, or is
+     * about to start. A row well past its end with nothing running is stuck, and must never hold
+     * deploys back for good.
      */
-    fun busy(): Boolean = runs.isNotEmpty() ||
-        runCatching { store()?.unfinished().orEmpty().any { it.stopMs > now() - STUCK_AFTER_MS } }.getOrDefault(false)
+    fun busy(): Boolean = runs.isNotEmpty() || runCatching {
+        val store = store() ?: return@runCatching false
+        val at = now()
+        store.unfinished().any { it.stopMs > at - STUCK_AFTER_MS } ||
+            store.scheduled().any { it.startMs <= at + HOLD_AHEAD_MS && it.stopMs > at - STUCK_AFTER_MS }
+    }.getOrDefault(false)
 
     /** Starts recording now, until [stopMs]. Throws [IllegalStateException] with the reason when it can't. */
     fun start(profileId: String, streamId: String, title: String, channelName: String, stopMs: Long): Recording {
@@ -137,6 +160,91 @@ class Recorder(
         store.save(recording)
         launch(Run(recording, resumed = false))
         return recording
+    }
+
+    /**
+     * Sets a program to record, from [beforeMs] ahead of it to [afterMs] past it. Setting the same
+     * program twice gives back the first. If it's already on, it records from now. Throws
+     * [IllegalStateException] with the reason when it can't.
+     */
+    fun schedule(profileId: String, streamId: String, title: String, channelName: String, programStart: Long, programStop: Long, beforeMs: Long, afterMs: Long): Recording {
+        problem()?.let { error(it) }
+        val store = store() ?: error("The database isn't connected yet.")
+        val at = now()
+        if (programStop <= at) error("That program has ended.")
+        (store.scheduled() + store.unfinished())
+            .firstOrNull { it.profileId == profileId && it.streamId == streamId && it.programStart == programStart }
+            ?.let { return it }
+        val recording = Recording(
+            UUID.randomUUID().toString(), profileId, streamId, title, channelName,
+            maxOf(at, programStart - beforeMs), programStop + afterMs, RecordingState.SCHEDULED, updatedAt = at,
+            programStart = programStart, programStop = programStop,
+        )
+        store.save(recording)
+        return recording
+    }
+
+    /** Starts whatever is due. A scheduled recording whose time passed with the companion down can't be saved now. */
+    fun startDue() {
+        if (stopping) return
+        val store = store() ?: return
+        store.scheduled().filter { !runs.containsKey(it.id) && it.startMs <= now() }.forEach { recording ->
+            val problem = problem()
+            when {
+                recording.stopMs <= now() -> close(recording, "The companion wasn't running.")
+                problem != null -> close(recording, problem)
+                else -> launch(Run(recording, resumed = false))
+            }
+        }
+    }
+
+    /** Keeps [startDue] going, once the database is there. */
+    fun runSchedule(): Job = scope.launch(Dispatchers.IO) {
+        while (isActive) {
+            runCatching { startDue() }.onFailure { log.warn("Couldn't check the schedule: ${it.javaClass.simpleName}") }
+            delay(timing.scheduleMs)
+        }
+    }
+
+    /** "Keep recording": more time at the end, for one running or still to come. False when it's finished. */
+    fun extend(id: String, addMs: Long): Boolean {
+        val more: Recording.() -> Recording = { copy(stopMs = stopMs + addMs, extraMs = extraMs + addMs) }
+        runs[id]?.let { run ->
+            update(run, more)
+            return true
+        }
+        val store = store() ?: return false
+        val recording = store.get(id)?.takeIf { it.state == RecordingState.SCHEDULED } ?: return false
+        store.save(recording.more().copy(updatedAt = now()))
+        return true
+    }
+
+    /**
+     * After a guide build: moves a recording to where the guide has its program now, or, when
+     * [program] is null, flags one still to come that it can't find.
+     */
+    fun follow(recording: Recording, program: ProgramBrief?, beforeMs: Long, afterMs: Long) {
+        val store = store() ?: return
+        val run = runs[recording.id]
+        val current = run?.recording ?: store.get(recording.id) ?: return
+        val waiting = current.state == RecordingState.SCHEDULED
+        if (!waiting && run == null) return
+        val moved: Recording.() -> Recording = when {
+            program != null -> {
+                {
+                    copy(
+                        startMs = if (waiting) maxOf(now(), program.start - beforeMs) else startMs,
+                        stopMs = program.stop + afterMs + extraMs,
+                        programStart = program.start, programStop = program.stop,
+                        reason = reason.takeIf { it != GUIDE_LOST },
+                    )
+                }
+            }
+            waiting -> { { copy(reason = GUIDE_LOST) } }
+            else -> return
+        }
+        if (current.moved() == current) return
+        if (run != null) update(run, moved) else store.save(current.moved().copy(updatedAt = now()))
     }
 
     /** Ends a recording early, keeping what it has. False when it isn't running. */
@@ -175,12 +283,14 @@ class Recorder(
                 launch(Run(recording, resumed = true))
             } else {
                 val missed = (recording.stopMs - recording.updatedAt).coerceAtLeast(0)
-                val run = Run(recording.copy(gaps = recording.gaps + 1, gapMs = recording.gapMs + missed), resumed = true)
-                run.reason = "The companion was restarted."
                 folder(recording)?.takeIf { it.isDirectory }?.let { dir -> runCatching { RecordingFiles(dir).end() } }
-                finish(run)
+                close(recording.copy(gaps = recording.gaps + 1, gapMs = recording.gapMs + missed), "The companion was restarted.")
             }
         }
+    }
+
+    private fun close(recording: Recording, reason: String) {
+        finish(Run(recording, resumed = true).also { it.reason = reason })
     }
 
     /** On SIGTERM: closes what's open and leaves each recording unfinished, for [recover]. */
@@ -223,37 +333,43 @@ class Recorder(
 
     private suspend fun record(run: Run) {
         val dir = folder(run.recording) ?: return finish(run)
-        var gapFrom: Long? = if (run.resumed) run.recording.updatedAt else null
+        val scheduled = run.recording.programStart != null
+        var gapFrom: Long? = if (run.resumed) run.recording.updatedAt else run.recording.startMs.takeIf { scheduled }
+        var hadData = run.resumed
+        if (run.recording.state == RecordingState.SCHEDULED) update(run) { copy(state = RecordingState.WAITING) }
         val files = RecordingFiles(dir) { durationMs, bytes ->
             update(run) { copy(durationMs = this.durationMs + durationMs, bytes = this.bytes + bytes) }
             if (dir.usableSpace < timing.minFreeBytes / 5) throw RecordingStopped("The recordings folder is nearly full.")
         }
         try {
             while (true) {
-                val left = run.recording.stopMs - now()
-                if (left <= 0) break
+                if (over(run)) break
                 val login = pick(run)
+                run.wantsSource = login == null
                 if (login == null) {
                     gapFrom = gapFrom ?: now()
                     update(run) { copy(state = RecordingState.WAITING) }
-                    delay(minOf(timing.retryMs, left))
+                    awaitLogin(run)
                     continue
                 }
                 update(run) { copy(state = RecordingState.RECORDING, loginName = login.name) }
                 val segmenter = TsSegmenter(files)
                 var dropped = true
                 try {
-                    val ended = withTimeoutOrNull(left) {
+                    dropped = streamUntilOver(run) {
                         fetch.stream(login.url, login.headers) { data, length ->
                             gapFrom?.let { from ->
-                                update(run) { copy(gaps = gaps + 1, gapMs = gapMs + (now() - from).coerceAtLeast(0)) }
+                                addGap(run, from, now(), starting = !hadData)
                                 gapFrom = null
                             }
+                            hadData = true
                             segmenter.feed(data, 0, length)
                         }
-                        true
                     }
-                    if (ended == null) dropped = false else log.info("Stream ended: ${run.recording.title}")
+                    if (dropped) {
+                        run.reason = "The stream dropped."
+                        log.info("Stream ended: ${run.recording.title}")
+                    }
                 } catch (e: StreamRefused) {
                     run.reason = "The provider refused the stream (${e.status})."
                     log.info("Stream refused, ${e.status}: ${run.recording.title}")
@@ -266,6 +382,7 @@ class Recorder(
                     log.info("Stream dropped, ${e.javaClass.simpleName}: ${run.recording.title}")
                 } finally {
                     held.remove(login.key)
+                    released.update { it + 1 }
                     segmenter.close()
                 }
                 if (!dropped) break
@@ -284,12 +401,53 @@ class Recorder(
             run.reason = "Couldn't write to the recordings folder."
             log.error("Couldn't write a recording: ${e.javaClass.simpleName}")
         }
-        gapFrom?.let { from ->
-            val end = minOf(now(), run.recording.stopMs)
-            run.recording = run.recording.copy(gaps = run.recording.gaps + 1, gapMs = run.recording.gapMs + (end - from).coerceAtLeast(0))
-        }
+        run.wantsSource = false
+        gapFrom?.let { from -> addGap(run, from, minOf(now(), run.recording.stopMs), starting = !hadData) }
         runCatching { files.end() }
         finish(run)
+    }
+
+    /**
+     * Whether a recording should end now: at its end, or at the end of its program when another
+     * recording has no login to use. A program always beats someone else's padding, so back-to-back
+     * shows on one login each start on time. The provider's buffer on connect covers the changeover.
+     */
+    private fun over(run: Run): Boolean {
+        val r = run.recording
+        if (now() >= r.stopMs) return true
+        val programStop = r.programStop ?: return false
+        return now() >= programStop + r.extraMs && runs.values.any { it !== run && it.wantsSource }
+    }
+
+    /** Streams until the recording is over, however its end moves. True when the stream ended first. */
+    private suspend fun streamUntilOver(run: Run, stream: suspend () -> Unit): Boolean = coroutineScope {
+        val streaming = launch { stream() }
+        while (streaming.isActive) {
+            if (over(run)) {
+                streaming.cancelAndJoin()
+                if (now() < run.recording.stopMs) update(run) { copy(stopMs = now()) }
+                return@coroutineScope false
+            }
+            withTimeoutOrNull(timing.tickMs) { streaming.join() }
+        }
+        true
+    }
+
+    /** Until it's time to ask again: the retry interval, or soon after a login comes free. */
+    private suspend fun awaitLogin(run: Run) {
+        val seen = released.value
+        val wait = minOf(timing.retryMs, (run.recording.stopMs - now()).coerceAtLeast(0))
+        if (withTimeoutOrNull(wait) { released.first { it != seen } } != null) delay(timing.reconnectMs)
+    }
+
+    /** Records a stretch that was missed. Only the program counts: missing the padding isn't a gap, nor is a moment connecting. */
+    private fun addGap(run: Run, from: Long, to: Long, starting: Boolean) {
+        val r = run.recording
+        val start = maxOf(from, r.programStart ?: from)
+        val end = minOf(to, r.programStop?.let { it + r.extraMs } ?: to)
+        val ms = (end - start).coerceAtLeast(0)
+        if (r.programStart != null && (ms == 0L || (starting && ms < timing.graceMs))) return
+        update(run) { copy(gaps = gaps + 1, gapMs = gapMs + ms) }
     }
 
     private fun finish(run: Run) {

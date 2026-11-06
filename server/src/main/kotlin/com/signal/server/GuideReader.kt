@@ -65,6 +65,13 @@ class GuideReader(private val builds: () -> File?) {
         return GuideResolver.resolve(mapping, tvgId, rawName, sources, defaultId) { id -> indexes.getOrPut(id) { GuideResolver.buildIndex(db, id) } }
     }
 
+    /** What a guide channel has between two times, in displayed time. */
+    @Synchronized fun programs(epgSourceId: String, guideChannelId: String, shiftMs: Long, from: Long, to: Long): List<ProgramBrief> {
+        val db = current() ?: return emptyList()
+        return db.guideQueries.programsBetween(epgSourceId, guideChannelId, from - shiftMs, to - shiftMs).executeAsList()
+            .map { ProgramBrief(it.title, it.start + shiftMs, it.stop + shiftMs) }
+    }
+
     /** The program on now and the next one on a guide channel; [shiftMs] is its EPG source's time shift. */
     @Synchronized fun nowAndNext(epgSourceId: String, guideChannelId: String, shiftMs: Long, now: Long): Pair<ProgramBrief?, ProgramBrief?> {
         val db = current() ?: return null to null
