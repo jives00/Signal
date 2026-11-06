@@ -11,7 +11,7 @@ const minutes = (ms: number) => `${Math.round(ms / 60_000)} min`;
 
 function status(r: Recording): string {
   switch (r.state) {
-    case "WAITING": return "Waiting for a free login";
+    case "WAITING": return "Waiting for a free source";
     case "RECORDING": return `Recording until ${clock(r.stopMs)}`;
     case "DONE": return `Done: ${minutes(r.durationMs)}`;
     case "PARTIAL": return `Partial: ${minutes(r.gapMs)} missing`;
@@ -63,7 +63,7 @@ export default function Recordings() {
   return (
     <div className="page">
       <h1>Recordings</h1>
-      <p className="detail">Records on any free provider login, and never over a TV that's watching. {view && !view.problem && `${gigabytes(view.freeBytes)} free.`}</p>
+      <p className="detail">Records on any free source, and never over a TV that's watching. {view && !view.problem && `${gigabytes(view.freeBytes)} free.`}</p>
       {error && <p className="error-text">{error}</p>}
       {view?.problem && <p className="error-text">{view.problem}</p>}
 

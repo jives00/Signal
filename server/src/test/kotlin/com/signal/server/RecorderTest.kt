@@ -238,7 +238,7 @@ class RecorderTest {
         val r = finished(start(recorder()).id)
         assertEquals(RecordingState.FAILED, r.state)
         assertTrue(connected.isEmpty())
-        assertEquals("No login was free.", r.reason)
+        assertEquals("No source was free.", r.reason)
     }
 
     @Test fun anUnclearAnswerIsAskedAgainThenCountsAsBusy() {

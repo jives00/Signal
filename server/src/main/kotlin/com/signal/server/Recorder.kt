@@ -301,7 +301,7 @@ class Recorder(
         }
         val at = now()
         val reason = when (state) {
-            RecordingState.FAILED -> run.reason ?: "No login was free."
+            RecordingState.FAILED -> run.reason ?: "No source was free."
             RecordingState.PARTIAL -> run.reason
             else -> null
         }
