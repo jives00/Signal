@@ -177,7 +177,8 @@ class RecorderTest {
     private val root = Files.createTempDirectory("signal-recordings").toFile()
     private val store = MemoryRecordingStore()
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-    private val timing = Recorder.Timing(retryMs = 20, reconnectMs = 20, recheckMs = 1, minFreeBytes = 1, keepMs = 1_000, tickMs = 5, scheduleMs = 5, graceMs = 150)
+    private val timing = Recorder.Timing(retryMs = 20, reconnectMs = 20, recheckMs = 1, minFreeBytes = 1, tickMs = 5, scheduleMs = 5, graceMs = 150)
+    private var rules = Recorder.Retention()
     private fun info(active: Int?) = XtreamParser.AccountInfo(true, "Active", 1, active, null)
     private fun login(name: String) = RecordingLogin(name, name, "http://p/$name", emptyMap(), Source(name, name, SourceKind.XTREAM, "http://p", name, "secret-$name"))
 
@@ -194,8 +195,20 @@ class RecorderTest {
         dir, { store }, { logins },
         { s -> asked += s.name; answers(s.name) },
         { url, _, send -> val name = url.substringAfterLast('/'); connected += name; serve(name, send) },
-        scope, timing,
+        scope, timing, retention = { rules },
     )
+
+    /** A finished recording with its folder on disk. */
+    private fun kept(id: String, bytes: Long = 100, expiresIn: Long = 86_400_000, watched: Boolean = false): Recording {
+        val at = System.currentTimeMillis()
+        val r = Recording(id, "main", "s:x:1", id, "Channel", at - 60_000, at - 1_000, RecordingState.DONE, endedAt = at - 1_000, updatedAt = at, bytes = bytes, durationMs = 60_000, expiresAt = at + expiresIn, watchedAt = at.takeIf { watched })
+        store.save(r)
+        File(root, "main/$id").mkdirs()
+        File(root, "main/$id/index.m3u8").writeText("#EXTM3U")
+        return r
+    }
+
+    private fun gone(id: String) = store.get(id) == null && !File(root, "main/$id").exists()
 
     @AfterTest fun stopScheduling() = scope.cancel()
 
@@ -622,6 +635,129 @@ class RecorderTest {
             // Three overlap "c", but never all at once.
             assertEquals(emptyList(), check(2, at("a", 0, 100), at("b", 100, 200), at("c", 50, 150)))
         }
+    }
+
+    @Test fun aSweepRemovesWhatExpiredAndNothingElse() {
+        kept("old", expiresIn = -1)
+        kept("new")
+        recorder().sweep()
+        assertTrue(gone("old"))
+        assertFalse(gone("new"))
+    }
+
+    @Test fun aSweepNeverTouchesWhatsUnfinishedOrScheduled() {
+        val at = System.currentTimeMillis()
+        store.save(Recording("up", "main", "s:x:1", "Show", "Channel", at + 60_000, at + 120_000, RecordingState.SCHEDULED, updatedAt = at))
+        val rec = recorder()
+        val got = CompletableDeferred<Unit>()
+        serve = { _, send -> feed(send); got.complete(Unit); awaitCancellation() }
+        val running = start(rec, 60_000)
+        runBlocking { withTimeout(5_000) { got.await() } }
+        rules = Recorder.Retention(capBytes = 0)
+        rec.sweep()
+        assertNotNull(store.get("up"))
+        assertNotNull(store.get(running.id))
+        assertTrue(File(root, "main/${running.id}/index.m3u8").exists())
+        rec.stop(running.id)
+    }
+
+    @Test fun aSweepLeavesARecordingBeingWatchedEvenPastItsExpiryOrTheCap() {
+        kept("old", expiresIn = -1)
+        kept("big", bytes = 1_000)
+        rules = Recorder.Retention(capBytes = 10)
+        val rec = recorder()
+        assertNotNull(rec.file("old", "index.m3u8"))
+        assertNotNull(rec.file("big", "index.m3u8"))
+        rec.sweep()
+        assertFalse(gone("old"))
+        assertFalse(gone("big"))
+    }
+
+    @Test fun overTheCapItRemovesWatchedFirstThenSoonestToExpire() {
+        kept("unwatched-soon", expiresIn = 1_000_000)
+        kept("unwatched-late", expiresIn = 9_000_000)
+        kept("watched-late", expiresIn = 8_000_000, watched = true)
+        kept("watched-soon", expiresIn = 2_000_000, watched = true)
+        rules = Recorder.Retention(capBytes = 250)
+        recorder().sweep()
+        assertTrue(gone("watched-soon"))
+        assertTrue(gone("watched-late"))
+        assertFalse(gone("unwatched-soon"))
+        assertFalse(gone("unwatched-late"))
+        rules = Recorder.Retention(capBytes = 100)
+        recorder().sweep()
+        assertTrue(gone("unwatched-soon"))
+        assertFalse(gone("unwatched-late"))
+    }
+
+    @Test fun underTheCapNothingIsRemoved() {
+        kept("a")
+        kept("b")
+        rules = Recorder.Retention(capBytes = 200)
+        recorder().sweep()
+        assertFalse(gone("a"))
+        assertFalse(gone("b"))
+    }
+
+    @Test fun aSweepWithAFolderOutsideTheShareTouchesNothingOnDisk() {
+        val outside = File(root.parentFile, "outside-${System.nanoTime()}").apply { mkdirs() }
+        File(outside, "keep.txt").writeText("x")
+        val at = System.currentTimeMillis()
+        store.save(Recording("../../${outside.name}", "main", "s:x:1", "Show", "Channel", 0, 1, RecordingState.DONE, updatedAt = at, expiresAt = 1))
+        recorder().sweep()
+        assertTrue(File(outside, "keep.txt").exists())
+        outside.deleteRecursively()
+    }
+
+    @Test fun watchingToTheEndBringsItsExpiryInOnce() {
+        val r = kept("r", expiresIn = 25L * 86_400_000)
+        val rec = recorder()
+        rec.progress(r.id, 20_000)
+        store.get(r.id)!!.let {
+            assertEquals(20_000, it.positionMs)
+            assertNull(it.watchedAt)
+            assertEquals(r.expiresAt, it.expiresAt)
+        }
+        rec.progress(r.id, 58_000)
+        val watched = store.get(r.id)!!
+        assertNotNull(watched.watchedAt)
+        assertTrue(watched.expiresAt!! < System.currentTimeMillis() + 8L * 86_400_000)
+        rec.keepLonger(r.id)
+        val longer = store.get(r.id)!!
+        rec.progress(r.id, 59_000)
+        assertEquals(longer.expiresAt, store.get(r.id)!!.expiresAt, "watching again doesn't undo Keep")
+    }
+
+    @Test fun watchingNeverPushesAnExpiryOut() {
+        val r = kept("r", expiresIn = 86_400_000)
+        recorder().progress(r.id, 59_000)
+        assertEquals(r.expiresAt, store.get(r.id)!!.expiresAt)
+    }
+
+    @Test fun stoppingInThePaddingCountsAsWatched() {
+        val at = System.currentTimeMillis()
+        val r = kept("r").copy(startMs = at, programStop = at + 40_000, durationMs = 60_000)
+        store.save(r)
+        recorder().progress(r.id, 41_000)
+        assertNotNull(store.get(r.id)!!.watchedAt)
+    }
+
+    @Test fun aRecordingStillRunningIsntWatchedYet() {
+        val at = System.currentTimeMillis()
+        store.save(Recording("r", "main", "s:x:1", "Show", "Channel", at, at + 60_000, RecordingState.RECORDING, updatedAt = at, durationMs = 10_000))
+        recorder().progress("r", 10_000)
+        assertNull(store.get("r")!!.watchedAt)
+    }
+
+    @Test fun keepLongerAddsThirtyDaysAndCanRepeatButNeedsAFinishedRecording() {
+        val r = kept("r")
+        val rec = recorder()
+        assertTrue(rec.keepLonger(r.id))
+        assertTrue(rec.keepLonger(r.id))
+        assertEquals(r.expiresAt!! + 60L * 86_400_000, store.get(r.id)!!.expiresAt)
+        val at = System.currentTimeMillis()
+        store.save(Recording("s", "main", "s:x:1", "Show", "Channel", at, at + 1, RecordingState.SCHEDULED, updatedAt = at))
+        assertFalse(rec.keepLonger("s"))
     }
 
     @Test fun servesOnlyItsOwnFiles() {

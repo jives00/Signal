@@ -98,10 +98,11 @@ fun VodPlayerScreen() {
         val n = now ?: return
         val next = n.next ?: return
         val series = n.series ?: return
+        val item = n.item ?: return
         nextCard = null
         nextDismissed = false
         app.vodPlayback.finished()
-        scope.launch { app.vodPlayback.playEpisode(n.item, series, next) }
+        scope.launch { app.vodPlayback.playEpisode(item, series, next) }
     }
 
     fun seek(byMs: Long) {

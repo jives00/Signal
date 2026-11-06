@@ -485,7 +485,7 @@ internal class GuideRows(private val app: AppController, private val scope: Coro
     }
 }
 
-private fun localTime(ms: Long, use24: Boolean): String {
+internal fun localTime(ms: Long, use24: Boolean): String {
     val t = Instant.fromEpochMilliseconds(ms).toLocalDateTime(TimeZone.currentSystemDefault())
     return formatTime(t.hour, t.minute, use24)
 }

@@ -411,8 +411,10 @@ class ExoVideoPlayer(private val context: Context) : VideoPlayer {
             .setDefaultRequestProperties(request.headers - "User-Agent")
             .setTransferListener(transferTiming)
         val source = mediaSource(http, liveItem(request))
-        // On-demand resumes where it left off (PLAN §4.3.8); live always starts at the live edge.
-        if (!request.isLive && request.startPositionMs > 0) exo.setMediaSource(source, request.startPositionMs) else exo.setMediaSource(source)
+        // On-demand resumes where it left off (PLAN §4.3.8); live always starts at the live edge. A
+        // position of 0 has to be said too: a recording still running is an EVENT playlist, which
+        // ExoPlayer would otherwise open near its end (dvr.md).
+        if (!request.isLive) exo.setMediaSource(source, request.startPositionMs) else exo.setMediaSource(source)
         exo.prepare()
         exo.playWhenReady = true
         _state.value = PlaybackState(status = PlaybackState.Status.BUFFERING, request = request)

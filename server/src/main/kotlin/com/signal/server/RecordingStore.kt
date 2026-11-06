@@ -37,6 +37,10 @@ data class Recording(
     val programStop: Long? = null,
     /** What "Keep recording" added to the end. */
     val extraMs: Long = 0,
+    /** Where playback got to. */
+    val positionMs: Long = 0,
+    /** When it was watched to the end. */
+    val watchedAt: Long? = null,
 )
 
 interface RecordingStore {
@@ -48,6 +52,10 @@ interface RecordingStore {
     fun unfinished(): List<Recording>
     /** Not started yet, in any profile. */
     fun scheduled(): List<Recording>
+    /** Everything with an expiry, in any profile: what retention looks at. */
+    fun expiring(): List<Recording>
+    /** Saves playback's place. Kept apart from [save], which a running recording calls constantly. */
+    fun progress(id: String, positionMs: Long, watchedAt: Long?, expiresAt: Long?)
     fun delete(id: String): Boolean
 }
 
@@ -97,6 +105,20 @@ class JdbcRecordingStore(private val db: DataSource) : RecordingStore {
 
     override fun scheduled() = query("SELECT * FROM recording WHERE state = 'SCHEDULED'")
 
+    override fun expiring() = query("SELECT * FROM recording WHERE expires_at IS NOT NULL")
+
+    override fun progress(id: String, positionMs: Long, watchedAt: Long?, expiresAt: Long?) {
+        db.connection.use { c ->
+            c.prepareStatement("UPDATE recording SET position_ms = ?, watched_at = ?, expires_at = ? WHERE id = ?").use { s ->
+                s.setLong(1, positionMs)
+                if (watchedAt != null) s.setLong(2, watchedAt) else s.setNull(2, Types.BIGINT)
+                if (expiresAt != null) s.setLong(3, expiresAt) else s.setNull(3, Types.BIGINT)
+                s.setString(4, id)
+                s.executeUpdate()
+            }
+        }
+    }
+
     override fun delete(id: String): Boolean = db.connection.use { c ->
         c.prepareStatement("DELETE FROM recording WHERE id = ?").use { s ->
             s.setString(1, id)
@@ -132,6 +154,8 @@ class JdbcRecordingStore(private val db: DataSource) : RecordingStore {
         programStart = getLong("program_start_ms").takeIf { !wasNull() },
         programStop = getLong("program_stop_ms").takeIf { !wasNull() },
         extraMs = getLong("extra_ms"),
+        positionMs = getLong("position_ms"),
+        watchedAt = getLong("watched_at").takeIf { !wasNull() },
     )
 }
 
@@ -142,5 +166,9 @@ class MemoryRecordingStore : RecordingStore {
     override fun forProfile(profileId: String) = rows.values.filter { it.profileId == profileId }.sortedByDescending { it.startMs }
     override fun unfinished() = rows.values.filter { it.state == RecordingState.WAITING || it.state == RecordingState.RECORDING }
     override fun scheduled() = rows.values.filter { it.state == RecordingState.SCHEDULED }
+    override fun expiring() = rows.values.filter { it.expiresAt != null }
+    override fun progress(id: String, positionMs: Long, watchedAt: Long?, expiresAt: Long?) {
+        rows.computeIfPresent(id) { _, r -> r.copy(positionMs = positionMs, watchedAt = watchedAt, expiresAt = expiresAt) }
+    }
     override fun delete(id: String) = rows.remove(id) != null
 }

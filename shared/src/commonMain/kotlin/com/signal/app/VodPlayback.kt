@@ -36,9 +36,15 @@ class VodPlayback(
     private val log: Log,
     /** Which login of a source to play from (PLAN §9.1 → Provider accounts); null plays every source from its own. */
     private val accounts: ProviderAccounts? = null,
+    /** Keeps a recording's place on the NAS, which owns it (dvr.md). */
+    private val saveRecording: suspend (String, Long) -> Unit = { _, _ -> },
 ) {
+    /** A recording to play: it isn't in the catalog and has no item, and its place is kept on the NAS. */
+    data class RecordingTarget(val id: String, val url: String, val headers: Map<String, String>)
+
     data class Now(
-        val item: VodItem,
+        /** Null for a recording. */
+        val item: VodItem?,
         val key: String,
         val title: String,
         /** Episodes: "S2 E3 · Title". */
@@ -46,6 +52,7 @@ class VodPlayback(
         val episode: Episode? = null,
         val series: SeriesDetail? = null,
         val seriesKey: String? = null,
+        val recording: RecordingTarget? = null,
     ) {
         val next: Episode? get() = episode?.let { e -> series?.after(e.season, e.episode) }
     }
@@ -53,6 +60,9 @@ class VodPlayback(
     private val _current = MutableStateFlow<Now?>(null)
     val current: StateFlow<Now?> = _current.asStateFlow()
     private var saver: Job? = null
+
+    /** Where a recording got to, for coming back from the background. */
+    private var recordingResumeMs = 0L
 
     /** Autoplay's "Still watching?" counter (PLAN §4.3.9): episodes in a row with no key pressed. */
     var unattendedEpisodes = 0
@@ -78,6 +88,10 @@ class VodPlayback(
         start(now, StreamUrls.episode(source, episode), source.headers, start)
     }
 
+    fun playRecording(id: String, title: String, channelName: String, url: String, headers: Map<String, String>, startMs: Long) {
+        start(Now(null, "recording:$id", title, channelName, recording = RecordingTarget(id, url, headers)), url, headers, startMs)
+    }
+
     private fun start(now: Now, url: String, headers: Map<String, String>, startMs: Long) {
         saveNow()
         _current.value = now
@@ -97,10 +111,16 @@ class VodPlayback(
         val now = _current.value ?: return
         val pos = player.position()
         if (pos.durationMs <= 0) return
+        now.recording?.let { recording ->
+            recordingResumeMs = pos.positionMs
+            scope.launch { runCatching { saveRecording(recording.id, pos.positionMs) } }
+            return
+        }
+        val item = now.item ?: return
         val p = WatchRepository.Position(
             key = now.key,
             kind = if (now.episode != null) "EPISODE" else "MOVIE",
-            vodItemId = now.item.id,
+            vodItemId = item.id,
             episodeId = now.episode?.id,
             seriesKey = now.seriesKey,
             season = now.episode?.season,
@@ -136,16 +156,21 @@ class VodPlayback(
     /** Back from the background: play on from the saved position. */
     suspend fun resume() {
         val now = _current.value ?: return
+        now.recording?.let { start(now, it.url, it.headers, recordingResumeMs); return }
+        val item = now.item ?: return
         val episode = now.episode
-        if (episode != null && now.series != null) playEpisode(now.item, now.series, episode) else playMovie(now.item)
+        if (episode != null && now.series != null) playEpisode(item, now.series, episode) else playMovie(item)
     }
 
     /** A finished video: marked watched (it played to the end, so past 90%). */
     fun finished() {
         val now = _current.value ?: return
         saver?.cancel()
+        // The NAS works out watched from the position.
+        if (now.recording != null) return saveNow()
+        val item = now.item ?: return
         scope.launch {
-            watch.markWatched(now.key, if (now.episode != null) "EPISODE" else "MOVIE", now.item.id, now.seriesKey, now.episode?.season, now.episode?.episode)
+            watch.markWatched(now.key, if (now.episode != null) "EPISODE" else "MOVIE", item.id, now.seriesKey, now.episode?.season, now.episode?.episode)
         }
     }
 

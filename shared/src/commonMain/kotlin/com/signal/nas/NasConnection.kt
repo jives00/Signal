@@ -6,6 +6,7 @@ import com.signal.platform.AppInfo
 import com.signal.platform.SecretBox
 import io.ktor.client.HttpClient
 import io.ktor.client.request.HttpRequestBuilder
+import io.ktor.client.request.delete
 import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.request.post
@@ -298,6 +299,39 @@ class NasConnection(
         // Off the UI thread: the series page asks from its composition (PLAN §8 → milestone 5).
         return withContext(kotlinx.coroutines.Dispatchers.Default) { runCatching { json.decodeFromString<VodMeta>(body) }.getOrNull() }
     }
+
+    /** The profile's recordings (dvr.md). Null when the companion can't be reached, which isn't the same as having none. */
+    suspend fun recordings(): NasRecordings? {
+        if (!isPaired) return null
+        val response = call { base -> http.get(base + NasRecordingPaths.LIST) { asDevice() } } ?: return null
+        if (!response.status.isSuccess()) return null
+        val body = response.bodyAsText()
+        return withContext(kotlinx.coroutines.Dispatchers.Default) { runCatching { json.decodeFromString<NasRecordings>(body) }.getOrNull() }
+    }
+
+    /** Where to play a recording from, and the device key to send: a header, never in the URL. Null when no address has answered. */
+    fun recordingPlayback(id: String): Pair<String, Map<String, String>>? {
+        val base = active?.second ?: return null
+        val key = apiKey ?: return null
+        return (base + NasRecordingPaths.playlist(id)) to mapOf(DEVICE_KEY_HEADER to bearer(key))
+    }
+
+    suspend fun saveRecordingPosition(id: String, positionMs: Long): Boolean {
+        if (!isPaired) return false
+        return call { base ->
+            http.post(base + NasRecordingPaths.progress(id)) {
+                asDevice()
+                contentType(ContentType.Application.Json)
+                setBody(json.encodeToString(NasRecordingProgress(positionMs)))
+            }
+        }?.status?.isSuccess() == true
+    }
+
+    suspend fun keepRecording(id: String): Boolean =
+        isPaired && call { base -> http.post(base + NasRecordingPaths.keep(id)) { asDevice() } }?.status?.isSuccess() == true
+
+    suspend fun deleteRecording(id: String): Boolean =
+        isPaired && call { base -> http.delete(base + NasRecordingPaths.one(id)) { asDevice() } }?.status?.isSuccess() == true
 
     /** Settings → About → Send logs (PLAN §4.3.15): the app's own masked log lines. False when it didn't arrive. */
     suspend fun sendLogs(text: String): Boolean {

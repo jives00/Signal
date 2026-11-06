@@ -61,6 +61,7 @@ export const getPrograms = (profile: string, streamId: string) => read(S.Program
 export const scheduleRecording = (profile: string, streamId: string, start: number, title: string) =>
   send<unknown>("/api/recordings/schedule", { method: "POST", body: JSON.stringify({ profile, streamId, start, title }) }).then((r) => S.Recording.parse(r));
 export const keepRecording = (id: string, minutes: number) => send<void>(`/api/recordings/${enc(id)}/extend`, { method: "POST", body: JSON.stringify({ minutes }) });
+export const keepRecordingLonger = (id: string) => send<void>(`/api/recordings/${enc(id)}/keep`, { method: "POST" });
 export const stopRecording = (id: string) => send<void>(`/api/recordings/${enc(id)}/stop`, { method: "POST" });
 export const deleteRecording = (id: string) => send<void>(`/api/recordings/${enc(id)}`, { method: "DELETE" });
 

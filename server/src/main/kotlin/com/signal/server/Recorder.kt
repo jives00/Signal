@@ -84,7 +84,16 @@ class Recorder(
     private val scope: CoroutineScope,
     private val timing: Timing = Timing(),
     private val now: () -> Long = System::currentTimeMillis,
+    private val retention: () -> Retention = { Retention() },
 ) {
+    /** How long recordings stay (dvr.md → Retention): everything expires. */
+    class Retention(
+        val keepMs: Long = 30 * DAY_MS,
+        /** Once watched to the end, if that's sooner. */
+        val watchedMs: Long = 7 * DAY_MS,
+        val capBytes: Long = 500L shl 30,
+    )
+
     class Timing(
         /** How often a waiting recording asks again. */
         val retryMs: Long = 30_000,
@@ -94,8 +103,6 @@ class Recorder(
         val recheckMs: Long = 2_000,
         /** Below this nothing starts; below a fifth of it, anything recording stops. */
         val minFreeBytes: Long = 5L shl 30,
-        /** Replaced by the retention settings in the next stage. */
-        val keepMs: Long = 30 * 24 * 60 * 60_000L,
         /** How soon a recording's end is noticed. It can move while it runs. */
         val tickMs: Long = 1_000,
         /** How often scheduled recordings are looked at. */
@@ -104,11 +111,17 @@ class Recorder(
         val graceMs: Long = 20_000,
     )
 
-    private companion object Limits {
-        const val STUCK_AFTER_MS = 5 * 60_000L
+    companion object Limits {
+        private const val STUCK_AFTER_MS = 5 * 60_000L
         /** A deploy waits this long ahead of a scheduled recording, padding included (dvr.md). */
-        const val HOLD_AHEAD_MS = 15 * 60_000L
-        const val GUIDE_LOST = "The guide no longer shows this, so it'll record at the original time."
+        private const val HOLD_AHEAD_MS = 15 * 60_000L
+        private const val GUIDE_LOST = "The guide no longer shows this, so it'll record at the original time."
+        const val DAY_MS = 24 * 60 * 60_000L
+        /** What "Keep 30 more days" adds. */
+        private const val KEEP_MORE_MS = 30 * DAY_MS
+        /** Files read this recently mean someone's watching, so retention leaves it alone. */
+        private const val PLAYING_MS = 5 * 60_000L
+        private const val SWEEP_MS = 60 * 60_000L
     }
 
     private class Run(@Volatile var recording: Recording, val resumed: Boolean) {
@@ -123,6 +136,9 @@ class Recorder(
     private val held = ConcurrentHashMap.newKeySet<String>()
     /** Goes up each time a recording lets go of a login, so one that's waiting can look again. */
     private val released = MutableStateFlow(0)
+    /** When each recording's files were last read. */
+    private val lastRead = ConcurrentHashMap<String, Long>()
+    @Volatile private var lastSweep = 0L
     @Volatile private var stopping = false
 
     /** Why recording can't start now, or null. The folder has to be the mounted share: never fall back to the container's disk. */
@@ -158,6 +174,7 @@ class Recorder(
         val at = now()
         val recording = Recording(UUID.randomUUID().toString(), profileId, streamId, title, channelName, at, stopMs, RecordingState.WAITING, updatedAt = at)
         store.save(recording)
+        sweepQuietly()
         launch(Run(recording, resumed = false))
         return recording
     }
@@ -193,15 +210,76 @@ class Recorder(
             when {
                 recording.stopMs <= now() -> close(recording, "The companion wasn't running.")
                 problem != null -> close(recording, problem)
-                else -> launch(Run(recording, resumed = false))
+                else -> {
+                    sweepQuietly()
+                    launch(Run(recording, resumed = false))
+                }
             }
         }
+    }
+
+    /**
+     * Removes what has expired, then, over the cap, what's soonest to expire: watched first, then
+     * unwatched. Never one recording or being watched.
+     */
+    fun sweep() {
+        val store = store() ?: return
+        val rules = retention()
+        val at = now()
+        lastSweep = at
+        val finished = store.expiring().filter { !runs.containsKey(it.id) }
+        val watching = { r: Recording -> (lastRead[r.id] ?: 0) > at - PLAYING_MS }
+        val (expired, kept) = finished.partition { it.expiresAt!! <= at && !watching(it) }
+        expired.forEach(::remove)
+        var used = kept.sumOf { it.bytes } + runs.values.sumOf { it.recording.bytes }
+        for (r in kept.filterNot(watching).sortedWith(compareBy({ it.watchedAt == null }, { it.expiresAt }))) {
+            if (used <= rules.capBytes) break
+            log.info("Over the storage cap, removing: ${r.title}")
+            remove(r)
+            used -= r.bytes
+        }
+    }
+
+    private fun sweepQuietly() {
+        runCatching { sweep() }.onFailure { log.warn("Couldn't clear old recordings: ${it.javaClass.simpleName}") }
+    }
+
+    private fun remove(recording: Recording) {
+        log.info("Removing a recording: ${recording.title}")
+        folder(recording)?.deleteRecursively()
+        store()?.delete(recording.id)
+        lastRead.remove(recording.id)
+    }
+
+    /**
+     * Saves where playback got to. Reaching the end marks it watched, once, which brings its expiry
+     * in. The end is where the program stops, so turning off during the padding counts.
+     */
+    fun progress(id: String, positionMs: Long): Boolean {
+        val store = store() ?: return false
+        val r = store.get(id) ?: return false
+        val end = minOf(r.durationMs * 95 / 100, r.programStop?.let { it + r.extraMs - r.startMs } ?: Long.MAX_VALUE)
+        val reached = r.endedAt != null && r.durationMs > 0 && positionMs >= end
+        val firstTime = reached && r.watchedAt == null
+        val expires = if (firstTime) r.expiresAt?.let { minOf(it, now() + retention().watchedMs) } else r.expiresAt
+        store.progress(id, positionMs.coerceAtLeast(0), if (firstTime) now() else r.watchedAt, expires)
+        return true
+    }
+
+    /** "Keep 30 more days". False when it hasn't finished, so has no expiry to move. */
+    fun keepLonger(id: String): Boolean {
+        val store = store() ?: return false
+        val r = store.get(id) ?: return false
+        val expires = r.expiresAt ?: return false
+        store.save(r.copy(expiresAt = maxOf(expires, now()) + KEEP_MORE_MS, updatedAt = now()))
+        return true
     }
 
     /** Keeps [startDue] going, once the database is there. */
     fun runSchedule(): Job = scope.launch(Dispatchers.IO) {
         while (isActive) {
             runCatching { startDue() }.onFailure { log.warn("Couldn't check the schedule: ${it.javaClass.simpleName}") }
+            if (now() - lastSweep >= SWEEP_MS) sweepQuietly()
             delay(timing.scheduleMs)
         }
     }
@@ -259,8 +337,7 @@ class Recorder(
         val store = store() ?: return null
         val recording = store.get(id) ?: return null
         if (runs.containsKey(id)) return false
-        folder(recording)?.deleteRecursively()
-        store.delete(id)
+        remove(recording)
         return true
     }
 
@@ -268,7 +345,9 @@ class Recorder(
     fun file(id: String, name: String): File? {
         if (!RecordingFiles.servable(name)) return null
         val recording = store()?.get(id) ?: return null
-        return folder(recording)?.resolve(name)?.takeIf { it.isFile }
+        val file = folder(recording)?.resolve(name)?.takeIf { it.isFile } ?: return null
+        lastRead[id] = now()
+        return file
     }
 
     /**
@@ -463,7 +542,7 @@ class Recorder(
             RecordingState.PARTIAL -> run.reason
             else -> null
         }
-        update(run) { copy(state = state, endedAt = at, reason = reason, expiresAt = at + timing.keepMs) }
+        update(run) { copy(state = state, endedAt = at, reason = reason, expiresAt = at + retention().keepMs) }
         log.info("Recording ${state.name.lowercase()}: ${r.title}, ${r.durationMs / 1000} s, ${r.gaps} gaps")
     }
 

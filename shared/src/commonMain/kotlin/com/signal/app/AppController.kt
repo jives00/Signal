@@ -72,7 +72,7 @@ class AppController(val platform: Platform, val log: Log) {
     val watch = com.signal.data.WatchRepository(db, settings, platform.io)
     // Provider accounts (PLAN §9.1): which of a source's logins this TV plays from, live and on demand alike.
     val accounts = ProviderAccounts(settings, log, platform.player.state, scope, check = { sources.accountInfo(it) })
-    val vodPlayback = VodPlayback(platform.player, sources, vodDetails, watch, scope, log, accounts)
+    val vodPlayback = VodPlayback(platform.player, sources, vodDetails, watch, scope, log, accounts, saveRecording = { id, ms -> nas.saveRecordingPosition(id, ms) })
     val playback = PlaybackController(platform.player, channels, sources, settings, scope, log, linkedStreams = { linkedStreams.value }, accounts = accounts)
     // The NAS companion (PLAN §5.7): optional; the app works the same without it.
     val nas = com.signal.nas.NasConnection(settings, http, platform.secretBox, platform.appInfo, log)
@@ -1255,12 +1255,13 @@ class AppController(val platform: Platform, val log: Log) {
             com.signal.voice.VoiceCommand.NextEpisode -> {
                 val next = vod?.next
                 val series = vod?.series
+                val item = vod?.item
                 when {
                     vod == null -> fail("No episode is playing")
-                    next == null || series == null -> fail("No next episode")
+                    next == null || series == null || item == null -> fail("No next episode")
                     else -> {
                         vodPlayback.finished()
-                        scope.launch { vodPlayback.playEpisode(vod.item, series, next) }
+                        scope.launch { vodPlayback.playEpisode(item, series, next) }
                         done("${next.code} · ${next.title}")
                     }
                 }

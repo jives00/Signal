@@ -19,11 +19,12 @@ sealed interface Route {
     data class SeriesDetail(val itemId: String, val season: Int? = null, val episode: Int? = null) : Route
     /** Movie or episode playback (PLAN §4.3.10); what plays is in VodPlayback. */
     data object VodPlayer : Route
+    data object Recordings : Route
     data object Search : Route
     data object Settings : Route
 
     /** The pages on the nav bar; the rest are reached from them. */
-    val isTopLevel: Boolean get() = this == Home || this == LiveTv || this == Movies || this == Series || this == Search || this == Settings
+    val isTopLevel: Boolean get() = this == Home || this == LiveTv || this == Movies || this == Series || this == Recordings || this == Search || this == Settings
 
     /** Screens with a player on them: the only ones that resume playback after sleep (PLAN §4.2). */
     val showsVideo: Boolean get() = this == Home || this == LiveTv || this is FullScreen

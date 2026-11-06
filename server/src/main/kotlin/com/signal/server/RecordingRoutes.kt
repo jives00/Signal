@@ -12,13 +12,22 @@ import io.ktor.server.response.respondBytes
 import io.ktor.server.response.respondFile
 import io.ktor.server.response.respondText
 import io.ktor.server.routing.Route
+import io.ktor.server.routing.RoutingCall
 import io.ktor.server.routing.delete
 import io.ktor.server.routing.get
 import io.ktor.server.routing.post
+import io.ktor.server.routing.route
 import kotlinx.serialization.Serializable
+import java.io.File
 
 /** [conflicts] are the recordings still to come that may not get a source, because more overlap than there are sources. */
-@Serializable data class RecordingsView(val problem: String?, val freeBytes: Long, val recordings: List<Recording>, val conflicts: List<String> = emptyList())
+@Serializable data class RecordingsView(
+    val problem: String?,
+    val freeBytes: Long,
+    val recordings: List<Recording>,
+    val conflicts: List<String> = emptyList(),
+)
+@Serializable data class RecordingProgress(val positionMs: Long)
 @Serializable data class StartRecording(val profile: String, val streamId: String, val minutes: Int)
 /** [title] as well as [start]: a channel's guide can list two programs at one time. */
 @Serializable data class ScheduleRecording(val profile: String, val streamId: String, val start: Long, val title: String? = null)
@@ -94,6 +103,52 @@ suspend fun recordingLogins(companion: Companion, recording: Recording): List<Re
         .map { (source, name) -> RecordingLogin(name, source.username, StreamUrls.live(source, stream), StreamUrls.headers(source, stream), source) }
 }
 
+private suspend fun RoutingCall.respondRecordingFile(file: File) {
+    // A player re-reads the playlist while it records, so it's never cached.
+    if (file.name == RecordingFiles.PLAYLIST) respondBytes(file.readBytes(), ContentType("application", "vnd.apple.mpegurl"))
+    else respondFile(file)
+}
+
+/** For the TV and the viewer: the device key says whose recordings these are, and it travels as a header, never in a URL (dvr.md). */
+fun Route.recordingDeviceRoutes(companion: Companion) {
+    val recorder = companion.recorder
+
+    /** The recording, when it's this device's profile's. */
+    suspend fun RoutingCall.own(): Recording? {
+        val device = device(companion) ?: return null
+        val recording = companion.recordingStore?.get(parameters["id"]!!)?.takeIf { it.profileId == device.profileId }
+        if (recording == null) respondText("No such recording", status = HttpStatusCode.NotFound)
+        return recording
+    }
+
+    route("/device/recordings") {
+        get {
+            val device = call.device(companion) ?: return@get
+            call.respond(RecordingsView(recorder.problem(), recorder.freeBytes(), companion.recordingStore?.forProfile(device.profileId).orEmpty()))
+        }
+        get("/{id}/files/{name}") {
+            val recording = call.own() ?: return@get
+            val file = recorder.file(recording.id, call.parameters["name"]!!) ?: return@get call.respondText("No such file", status = HttpStatusCode.NotFound)
+            call.respondRecordingFile(file)
+        }
+        post("/{id}/progress") {
+            val recording = call.own() ?: return@post
+            recorder.progress(recording.id, call.receive<RecordingProgress>().positionMs)
+            call.respond(HttpStatusCode.NoContent)
+        }
+        post("/{id}/keep") {
+            val recording = call.own() ?: return@post
+            if (recorder.keepLonger(recording.id)) call.respond(HttpStatusCode.NoContent)
+            else call.respondText("That recording hasn't finished.", status = HttpStatusCode.Conflict)
+        }
+        delete("/{id}") {
+            val recording = call.own() ?: return@delete
+            if (recorder.delete(recording.id) == true) call.respond(HttpStatusCode.NoContent)
+            else call.respondText("Stop it first.", status = HttpStatusCode.Conflict)
+        }
+    }
+}
+
 /** Inside /api, network-trust only, like the rest of the web admin. */
 fun Route.recordingRoutes(companion: Companion) {
     val channels = AdminChannels(companion)
@@ -148,6 +203,11 @@ fun Route.recordingRoutes(companion: Companion) {
             .onFailure { call.respondText(it.message ?: "Couldn't start.", status = HttpStatusCode.Conflict) }
     }
 
+    post("/recordings/{id}/keep") {
+        if (recorder.keepLonger(call.parameters["id"]!!)) call.respond(HttpStatusCode.NoContent)
+        else call.respondText("That recording hasn't finished.", status = HttpStatusCode.Conflict)
+    }
+
     post("/recordings/{id}/stop") {
         if (recorder.stop(call.parameters["id"]!!)) call.respond(HttpStatusCode.NoContent)
         else call.respondText("That isn't recording.", status = HttpStatusCode.Conflict)
@@ -161,11 +221,8 @@ fun Route.recordingRoutes(companion: Companion) {
         }
     }
 
-    // A browser or player reads these directly; the playlist changes while it records, so it's never cached.
     get("/recordings/{id}/files/{name}") {
-        val name = call.parameters["name"]!!
-        val file = recorder.file(call.parameters["id"]!!, name) ?: return@get call.respondText("No such file", status = HttpStatusCode.NotFound)
-        if (name == RecordingFiles.PLAYLIST) call.respondBytes(file.readBytes(), ContentType("application", "vnd.apple.mpegurl"))
-        else call.respondFile(file)
+        val file = recorder.file(call.parameters["id"]!!, call.parameters["name"]!!) ?: return@get call.respondText("No such file", status = HttpStatusCode.NotFound)
+        call.respondRecordingFile(file)
     }
 }

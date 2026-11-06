@@ -115,7 +115,7 @@ class VoiceKeyMapTest {
         val r = app.voice(listOf("play [unk]"), free = "play $title")
         assertTrue(r.acted, r.message)
         route(Route.VodPlayer)
-        assertEquals(title, com.signal.match.VodTitles.query(app.vodPlayback.current.value!!.item.name).lowercase())
+        assertEquals(title, com.signal.match.VodTitles.query(app.vodPlayback.current.value!!.item!!.name).lowercase())
     }
 
     @Test fun anEpisodeBySeasonAndNumber() = keyMapTest {
@@ -198,7 +198,7 @@ class VoiceKeyMapTest {
         val r = app.voice(listOf("play golf", "play the news"), free = "play $title")
         assertTrue(r.acted, r.message)
         route(Route.VodPlayer)
-        assertEquals(title, com.signal.match.VodTitles.query(app.vodPlayback.current.value!!.item.name).lowercase())
+        assertEquals(title, com.signal.match.VodTitles.query(app.vodPlayback.current.value!!.item!!.name).lowercase())
     }
 
     // Without the free recognizer, the grammar's words name a title only exactly: "golden" is part of

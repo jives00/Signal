@@ -156,6 +156,9 @@ export function CompanionSettings() {
           <label><span>Image cache (GB)</span><input type="number" min={1} max={500} value={companion.imageCacheGb} onChange={(e) => setCompanion({ ...companion, imageCacheGb: Number(e.target.value) })} /></label>
           <label><span>Start recordings early (minutes)</span><input type="number" min={0} max={60} value={companion.recordBeforeMinutes} onChange={(e) => setCompanion({ ...companion, recordBeforeMinutes: Number(e.target.value) })} /></label>
           <label><span>Keep recording after (minutes)</span><input type="number" min={0} max={120} value={companion.recordAfterMinutes} onChange={(e) => setCompanion({ ...companion, recordAfterMinutes: Number(e.target.value) })} /></label>
+          <label><span>Keep recordings (days)</span><input type="number" min={1} max={365} value={companion.recordKeepDays} onChange={(e) => setCompanion({ ...companion, recordKeepDays: Number(e.target.value) })} /></label>
+          <label><span>Keep once watched (days)</span><input type="number" min={1} max={365} value={companion.recordWatchedDays} onChange={(e) => setCompanion({ ...companion, recordWatchedDays: Number(e.target.value) })} /></label>
+          <label><span>Recordings limit (GB)</span><input type="number" min={1} max={20000} value={companion.recordCapGb} onChange={(e) => setCompanion({ ...companion, recordCapGb: Number(e.target.value) })} /></label>
           <div className="row"><button className="primary" type="submit">Save</button></div>
         </form>
         <p className="detail small">A device offline longer than the delete retention does a full re-sync when it's back. The TMDB key matches movies and series to TMDB for posters, lists and genres; it can be the same key Trakt uses. The GitHub token marks app releases stable on Devices &amp; Profiles: a fine-grained token for jives00/Signal with Contents read and write.</p>

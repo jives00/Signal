@@ -83,6 +83,56 @@ class RecordingRoutesTest {
         assertEquals("[]", client.get("/api/recordings/programs?streamId=nope").bodyAsText())
     }
 
+    @Test fun recordingSettingsSaveAndComeBack() = testApplication {
+        val c = companion(null)
+        application { signalModule(c) }
+        val saved = c.settings.save(c.settings.view().copy(recordBeforeMinutes = 3, recordAfterMinutes = 20, recordKeepDays = 14, recordWatchedDays = 2, recordCapGb = 900))
+        assertEquals(null, saved)
+        c.settings.view().let {
+            assertEquals(3, it.recordBeforeMinutes)
+            assertEquals(20, it.recordAfterMinutes)
+            assertEquals(14, it.recordKeepDays)
+            assertEquals(2, it.recordWatchedDays)
+            assertEquals(900, it.recordCapGb)
+        }
+    }
+
+    @Test fun aDeviceSeesOnlyItsOwnProfilesRecordingsAndNeedsItsKey() = testApplication {
+        val dir = Files.createTempDirectory("recordings").toFile()
+        val devices = MemoryDeviceStore()
+        val key = "device-key"
+        devices.save(Device("d1", "Shield", "SHIELD", "1.0", 1, 1, "main"), DeviceKeys.hash(key))
+        val c = Companion(
+            Config(port = 0, db = null, secretKey = "test-key", dataDir = Files.createTempDirectory("signal-rec").toFile().path, webDir = "missing", viewerPort = 3017, recordingsDir = dir.path),
+            deviceStore = devices, companionStore = MemoryCompanionStore(), syncStoreOverride = MemorySyncStore(), buildGuideOnChange = false, recordingStoreOverride = store,
+        )
+        val files = RecordingFiles(dir.resolve("main/r1"))
+        TsSegmenter(files).apply { feed(Ts.stream(4)); close() }
+        files.end()
+        store.save(unfinished().copy(state = RecordingState.DONE, endedAt = 2, expiresAt = 3, durationMs = 3_500))
+        store.save(unfinished().copy(id = "r2", profileId = "parents", state = RecordingState.DONE, endedAt = 2, expiresAt = 3))
+        application { signalModule(c) }
+
+        assertEquals(HttpStatusCode.Unauthorized, client.get("/device/recordings").status)
+        assertEquals(HttpStatusCode.Unauthorized, client.get("/device/recordings/r1/files/index.m3u8").status)
+        suspend fun get(path: String) = client.get(path) { header(HttpHeaders.Authorization, "Bearer $key") }
+        val list = get("/device/recordings").bodyAsText()
+        assertTrue(list.contains("r1"))
+        assertFalse(list.contains("r2"))
+        assertEquals(HttpStatusCode.OK, get("/device/recordings/r1/files/index.m3u8").status)
+        assertEquals(HttpStatusCode.OK, get("/device/recordings/r1/files/seg-000001.ts").status)
+        assertEquals(HttpStatusCode.NotFound, get("/device/recordings/r2/files/index.m3u8").status)
+        val progress = client.post("/device/recordings/r1/progress") {
+            header(HttpHeaders.Authorization, "Bearer $key")
+            header(HttpHeaders.ContentType, ContentType.Application.Json.toString())
+            setBody("""{"positionMs":1000}""")
+        }
+        assertEquals(HttpStatusCode.NoContent, progress.status)
+        assertEquals(1_000, store.get("r1")!!.positionMs)
+        assertEquals(HttpStatusCode.NotFound, client.delete("/device/recordings/r2") { header(HttpHeaders.Authorization, "Bearer $key") }.status)
+        assertEquals(HttpStatusCode.NoContent, client.delete("/device/recordings/r1") { header(HttpHeaders.Authorization, "Bearer $key") }.status)
+    }
+
     @Test fun servesAFinishedRecordingsFilesAndDeletesThem() = testApplication {
         val dir = Files.createTempDirectory("recordings").toFile()
         val files = RecordingFiles(dir.resolve("main/r1"))

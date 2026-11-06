@@ -98,6 +98,9 @@ class Companion(
             { catalog.accountInfo(it) },
             HttpStreamFetch(recordingHttp),
             scope,
+            retention = {
+                Recorder.Retention(settings.recordKeepDays * Recorder.DAY_MS, settings.recordWatchedDays * Recorder.DAY_MS, settings.recordCapGb.toLong() shl 30)
+            },
         )
     }
     val guide by lazy { GuideBuilds(File(config.dataDir, "guide"), http) }
@@ -235,6 +238,7 @@ fun Application.signalModule(companion: Companion) {
         onViewerPort(companion.config.viewerPort, viewer = true) {
             trusted {
                 deviceRoutes(companion)
+                recordingDeviceRoutes(companion)
                 viewerRoutes(companion)
                 webViewer(File(companion.config.webDir))
             }
@@ -244,6 +248,7 @@ fun Application.signalModule(companion: Companion) {
         // API stops there; device endpoints also need the device's own key (Pairing.kt).
         onViewerPort(companion.config.viewerPort, viewer = false) { trusted {
             deviceRoutes(companion)
+            recordingDeviceRoutes(companion)
             guideDeviceRoutes(companion)
             syncDeviceRoutes(companion)
             vodDeviceRoutes(companion)

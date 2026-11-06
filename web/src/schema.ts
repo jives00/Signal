@@ -100,6 +100,8 @@ export const Recording = z.object({
   programStart: z.number().nullable(),
   programStop: z.number().nullable(),
   extraMs: z.number(),
+  positionMs: z.number(),
+  watchedAt: z.number().nullable(),
 });
 export type Recording = z.infer<typeof Recording>;
 /** server/RecordingRoutes.kt → RecordingsView. */
@@ -199,6 +201,9 @@ export const CompanionSettingsView = z.object({
   githubToken: z.string().nullable().default(null),
   recordBeforeMinutes: z.number().default(1),
   recordAfterMinutes: z.number().default(5),
+  recordKeepDays: z.number().default(30),
+  recordWatchedDays: z.number().default(7),
+  recordCapGb: z.number().default(500),
 });
 export const SettingsView = z.object({
   household: z.record(z.string()),

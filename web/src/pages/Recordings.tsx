@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { clock, deleteRecording, getChannels, getPrograms, getRecordings, keepRecording, scheduleRecording, startRecording, stopRecording } from "../admin";
+import { clock, deleteRecording, getChannels, getPrograms, getRecordings, keepRecording, keepRecordingLonger, scheduleRecording, startRecording, stopRecording } from "../admin";
 import { useProfiles, useToast } from "../context";
 import type { ChannelRow, ProgramBrief, Recording, RecordingsView } from "../schema";
 import { useSorted } from "../sort";
@@ -146,6 +146,7 @@ export default function Recordings() {
                     {(running || upcoming) && r.programStart !== null && <button onClick={() => void save("Keeping it 30 more minutes", () => keepRecording(r.id, 30), load)}>Keep 30 min</button>}
                     {running && <button onClick={() => void save("Stopped", () => stopRecording(r.id), load)}>Stop</button>}
                     {upcoming && <button onClick={() => void save("Canceled", () => deleteRecording(r.id), load)}>Cancel</button>}
+                    {!running && !upcoming && <button onClick={() => void save("Keeping it 30 more days", () => keepRecordingLonger(r.id), load)}>Keep 30 days</button>}
                     {!running && !upcoming && <button onClick={() => void save("Deleted", () => deleteRecording(r.id), load)}>Delete</button>}
                   </td>
                 </tr>

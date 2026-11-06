@@ -17,6 +17,9 @@
         "githubTokenSet": false,
         "githubToken": null,
         "recordBeforeMinutes": 1,
-        "recordAfterMinutes": 5
+        "recordAfterMinutes": 5,
+        "recordKeepDays": 30,
+        "recordWatchedDays": 7,
+        "recordCapGb": 500
     }
 }

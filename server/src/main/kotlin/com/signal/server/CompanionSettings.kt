@@ -24,6 +24,10 @@ data class CompanionSettingsView(
     /** How long a scheduled recording starts ahead of its program, and runs past it (dvr.md). */
     val recordBeforeMinutes: Int = 1,
     val recordAfterMinutes: Int = 5,
+    /** Retention (dvr.md): how long recordings stay, once watched too, and the most they can take up. */
+    val recordKeepDays: Int = 30,
+    val recordWatchedDays: Int = 7,
+    val recordCapGb: Int = 500,
 )
 
 class CompanionSettings(private val companion: Companion) {
@@ -37,6 +41,10 @@ class CompanionSettings(private val companion: Companion) {
     val recordBeforeMinutes: Int get() = get(RECORD_BEFORE)?.toIntOrNull()?.coerceIn(0, 60) ?: 1
     val recordAfterMinutes: Int get() = get(RECORD_AFTER)?.toIntOrNull()?.coerceIn(0, 120) ?: 5
 
+    val recordKeepDays: Int get() = get(RECORD_KEEP)?.toIntOrNull()?.coerceIn(1, 365) ?: 30
+    val recordWatchedDays: Int get() = get(RECORD_WATCHED)?.toIntOrNull()?.coerceIn(1, 365) ?: 7
+    val recordCapGb: Int get() = get(RECORD_CAP)?.toIntOrNull()?.coerceIn(1, 20_000) ?: 500
+
     /** Decrypted with the secret key (PLAN §5.7); null when unset or the key can't decrypt it. */
     val tmdbKey: String? get() = get(TMDB_KEY)?.takeIf { it.isNotEmpty() }?.let { enc -> runCatching { companion.cipher?.decrypt(enc) }.getOrNull() }
 
@@ -45,7 +53,7 @@ class CompanionSettings(private val companion: Companion) {
 
     fun view(): CompanionSettingsView {
         val schedule = companion.guideJob.schedule()
-        return CompanionSettingsView(schedule.time, schedule.timeZone, snapshotsToKeep, tombstoneDays, newDeviceProfile, tmdbKey != null, null, imageCacheGb, githubToken != null, null)
+        return CompanionSettingsView(schedule.time, schedule.timeZone, snapshotsToKeep, tombstoneDays, newDeviceProfile, tmdbKey != null, null, imageCacheGb, githubToken != null, null, recordBeforeMinutes, recordAfterMinutes, recordKeepDays, recordWatchedDays, recordCapGb)
     }
 
     /** Validates and saves; returns an error for people, or null. */
@@ -59,6 +67,8 @@ class CompanionSettings(private val companion: Companion) {
         if (v.imageCacheGb !in 1..500) return "Keep the image cache between 1 and 500 GB."
         if (v.recordBeforeMinutes !in 0..60) return "Start recordings up to 60 minutes early."
         if (v.recordAfterMinutes !in 0..120) return "Run recordings up to 120 minutes over."
+        if (v.recordKeepDays !in 1..365 || v.recordWatchedDays !in 1..365) return "Keep recordings between 1 and 365 days."
+        if (v.recordCapGb !in 1..20_000) return "Keep the recordings limit between 1 and 20000 GB."
         val key = v.tmdbKey?.trim()
         if (!key.isNullOrEmpty() && companion.cipher == null) return "SIGNAL_SECRET_KEY isn't set, so the TMDB key can't be stored."
         if (!key.isNullOrEmpty() && !key.all { it.isLetterOrDigit() || it in "._-" }) return "That doesn't look like a TMDB API key or read access token."
@@ -72,6 +82,9 @@ class CompanionSettings(private val companion: Companion) {
         store.putSetting(IMAGE_CACHE_GB, v.imageCacheGb.toString())
         store.putSetting(RECORD_BEFORE, v.recordBeforeMinutes.toString())
         store.putSetting(RECORD_AFTER, v.recordAfterMinutes.toString())
+        store.putSetting(RECORD_KEEP, v.recordKeepDays.toString())
+        store.putSetting(RECORD_WATCHED, v.recordWatchedDays.toString())
+        store.putSetting(RECORD_CAP, v.recordCapGb.toString())
         when {
             key == null -> {}
             key.isEmpty() -> store.putSetting(TMDB_KEY, "")
@@ -94,6 +107,9 @@ class CompanionSettings(private val companion: Companion) {
         const val GITHUB_TOKEN = "github_token"
         const val RECORD_BEFORE = "record_before_minutes"
         const val RECORD_AFTER = "record_after_minutes"
+        const val RECORD_KEEP = "record_keep_days"
+        const val RECORD_WATCHED = "record_watched_days"
+        const val RECORD_CAP = "record_cap_gb"
         const val MAIN = "main"
         const val OWN = "own"
     }

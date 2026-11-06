@@ -22,7 +22,9 @@
             "expiresAt": null,
             "programStart": null,
             "programStop": null,
-            "extraMs": 0
+            "extraMs": 0,
+            "positionMs": 0,
+            "watchedAt": null
         },
         {
             "id": "r2",
@@ -44,7 +46,9 @@
             "expiresAt": 1794415600000,
             "programStart": null,
             "programStop": null,
-            "extraMs": 0
+            "extraMs": 0,
+            "positionMs": 0,
+            "watchedAt": null
         },
         {
             "id": "r3",
@@ -66,7 +70,9 @@
             "expiresAt": null,
             "programStart": 1791900060000,
             "programStop": 1791909700000,
-            "extraMs": 900000
+            "extraMs": 900000,
+            "positionMs": 0,
+            "watchedAt": null
         }
     ],
     "conflicts": [
