@@ -19,6 +19,11 @@ data class NameCleanup(
     val custom: List<Rule> = emptyList(),
     /** Off by default: with country codes removed, "US| Sports" and "UK| Sports" would read the same. */
     val groups: Boolean = false,
+    /**
+     * Event channels (PPV and the like) named for what they show: the event as the name, the event in
+     * the guide, and slots that are empty or over hidden (EventChannels). On by default; channels only.
+     */
+    val events: Boolean = true,
 ) {
     /** What a rule set cleans: channel names (and groups), or movie and series titles (and categories). */
     enum class Target { CHANNELS, VOD }
@@ -105,7 +110,7 @@ data class NameCleanup(
     }
 
     /** The setting's value; null when there's nothing to store. */
-    fun encode(): String? = if (isEmpty && !groups) null else json.encodeToString(serializer(), copy(custom = custom.filter { it.text.isNotBlank() }))
+    fun encode(): String? = if (isEmpty && !groups && events) null else json.encodeToString(serializer(), copy(custom = custom.filter { it.text.isNotBlank() }))
 
     companion object {
         val NONE = NameCleanup()

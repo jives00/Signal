@@ -116,6 +116,8 @@ export interface NameCleanupRules {
   presets: string[];
   custom: { text: string; at: "START" | "END" | "ANYWHERE"; regex?: boolean }[];
   groups: boolean;
+  /** Event channels named for their event, with empty and finished ones hidden. Absent means on. */
+  events?: boolean;
 }
 export type CleanupTarget = "CHANNELS" | "VOD";
 export const previewCleanup = (rules: NameCleanupRules, profile: string, target: CleanupTarget = "CHANNELS") =>

@@ -11,7 +11,7 @@ function parse(raw: string | undefined): NameCleanupRules {
   if (!raw) return none;
   try {
     const r = JSON.parse(raw) as Partial<NameCleanupRules>;
-    return { presets: r.presets ?? [], custom: r.custom ?? [], groups: r.groups ?? false };
+    return { presets: r.presets ?? [], custom: r.custom ?? [], groups: r.groups ?? false, ...(r.events === false ? { events: false } : {}) };
   } catch {
     return none;
   }
@@ -20,7 +20,9 @@ function parse(raw: string | undefined): NameCleanupRules {
 /** What the TV stores: nothing when there are no rules, like NameCleanup.encode(). */
 function encode(r: NameCleanupRules): string | null {
   const custom = r.custom.filter((c) => c.text.trim());
-  return r.presets.length || custom.length || r.groups ? JSON.stringify({ ...r, custom }) : null;
+  const { events, ...rest } = r;
+  const stored = events === false ? { ...rest, custom, events: false } : { ...rest, custom };
+  return r.presets.length || custom.length || r.groups || events === false ? JSON.stringify(stored) : null;
 }
 
 /**
@@ -108,6 +110,16 @@ export default function NameCleanup({ saved, onSaved, target = "CHANNELS" }: { s
       <label className="check" style={{ marginTop: 12 }}>
         <input type="checkbox" checked={rules.groups} onChange={(e) => setRules({ ...rules, groups: e.target.checked })} /> {vod ? "Clean category names too" : "Clean group names too"}
       </label>
+      {!vod && (
+        <label className="check" style={{ marginTop: 8 }}>
+          <input
+            type="checkbox"
+            checked={rules.events !== false}
+            onChange={(e) => setRules(e.target.checked ? (({ events: _, ...r }) => r)(rules) : { ...rules, events: false })}
+          />{" "}
+          Name event channels for their event: the event as the name and in the guide, with empty and finished ones hidden
+        </label>
+      )}
 
       <div className="row" style={{ marginTop: 12 }}>
         <button

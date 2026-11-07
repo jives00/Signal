@@ -26,7 +26,7 @@ import kotlinx.coroutines.withContext
 class GuideRepository(
     private val store: GuideStore,
     private val epg: EpgRepository,
-    settings: Settings,
+    private val settings: Settings,
     private val io: CoroutineDispatcher,
     private val scope: CoroutineScope,
     /** For timings: building a source's index is the slow part of a guide's first rows. */
@@ -211,11 +211,19 @@ class GuideRepository(
 
     /** [channel]'s programs overlapping [from, to), in shifted (displayed) time. */
     suspend fun programs(channel: Channel, from: Long, to: Long): List<Program> = withContext(io) {
-        val ref = resolveNow(channel) ?: return@withContext emptyList()
+        val ref = resolveNow(channel) ?: return@withContext eventProgram(channel, from, to)
         val db = store.db ?: return@withContext emptyList()
         val all = db.guideQueries.programsBetween(ref.epgSourceId, ref.guideChannelId, from - ref.timeShiftMs, to - ref.timeShiftMs)
             .executeAsList().map { it.toModel(ref.timeShiftMs) }
         withoutOverlaps(all)
+    }
+
+    /** For a channel with no guide, the event its name carries (EventChannels), if it overlaps [from, to). */
+    private fun eventProgram(channel: Channel, from: Long, to: Long): List<Program> {
+        if (!settings.nameCleanup().events) return emptyList()
+        val now = kotlin.time.Clock.System.now().toEpochMilliseconds()
+        val p = com.signal.sports.EventChannels.program(channel.stream.id, channel.stream.groupName, channel.stream.rawName, now) ?: return emptyList()
+        return if (p.stop > from && p.start < to) listOf(p) else emptyList()
     }
 
     // Some guides list two programs in one slot (merged feeds, or a correction beside the original). The grid

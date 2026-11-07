@@ -5,6 +5,7 @@ import app.cash.sqldelight.coroutines.mapToList
 import app.cash.sqldelight.coroutines.mapToOneOrNull
 import com.signal.db.user.UserDatabase
 import com.signal.match.NameCleanup
+import com.signal.sports.EventChannels
 import com.signal.model.Channel
 import com.signal.model.ChannelGroup
 import com.signal.model.ChannelSort
@@ -139,7 +140,7 @@ class ChannelRepository(
                     stream = r.stream(), displayName = r.display_name, userChannelId = r.fav_user_channel_id, customName = r.custom_name,
                     customLogo = r.custom_logo, customNumber = r.custom_number, hidden = r.hidden, favorite = true,
                 )
-            }.filter { !it.isHidden }
+            }.filter { !it.isHidden && !eventHidden(it) }
             .let { favorites ->
                 // A live sort: the manual order stays underneath, and Manual brings it back (milestone 6).
                 sortedLive(favorites, settings.favoritesSort())
@@ -157,7 +158,7 @@ class ChannelRepository(
                     stream = r.stream(), displayName = r.display_name, userChannelId = r.item_user_channel_id, customName = r.custom_name,
                     customLogo = r.custom_logo, customNumber = r.custom_number, hidden = r.hidden, favorite = r.is_favorite,
                 )
-            }.filter { !it.isHidden }.let { sortedLive(it, sort) }
+            }.filter { !it.isHidden && !eventHidden(it) }.let { sortedLive(it, sort) }
         }
         is ChannelGroup.Provider -> combine(
             db.streamQueries.channelsInGroup(profile, group.sourceId, group.name).asFlow().mapToList(io),
@@ -172,7 +173,7 @@ class ChannelRepository(
                     stream = r.stream(), displayName = r.display_name, userChannelId = r.user_channel_id, customName = r.custom_name,
                     customLogo = r.custom_logo, customNumber = r.custom_number, hidden = r.hidden, favorite = r.is_favorite,
                 )
-            }.filter { !it.isHidden }
+            }.filter { !it.isHidden && !eventHidden(it) }
             when (sort) {
                 ChannelSort.PROVIDER -> channels
                 ChannelSort.NUMBER -> channels.sortedBy { it.number }
@@ -435,14 +436,22 @@ class ChannelRepository(
     ): Channel = Channel(
         stream = stream,
         userChannelId = userChannelId,
-        // A rename wins over cleanup rules (PLAN §4.3.2 → Name cleanup rules).
-        displayName = customName ?: settings.nameCleanup().apply(displayName),
+        // A rename wins over cleanup rules (PLAN §4.3.2 → Name cleanup rules), and an event channel shows its event.
+        displayName = customName ?: settings.nameCleanup().let { rules ->
+            (if (rules.events) EventChannels.shortName(stream.groupName, stream.rawName, nowMs()) else null) ?: rules.apply(displayName)
+        },
         // Until the user sets one: the provider's number, else the position in the source (PLAN §4.2).
         number = customNumber?.toInt() ?: stream.providerNumber ?: (stream.position + 1),
         logoUrl = customLogo ?: stream.logoUrl,
         isFavorite = favorite,
         isHidden = hidden == 1L,
     )
+
+    /** An event channel with nothing still to come: an empty slot, or its event is over (EventChannels). */
+    private fun eventHidden(c: Channel): Boolean =
+        settings.nameCleanup().events && EventChannels.hides(c.stream.groupName, c.stream.rawName, nowMs())
+
+    private fun nowMs() = kotlin.time.Clock.System.now().toEpochMilliseconds()
 
     private fun groupTitle(cleanup: NameCleanup, name: String) = if (cleanup.groups) cleanup.apply(name) else name
 

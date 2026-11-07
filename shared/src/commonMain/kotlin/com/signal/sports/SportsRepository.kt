@@ -179,18 +179,12 @@ class SportsRepository(
         for (r in all) {
             if (!r.read) continue
             for (p in PpvNames.parseAll(r.channel.group, r.rawName, now)) {
-                val stop = p.stop ?: (p.start + typicalLength(p.sport))
+                val stop = p.stop ?: (p.start + PpvNames.typicalLength(p.sport))
                 if (stop <= now || p.start > now + WEEK_MS) continue
                 val channel = if (p.sharedWithOthers) r.channel.copy(sharedWithOthers = true) else r.channel
                 into += Found(p.sport, p.title, null, p.teams, p.start, stop, stopGuessed = p.stop == null, dayGuessed = p.dayGuessed, channels = listOf(channel), certainty = p.certainty, sportName = p.sportName)
             }
         }
-    }
-
-    private fun typicalLength(sport: Sport): Long = when (sport.family) {
-        SportFamily.FOOTBALL, SportFamily.RACING, SportFamily.GOLF, SportFamily.FIGHTING, SportFamily.CRICKET -> 4 * HOUR_MS
-        SportFamily.BASEBALL, SportFamily.BASKETBALL, SportFamily.HOCKEY -> 3 * HOUR_MS
-        else -> 5 * HOUR_MS / 2
     }
 
     private var imagesRaw: String? = null

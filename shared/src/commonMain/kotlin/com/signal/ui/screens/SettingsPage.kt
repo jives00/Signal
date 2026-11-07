@@ -345,6 +345,10 @@ private fun LazyListScope.nameCleanupRows(app: AppController, cleanup: NameClean
     item(key = "cleanup-groups") {
         ListRow(if (vod) "Clean category names too" else "Clean group names too", detail = if (cleanup.groups) "On" else "Off", onSelect = { save(cleanup.copy(groups = !cleanup.groups)) })
     }
+    // Event channels: the event as the name and in the guide, and empty or finished slots hidden (EventChannels).
+    if (!vod) item(key = "cleanup-events") {
+        ListRow("Name event channels for their event", detail = if (cleanup.events) "On" else "Off", onSelect = { save(cleanup.copy(events = !cleanup.events)) })
+    }
 }
 
 private fun atLabel(at: NameCleanup.At) = when (at) {

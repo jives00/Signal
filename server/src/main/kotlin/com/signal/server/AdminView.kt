@@ -5,6 +5,7 @@ import com.signal.data.Settings
 import com.signal.guide.GuideResolver
 import com.signal.match.NameCleanup
 import com.signal.match.SearchText
+import com.signal.sports.EventChannels
 import com.signal.model.ChannelSort
 import com.signal.model.EpgSource
 import com.signal.model.GroupSort
@@ -221,14 +222,19 @@ class AdminChannels(private val companion: Companion) {
                 fallback = it.isFallback,
             )
         }
-        val programs = if (withPrograms && ref != null) companion.guideReader.nowAndNext(ref.epgSourceId, ref.guideChannelId, ref.timeShiftMs, now) else null to null
+        val programs = when {
+            !withPrograms -> null to null
+            ref != null -> companion.guideReader.nowAndNext(ref.epgSourceId, ref.guideChannelId, ref.timeShiftMs, now)
+            // No guide: an event channel's own event (EventChannels).
+            else -> eventPrograms(view, s, now, now + 12 * 60 * 60_000L).let { list -> list.firstOrNull { now >= it.start && now < it.stop } to list.firstOrNull { it.start > now } }
+        }
         return ChannelRow(
             streamId = s.id,
             sourceId = s.sourceId,
             sourceName = view.sources.firstOrNull { it.first.id == s.sourceId }?.first?.name ?: s.sourceId,
             group = s.groupName,
             rawName = s.rawName,
-            name = customName ?: view.nameCleanup.apply(s.displayName),
+            name = customName ?: eventName(view, s) ?: view.nameCleanup.apply(s.displayName),
             number = customNumber ?: s.providerNumber ?: (s.position + 1),
             logo = cp?.str("custom_logo") ?: s.logoUrl,
             tvgId = s.tvgId,
@@ -392,8 +398,19 @@ class AdminChannels(private val companion: Companion) {
     fun programs(profileId: String, streamId: String, from: Long, to: Long): List<ProgramBrief> {
         val view = view(profileId)
         val s = companion.catalog.streams.firstOrNull { it.id == streamId } ?: return emptyList()
-        val ref = guideRefFor(view, s)[s.id] ?: return emptyList()
+        val ref = guideRefFor(view, s)[s.id] ?: return eventPrograms(view, s, from, to)
         return companion.guideReader.programs(ref.epgSourceId, ref.guideChannelId, ref.timeShiftMs, from, to)
+    }
+
+    /** An event channel's shown name: its event, while the profile's name cleanup has events on. */
+    private fun eventName(view: AdminView, s: CatalogStream): String? =
+        if (view.nameCleanup.events) EventChannels.shortName(s.groupName, s.rawName, System.currentTimeMillis()) else null
+
+    /** For a channel with no guide, the event its name carries, if it overlaps [from, to). */
+    private fun eventPrograms(view: AdminView, s: CatalogStream, from: Long, to: Long): List<ProgramBrief> {
+        if (!view.nameCleanup.events) return emptyList()
+        val p = EventChannels.program(s.id, s.groupName, s.rawName, System.currentTimeMillis()) ?: return emptyList()
+        return if (p.stop > from && p.start < to) listOf(ProgramBrief(p.title, p.start, p.stop)) else emptyList()
     }
 
     /** Rows for user channels in order (Favorites, a playlist), falling back to "unavailable". */
