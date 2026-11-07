@@ -25,6 +25,7 @@ import voiceHelp from "./contract/voice-help.json";
 import releases from "./contract/releases.json";
 import watch from "./contract/watch.json";
 import recordings from "./contract/recordings.json";
+import activity from "./contract/activity.json";
 
 const cases: [string, ZodTypeAny, unknown][] = [
   ["settings-file", S.SettingsFile, settingsFile],
@@ -38,6 +39,7 @@ const cases: [string, ZodTypeAny, unknown][] = [
   ["settings", S.SettingsView, settings],
   ["cleanup-preview", S.CleanupPreview, cleanupPreview],
   ["overview", S.Overview, overview],
+  ["activity", S.ActivityView, activity],
   ["switch", S.SwitchView, switchView],
   ["links", S.LinkView.array(), links],
   ["vod-status", S.VodStatus, vodStatus],

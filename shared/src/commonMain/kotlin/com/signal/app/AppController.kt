@@ -77,6 +77,8 @@ class AppController(val platform: Platform, val log: Log) {
     val playback = PlaybackController(platform.player, channels, sources, settings, scope, log, linkedStreams = { linkedStreams.value }, accounts = accounts)
     // The NAS companion (PLAN §5.7): optional; the app works the same without it.
     val nas = com.signal.nas.NasConnection(settings, http, platform.secretBox, platform.appInfo, log)
+    // What this TV plays from each source, for the web admin's dashboard (source-activity.md).
+    private val nowPlaying = NowPlayingReporter(platform.player.state, scope, send = { nas.reportPlaying(it) })
     // VOD enrichment from the companion (PLAN §4.3.12): lists, genres, posters and metadata.
     val vodEnrichment = com.signal.data.VodEnrichment(db, settings, vod, { nas }, platform.io, log)
     /** Bumped when a new VOD index lands, so the browse pages reload their posters and shelves. */

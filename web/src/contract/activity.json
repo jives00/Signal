@@ -1,0 +1,74 @@
+{
+    "sources": [
+        {
+            "id": "src",
+            "name": "Provider",
+            "limit": 2,
+            "logins": [
+                {
+                    "id": "main",
+                    "name": "Provider",
+                    "providerActive": 2,
+                    "providerLimit": 2,
+                    "uses": [
+                        {
+                            "who": "TV",
+                            "name": "Living Room",
+                            "kind": "LIVE",
+                            "title": "ESPN",
+                            "subtitle": null,
+                            "program": "College Football",
+                            "paused": false,
+                            "since": 1791828000000,
+                            "recordingId": null
+                        },
+                        {
+                            "who": "RECORDING",
+                            "name": "Recording",
+                            "kind": "LIVE",
+                            "title": "FXX",
+                            "subtitle": null,
+                            "program": "Futurama",
+                            "paused": false,
+                            "since": 1791828000000,
+                            "recordingId": "r1"
+                        }
+                    ]
+                },
+                {
+                    "id": "a1",
+                    "name": "Den",
+                    "providerActive": null,
+                    "providerLimit": null,
+                    "uses": [
+                        {
+                            "who": "TV",
+                            "name": "Den",
+                            "kind": "EPISODE",
+                            "title": "The Office",
+                            "subtitle": "S2 E3 · Office Olympics",
+                            "program": null,
+                            "paused": true,
+                            "since": 1791828000000,
+                            "recordingId": null
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "id": "m3u",
+            "name": "Playlist",
+            "limit": null,
+            "logins": [
+                {
+                    "id": "main",
+                    "name": "Playlist",
+                    "providerActive": null,
+                    "providerLimit": null,
+                    "uses": []
+                }
+            ]
+        }
+    ]
+}

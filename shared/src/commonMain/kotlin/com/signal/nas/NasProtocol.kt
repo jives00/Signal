@@ -16,7 +16,34 @@ object NasPaths {
     const val ME = "/device/me"
     /** POST plain text with the device's key: Settings → About → Send logs (PLAN §4.3.15). */
     const val LOGS = "/device/logs"
+    /** POST [NowPlaying] with the device's key: what it plays from a source, for the dashboard (source-activity.md). */
+    const val PLAYING = "/device/playing"
 }
+
+/**
+ * What a device is playing from a source, sent when it changes and every minute while it plays.
+ * A null [sourceId] means it stopped. Recordings played from the companion use no source, so they
+ * aren't sent.
+ */
+@Serializable
+data class NowPlaying(
+    val sourceId: String? = null,
+    /** The login it plays through: `SourceAccount.id`. */
+    val accountId: String? = null,
+    val kind: PlayKind = PlayKind.LIVE,
+    /** The provider stream for live TV, or the title's item ID. */
+    val streamId: String? = null,
+    /** The channel's name as this device shows it, or the movie or series. */
+    val title: String? = null,
+    /** An episode's code and name. */
+    val subtitle: String? = null,
+    val paused: Boolean = false,
+    /** When this play started, by the device's clock. */
+    val since: Long = 0,
+)
+
+@Serializable
+enum class PlayKind { LIVE, MOVIE, EPISODE }
 
 /** The companion's /health answer; the app reads only that it answers and its version. */
 @Serializable

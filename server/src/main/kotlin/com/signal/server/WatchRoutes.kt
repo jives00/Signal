@@ -3,14 +3,18 @@ package com.signal.server
 import com.signal.model.LiveFormat
 import com.signal.model.ProviderStream
 import com.signal.model.Source
+import com.signal.model.SourceAccount
 import com.signal.model.SourceKind
 import com.signal.model.StreamUrls
+import com.signal.nas.NowPlaying
+import com.signal.nas.PlayKind
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.response.respond
 import io.ktor.server.response.respondText
 import io.ktor.server.routing.Route
 import io.ktor.server.routing.RoutingCall
 import io.ktor.server.routing.get
+import io.ktor.server.routing.post
 import kotlinx.serialization.Serializable
 import org.slf4j.LoggerFactory
 
@@ -30,9 +34,23 @@ fun Route.watchRoutes(companion: Companion) {
         val profile = call.request.queryParameters["profile"]?.takeIf { it.isNotBlank() } ?: SyncService.MAIN
         val (source, stream) = call.watchTarget(companion, profile) ?: return@get
         log.info("Watch: ${stream.rawName} (${source.name})")
+        val title = AdminChannels(companion).channelName(profile, stream.id) ?: stream.rawName
+        companion.activity.report(webKey(profile), SourceActivity.Who.WEB, "Web admin", profile, NowPlaying(source.id, SourceAccount.MAIN, PlayKind.LIVE, stream.id, title, since = System.currentTimeMillis()))
         call.respond(watchStream(source, stream))
     }
+    // While a channel plays, and as it stops (the dashboard's cards).
+    post("/watch/playing") {
+        companion.activity.seen(webKey(call.request.queryParameters["profile"]))
+        call.respond(HttpStatusCode.NoContent)
+    }
+    post("/watch/stopped") {
+        companion.activity.stopped(webKey(call.request.queryParameters["profile"]), call.request.queryParameters["stream"])
+        call.respond(HttpStatusCode.NoContent)
+    }
 }
+
+/** One per profile: the web admin has no device to tell its tabs apart. */
+private fun webKey(profile: String?) = "web:${profile?.takeIf { it.isNotBlank() } ?: SyncService.MAIN}"
 
 /** The channel in the path with its source, or null after refusing: unknown, or its source is off for [profile]. */
 internal suspend fun RoutingCall.watchTarget(companion: Companion, profile: String): Pair<Source, ProviderStream>? {

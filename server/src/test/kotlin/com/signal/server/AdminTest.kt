@@ -5,11 +5,13 @@ import com.signal.sync.SyncType
 import io.ktor.client.HttpClient
 import io.ktor.client.request.delete
 import io.ktor.client.request.get
+import io.ktor.client.request.header
 import io.ktor.client.request.post
 import io.ktor.client.request.put
 import io.ktor.client.request.setBody
 import io.ktor.client.statement.bodyAsText
 import io.ktor.http.ContentType
+import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.contentType
 import io.ktor.server.testing.testApplication
@@ -304,6 +306,31 @@ class AdminTest {
         val kids = companion.sync.createProfile("Kids", null)
         client.send("POST", "/api/sources/$id/profiles", """{"profiles":["main"]}""")
         assertEquals(HttpStatusCode.Conflict, client.get("/api/watch/$streamId?profile=${kids.id}").status)
+    }
+
+    /** The dashboard's cards (source-activity.md): a TV's report and the Watch page show under their source, and stopping ends them. */
+    @Test fun activityShowsWhoUsesEachSource() = testApplication {
+        application { signalModule(companion) }
+        val id = client.demo()["sources"]!!.jsonArray.single().jsonObject.s("id")!!
+        val streamId = client.channels("limit=1").rows().single().s("streamId")!!
+        companion.devices!!.save(Device("d1", "Living Room", "SHIELD", "1.2.0", 1, 1, "main"), DeviceKeys.hash("tv-key"))
+        suspend fun report(body: String) = client.post(com.signal.nas.NasPaths.PLAYING) {
+            header(HttpHeaders.Authorization, "Bearer tv-key")
+            contentType(ContentType.Application.Json)
+            setBody(body)
+        }
+        fun uses(view: JsonObject) = view["sources"]!!.jsonArray.single().jsonObject.also { assertEquals(id, it.s("id")) }["logins"]!!.jsonArray.single().jsonObject["uses"]!!.jsonArray.map { it.jsonObject }
+
+        assertEquals(HttpStatusCode.NoContent, report("""{"sourceId":"$id","accountId":"main","kind":"LIVE","streamId":"$streamId","title":"News One","since":5}""").status)
+        val tv = uses(obj(client.send("GET", "/api/activity"))).single()
+        assertEquals(listOf("TV", "Living Room", "News One", "5"), listOf(tv.s("who"), tv.s("name"), tv.s("title"), tv.s("since")))
+
+        client.send("GET", "/api/watch/$streamId")
+        assertEquals(listOf("TV", "WEB"), uses(obj(client.send("GET", "/api/activity"))).map { it.s("who") })
+        client.send("POST", "/api/watch/stopped?stream=$streamId")
+        report("{}")
+        assertEquals(emptyList(), uses(obj(client.send("GET", "/api/activity"))))
+        assertEquals(HttpStatusCode.Unauthorized, client.post(com.signal.nas.NasPaths.PLAYING) { contentType(ContentType.Application.Json); setBody("{}") }.status)
     }
 
     @Test fun watchPlaysXtreamAsHlsAndFlagsHeadersABrowserCantSend() {

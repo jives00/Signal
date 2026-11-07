@@ -6,6 +6,7 @@ import { useProfiles } from "../context";
 import type { Overview, Recording } from "../schema";
 import Detail from "../Detail";
 import GuideCard from "./GuideCard";
+import SourceCards from "./SourceCards";
 
 /** "0.3.1" vs "0.3.0": a device on an older app version than the companion's (PLAN §4.3.18 → Devices). */
 export function older(version: string, than: string): boolean {
@@ -119,6 +120,8 @@ export default function Dashboard({ status, failed }: { status: Status | null; f
           <Detail lines={latest ? [latest.reason, `${latest.items} items`] : []} empty="Nightly after the guide build" />
         </Link>
       </div>
+
+      <SourceCards />
 
       {overview && (
         <section className="section">

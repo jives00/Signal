@@ -78,6 +78,31 @@ export const ChannelPage = z.object({ total: z.number(), offset: z.number(), row
 /** server/WatchRoutes.kt → WatchStream: the provider's own URL for the Watch page. */
 export const WatchStream = z.object({ url: z.string(), hls: z.boolean(), headersDropped: z.boolean() });
 
+/** server/SourceActivity.kt → ActivityView: who uses each source right now, for the dashboard (source-activity.md). */
+export const UseView = z.object({
+  who: z.enum(["TV", "VIEWER", "WEB", "RECORDING"]),
+  name: z.string(),
+  kind: z.enum(["LIVE", "MOVIE", "EPISODE"]),
+  title: z.string().nullable(),
+  subtitle: z.string().nullable(),
+  program: z.string().nullable(),
+  paused: z.boolean(),
+  since: z.number(),
+  recordingId: z.string().nullable(),
+});
+export type UseView = z.infer<typeof UseView>;
+export const LoginActivityView = z.object({
+  id: z.string(),
+  name: z.string(),
+  providerActive: z.number().nullable(),
+  providerLimit: z.number().nullable(),
+  uses: z.array(UseView),
+});
+export type LoginActivityView = z.infer<typeof LoginActivityView>;
+export const SourceActivityView = z.object({ id: z.string(), name: z.string(), limit: z.number().nullable(), logins: z.array(LoginActivityView) });
+export type SourceActivityView = z.infer<typeof SourceActivityView>;
+export const ActivityView = z.object({ sources: z.array(SourceActivityView) });
+
 /** server/RecordingStore.kt → Recording (dvr.md). */
 export const Recording = z.object({
   id: z.string(),

@@ -92,6 +92,15 @@ a { color: inherit; text-decoration: none; }
 .card h2 { font-size: 13px; font-weight: 600; color: var(--muted); margin: 0 0 8px; text-transform: uppercase; letter-spacing: 0.04em; }
 .card .value { font-size: 22px; font-weight: 800; }
 .card .detail { color: var(--muted); margin-top: 6px; }
+/* Sources in use: each use a block under the source's count, grouped by login when it has several. */
+.card.activity .login { margin-top: 12px; }
+.card.activity .login-name { font-size: 13px; font-weight: 600; color: var(--muted); }
+.card.activity .use { display: block; color: inherit; padding: 8px 0 0; }
+.card.activity .use + .use { border-top: 1px solid var(--divider); margin-top: 8px; }
+.card.activity .use .tag { margin: 0 8px 0 0; }
+.card.activity .use .detail { margin-top: 2px; font-size: 13px; }
+a.use:hover strong { text-decoration: underline; }
+.warn-text { color: var(--warn); }
 
 .brand { justify-content: space-between; }
 .brand .wordmark { padding-bottom: 20px; }

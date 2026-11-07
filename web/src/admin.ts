@@ -19,6 +19,8 @@ export const undo = (ops: S.AdminOp[]) => post("/api/edits/undo", { ops });
 // ---- Dashboard, jobs ----
 export const getOverview = (profile: string) => read(S.Overview, `/api/overview?${q(profile)}`);
 export const getJobs = () => read(S.JobRun.array(), "/api/jobs");
+/** Who uses each source right now (source-activity.md). */
+export const getActivity = () => read(S.ActivityView, "/api/activity");
 
 // ---- Channels ----
 /** The Channels table's sortable columns (server/AdminView.kt ChannelColumn). */
@@ -52,6 +54,9 @@ export const getChannels = (profile: string, f: ChannelQuery) => read(S.ChannelP
 export const getChannel = (profile: string, streamId: string) => read(S.ChannelRow, `/api/channels/${enc(streamId)}?${q(profile)}`);
 /** Watch (web-player.md): the URL to play. It carries the source's credentials, so it's fetched at play time only. */
 export const getWatchStream = (profile: string, streamId: string) => read(S.WatchStream, `/api/watch/${enc(streamId)}?${q(profile)}`);
+/** While the Watch page plays, and as it stops: the dashboard shows it as using the source. */
+export const watchPlaying = (profile: string) => { send<void>(`/api/watch/playing?${q(profile)}`, { method: "POST" }).catch(() => undefined); };
+export const watchStopped = (profile: string, streamId: string) => { void fetch(`/api/watch/stopped?${q(profile)}&stream=${enc(streamId)}`, { method: "POST", keepalive: true }).catch(() => undefined); };
 
 // ---- Recordings (dvr.md) ----
 export const getRecordings = (profile: string) => read(S.RecordingsView, `/api/recordings?${q(profile)}`);

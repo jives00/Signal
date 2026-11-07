@@ -12,6 +12,8 @@ export interface WatchApi {
   stream(streamId: string): Promise<z.infer<typeof WatchStream>>;
   /** Called while a channel plays. */
   playing?(): void;
+  /** Called as a channel stops: changing channel, leaving the page or closing it. */
+  stopped?(streamId: string): void;
 }
 
 // localStorage can refuse (private windows); the choice then just isn't remembered.
@@ -166,7 +168,11 @@ function Player({ channel, api, onStep }: { channel: ChannelRow | null; api: Wat
     const onWaiting = () => { if (live) setStatus("Buffering…"); };
     el.addEventListener("playing", onPlaying);
     el.addEventListener("waiting", onWaiting);
-    const stop = () => { hls?.destroy(); hls = null; el.removeAttribute("src"); el.load(); };
+    let told = false;
+    const stop = () => {
+      hls?.destroy(); hls = null; el.removeAttribute("src"); el.load();
+      if (!told) { told = true; api.stopped?.(channel.streamId); }
+    };
     window.addEventListener("pagehide", stop);
     return () => {
       live = false;

@@ -171,6 +171,7 @@ class PlaybackController(
             PlayRequest(
                 url = url, headers = StreamUrls.headers(source, channel.stream), isLive = true, label = channel.displayName,
                 audioLanguage = remembered?.audioLanguage, subtitle = remembered?.subtitle,
+                usage = com.signal.nas.NowPlaying(own.id, chosen.id, com.signal.nas.PlayKind.LIVE, channel.stream.id, channel.displayName),
             ),
         )
     }

@@ -4,6 +4,8 @@ import com.signal.app.ProviderAccounts
 import com.signal.data.Settings
 import com.signal.model.Source
 import com.signal.model.SourceAccount
+import com.signal.nas.NowPlaying
+import com.signal.nas.PlayKind
 import com.signal.parse.XtreamParser
 import com.signal.sync.SyncScope
 import com.signal.sync.SyncType
@@ -63,12 +65,21 @@ fun Route.viewerRoutes(companion: Companion) {
             val (source, stream) = call.watchTarget(companion, device.profileId) ?: return@get
             val login = logins.pick(device.id, source, homeLogin(companion, device, source))
             log.info("Watch: ${device.name}: ${stream.rawName} (${source.name}, ${login.name})")
+            val title = channels.channelName(device.profileId, stream.id) ?: stream.rawName
+            companion.activity.report(device.id, SourceActivity.Who.VIEWER, device.name, device.profileId, NowPlaying(source.id, login.id, PlayKind.LIVE, stream.id, title, since = now()))
             call.respond(watchStream(source.withLogin(login), stream))
         }
         // Sent while a channel plays, so changing channel keeps the login in use.
         post("/playing") {
             val device = call.device(companion) ?: return@post
             logins.playing(device.id)
+            companion.activity.seen(device.id)
+            call.respond(HttpStatusCode.NoContent)
+        }
+        // Sent as the page stops a channel. Naming it means a stop that lands after the next channel's start is ignored.
+        post("/stopped") {
+            val device = call.device(companion) ?: return@post
+            companion.activity.stopped(device.id, call.request.queryParameters["stream"])
             call.respond(HttpStatusCode.NoContent)
         }
     }

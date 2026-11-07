@@ -1,5 +1,7 @@
 package com.signal.app
 
+import com.signal.nas.NowPlaying
+import com.signal.nas.PlayKind
 import com.signal.data.ItemKeys
 import com.signal.data.Log
 import com.signal.data.SourceRepository
@@ -73,9 +75,12 @@ class VodPlayback(
         val key = asKey ?: ItemKeys.movie(item, detail?.tmdbId ?: item.tmdbId)
         val start = if (fromStart) 0 else watch.current().positions[key]?.positionMs ?: 0
         if (fromStart) watch.clearPosition(key)
-        val source = sources.byId(item.sourceId)?.let { accounts?.pick(it) ?: it } ?: return
+        val own = sources.byId(item.sourceId) ?: return
+        val login = accounts?.pickLogin(own) ?: own.logins.first()
+        val source = own.withLogin(login)
         val url = StreamUrls.movie(source, item, detail?.containerExt)
-        start(Now(item, key, VodRepository.displayName(item), null), url, source.headers, start)
+        val title = VodRepository.displayName(item)
+        start(Now(item, key, title, null), url, source.headers, start, NowPlaying(own.id, login.id, PlayKind.MOVIE, item.id, title))
     }
 
     suspend fun playEpisode(series: VodItem, detail: SeriesDetail, episode: Episode, fromStart: Boolean = false) {
@@ -83,9 +88,11 @@ class VodPlayback(
         val key = ItemKeys.episode(seriesKey, episode)
         val start = if (fromStart) 0 else watch.current().positions[key]?.positionMs ?: 0
         if (fromStart) watch.clearPosition(key)
-        val source = sources.byId(series.sourceId)?.let { accounts?.pick(it) ?: it } ?: return
+        val own = sources.byId(series.sourceId) ?: return
+        val login = accounts?.pickLogin(own) ?: own.logins.first()
+        val source = own.withLogin(login)
         val now = Now(series, key, VodRepository.displayName(series), "${episode.code} · ${episode.title}", episode, detail, seriesKey)
-        start(now, StreamUrls.episode(source, episode), source.headers, start)
+        start(now, StreamUrls.episode(source, episode), source.headers, start, NowPlaying(own.id, login.id, PlayKind.EPISODE, series.id, now.title, now.subtitle))
     }
 
     /** The recording played last, for the Recordings page to put focus back on. */
@@ -97,11 +104,11 @@ class VodPlayback(
         start(Now(null, "recording:$id", title, channelName, recording = RecordingTarget(id, url, headers)), url, headers, startMs)
     }
 
-    private fun start(now: Now, url: String, headers: Map<String, String>, startMs: Long) {
+    private fun start(now: Now, url: String, headers: Map<String, String>, startMs: Long, usage: NowPlaying? = null) {
         saveNow()
         _current.value = now
         log.info("Play ${now.title}${now.subtitle?.let { " $it" } ?: ""} (${CredentialMasking.forLog(url)})${if (startMs > 0) " from ${startMs / 1000}s" else ""}")
-        player.play(PlayRequest(url = url, headers = headers, isLive = false, startPositionMs = startMs, label = now.subtitle ?: now.title))
+        player.play(PlayRequest(url = url, headers = headers, isLive = false, startPositionMs = startMs, label = now.subtitle ?: now.title, usage = usage))
         saver?.cancel()
         saver = scope.launch {
             while (isActive) {

@@ -101,5 +101,6 @@ export function viewerApi(key: string, onForgotten: () => void): WatchApi {
     channel: (id) => read(S.ChannelRow, `/viewer/channels/${enc(id)}`),
     stream: (id) => read(S.WatchStream, `/viewer/watch/${enc(id)}`),
     playing: () => { call("/viewer/playing", { method: "POST" }).catch(() => undefined); },
+    stopped: (id) => { void fetch(`/viewer/stopped?stream=${enc(id)}`, { method: "POST", keepalive: true, headers: { Authorization: `Bearer ${key}` } }).catch(() => undefined); },
   };
 }

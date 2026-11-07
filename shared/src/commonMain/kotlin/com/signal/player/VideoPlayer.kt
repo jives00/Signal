@@ -56,6 +56,8 @@ data class PlayRequest(
     val subtitle: String? = null,
     /** For logs and diagnostics only; never the URL, which may embed credentials (PLAN §1). */
     val label: String,
+    /** Which source and login this holds, for the companion's dashboard; null for a recording. */
+    val usage: com.signal.nas.NowPlaying? = null,
 )
 
 data class PlaybackState(

@@ -50,6 +50,27 @@ class ContractTest {
         check("channel-page", ChannelPage.serializer(), ChannelPage(1, 0, listOf(row)))
         check("watch", WatchStream.serializer(), WatchStream("http://p.example/live/me/secret/42.m3u8", hls = true, headersDropped = false))
         check(
+            "activity", ActivityView.serializer(),
+            ActivityView(
+                listOf(
+                    SourceActivityView(
+                        "src", "Provider", 2,
+                        listOf(
+                            LoginActivityView(
+                                "main", "Provider", 2, 2,
+                                listOf(
+                                    UseView("TV", "Living Room", com.signal.nas.PlayKind.LIVE, "ESPN", program = "College Football", since = 1_791_828_000_000),
+                                    UseView("RECORDING", "Recording", com.signal.nas.PlayKind.LIVE, "FXX", program = "Futurama", since = 1_791_828_000_000, recordingId = "r1"),
+                                ),
+                            ),
+                            LoginActivityView("a1", "Den", null, null, listOf(UseView("TV", "Den", com.signal.nas.PlayKind.EPISODE, "The Office", "S2 E3 · Office Olympics", paused = true, since = 1_791_828_000_000))),
+                        ),
+                    ),
+                    SourceActivityView("m3u", "Playlist", null, listOf(LoginActivityView("main", "Playlist"))),
+                ),
+            ),
+        )
+        check(
             "recordings", RecordingsView.serializer(),
             RecordingsView(
                 null, 500_000_000_000,

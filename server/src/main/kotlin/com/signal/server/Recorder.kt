@@ -130,6 +130,8 @@ class Recorder(
         lateinit var job: Job
         var reason: String? = null
         @Volatile var wantsSource = false
+        /** The login it's connected through right now (`RecordingLogin.key`), for the dashboard. */
+        @Volatile var loginKey: String? = null
     }
 
     private val runs = ConcurrentHashMap<String, Run>()
@@ -142,6 +144,9 @@ class Recorder(
     private val lastRead = ConcurrentHashMap<String, Long>()
     @Volatile private var lastSweep = 0L
     @Volatile private var stopping = false
+
+    /** Recordings connected to the provider right now, each with its login's key: the provider username, or the source ID of a playlist. */
+    fun connected(): List<Pair<Recording, String>> = runs.values.mapNotNull { r -> r.loginKey?.let { r.recording to it } }
 
     /** Why recording can't start now, or null. The folder has to be the mounted share: never fall back to the container's disk. */
     fun problem(): String? {
@@ -441,6 +446,7 @@ class Recorder(
                     continue
                 }
                 update(run) { copy(state = RecordingState.RECORDING, loginName = login.name) }
+                run.loginKey = login.key
                 // The channel restarting on this connection loses time too, with no reconnect to count it.
                 val segmenter = TsSegmenter(files, onJump = { ms -> if (ms >= MIN_STALL_MS) addGap(run, now() - ms, now(), starting = false) })
                 var dropped = true
@@ -472,6 +478,7 @@ class Recorder(
                     log.info("Stream dropped, ${e.javaClass.simpleName}: ${run.recording.title}")
                 } finally {
                     held.remove(login.key)
+                    run.loginKey = null
                     released.update { it + 1 }
                     segmenter.close()
                 }

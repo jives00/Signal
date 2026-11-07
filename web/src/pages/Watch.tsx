@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { getChannel, getChannels, getGroups, getLists, getWatchStream } from "../admin";
+import { getChannel, getChannels, getGroups, getLists, getWatchStream, watchPlaying, watchStopped } from "../admin";
 import { useProfiles } from "../context";
 import WatchScreen, { type WatchApi } from "../watch/WatchScreen";
 
@@ -12,6 +12,8 @@ export default function Watch() {
     channels: (f) => getChannels(profile, { ...f, hidden: "visible" }).then((p) => p.rows),
     channel: (id) => getChannel(profile, id),
     stream: (id) => getWatchStream(profile, id),
+    playing: () => watchPlaying(profile),
+    stopped: (id) => watchStopped(profile, id),
   }), [profile]);
   return <WatchScreen api={api} />;
 }

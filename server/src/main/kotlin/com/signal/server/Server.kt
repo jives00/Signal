@@ -103,6 +103,8 @@ class Companion(
             },
         )
     }
+    /** Who uses each source right now, for the dashboard (source-activity.md). */
+    val activity = SourceActivity()
     val guide by lazy { GuideBuilds(File(config.dataDir, "guide"), http) }
     val guideJob = GuideJob(this, scope)
     val sync = SyncService(this)
@@ -250,6 +252,7 @@ fun Application.signalModule(companion: Companion) {
             deviceRoutes(companion)
             recordingDeviceRoutes(companion)
             guideDeviceRoutes(companion)
+            activityDeviceRoutes(companion)
             syncDeviceRoutes(companion)
             vodDeviceRoutes(companion)
             vodImageRoutes(companion)
@@ -275,6 +278,7 @@ fun Application.signalModule(companion: Companion) {
                 vodAdminRoutes(companion)
                 watchRoutes(companion)
                 recordingRoutes(companion)
+                activityAdminRoutes(companion)
             }
             webAdmin(File(companion.config.webDir))
         } }

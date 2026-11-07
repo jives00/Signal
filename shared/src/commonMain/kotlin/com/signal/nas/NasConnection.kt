@@ -377,6 +377,19 @@ class NasConnection(
         return response.status.isSuccess()
     }
 
+    /** What this device plays from a source, for the dashboard. True when the companion took it. */
+    suspend fun reportPlaying(playing: NowPlaying): Boolean {
+        if (!isPaired) return false
+        val response = call { base ->
+            http.post(base + NasPaths.PLAYING) {
+                asDevice()
+                contentType(ContentType.Application.Json)
+                setBody(json.encodeToString(NowPlaying.serializer(), playing))
+            }
+        } ?: return false
+        return response.status.isSuccess()
+    }
+
     /** Where images come from right now: the companion that answered last, or null to use TMDB's CDN. */
     fun imageUrl(size: String, path: String): String {
         val base = active?.second?.takeIf { isPaired && _status.value is Status.Connected }
