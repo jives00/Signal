@@ -31,6 +31,8 @@ class NavBarKeyMapTest {
         focusedStartsWith("Home")
         press(RemoteAction.Right)
         focusedStartsWith("Live TV")
+        press(RemoteAction.Right)
+        focusedStartsWith("Live Sports")
         // The Demo source has movies and series, so both are on the bar (PLAN §4.1).
         press(RemoteAction.Right)
         focusedStartsWith("Movies")
@@ -40,8 +42,9 @@ class NavBarKeyMapTest {
         focusedStartsWith("Search")
         press(RemoteAction.Right)
         focusedStartsWith("Settings")
-        repeat(4) { press(RemoteAction.Left) }
+        repeat(5) { press(RemoteAction.Left) }
         focusedStartsWith("Live TV")
+        press(RemoteAction.Right)
         press(RemoteAction.Right)
         press(RemoteAction.Select)
         route(Route.Movies)
