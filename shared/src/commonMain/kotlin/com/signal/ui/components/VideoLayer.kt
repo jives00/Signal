@@ -11,6 +11,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.unit.Constraints
@@ -38,12 +39,16 @@ class VideoLayer {
     var aspect by mutableStateOf(AspectMode.FIT)
         private set
     private var owner: Any? = null
+    /** Whether a screen holds the video now. A hidden page's leftover picture is covered while nobody does. */
+    var owned by mutableStateOf(false)
+        private set
     internal var releasedAt by mutableStateOf(0L)
         private set
 
     fun claim(owner: Any, bounds: Rect, aspect: AspectMode) {
         this.owner = owner
         this.bounds = bounds
+        owned = true
         this.aspect = aspect
     }
 
@@ -51,6 +56,7 @@ class VideoLayer {
     fun release(owner: Any) {
         if (this.owner === owner) {
             this.owner = null
+            owned = false
             releasedAt++
         }
     }
@@ -75,6 +81,7 @@ fun VideoLayerHost(layer: VideoLayer, player: VideoPlayer) {
         layer.clearIfUnowned()
     }
     val b = layer.bounds
+    val cover = SignalTheme.colors.bg
     Box(Modifier.fillMaxSize()) {
         Box(
             Modifier.layout { measurable, _ ->
@@ -84,7 +91,16 @@ fun VideoLayerHost(layer: VideoLayer, player: VideoPlayer) {
                 layout(w, h) { placeable.place(b?.left?.roundToInt() ?: 0, b?.top?.roundToInt() ?: 0) }
             }
                 // Bars around video that doesn't fill the slot are black, not the page behind (milestone 6).
-                .background(SignalTheme.colors.letterbox),
+                .background(SignalTheme.colors.letterbox)
+                // While no screen holds the video, the page's ground covers it. The picture went on
+                // showing through the next page (the guide preview's corner of Settings, 1.1.11): the
+                // hole the video cuts in the window isn't repainted when the view collapses, and video
+                // frames keep arriving while a first visit to a page is still being built. Read at draw
+                // time, so a screen that takes the video in the same frame never shows the cover.
+                .drawWithContent {
+                    drawContent()
+                    if (!layer.owned) drawRect(cover)
+                },
         ) {
             player.Surface(Modifier.fillMaxSize(), layer.aspect)
         }
