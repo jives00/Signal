@@ -417,8 +417,15 @@ class Recorder(
         val scheduled = run.recording.programStart != null
         var gapFrom: Long? = if (run.resumed) run.recording.updatedAt else run.recording.startMs.takeIf { scheduled }
         var hadData = run.resumed
+        /** When this connection's first bytes came. A gap ends there, but only once its segments prove to be the channel. */
+        var connectedAt: Long? = null
         if (run.recording.state == RecordingState.SCHEDULED) update(run) { copy(state = RecordingState.WAITING) }
         val files = RecordingFiles(dir) { durationMs, bytes ->
+            gapFrom?.let { from ->
+                addGap(run, from, connectedAt ?: now(), starting = !hadData)
+                gapFrom = null
+            }
+            hadData = true
             update(run) { copy(durationMs = this.durationMs + durationMs, bytes = this.bytes + bytes) }
             if (dir.usableSpace < timing.minFreeBytes / 5) throw RecordingStopped("The recordings folder is nearly full.")
         }
@@ -437,14 +444,11 @@ class Recorder(
                 // The channel restarting on this connection loses time too, with no reconnect to count it.
                 val segmenter = TsSegmenter(files, onJump = { ms -> if (ms >= MIN_STALL_MS) addGap(run, now() - ms, now(), starting = false) })
                 var dropped = true
+                connectedAt = null
                 try {
                     dropped = streamUntilOver(run) {
                         fetch.stream(login.url, login.headers) { data, length ->
-                            gapFrom?.let { from ->
-                                addGap(run, from, now(), starting = !hadData)
-                                gapFrom = null
-                            }
-                            hadData = true
+                            if (connectedAt == null) connectedAt = now()
                             segmenter.feed(data, 0, length)
                         }
                     }
@@ -455,6 +459,10 @@ class Recorder(
                 } catch (e: StreamRefused) {
                     run.reason = "The provider refused the stream (${e.status})."
                     log.info("Stream refused, ${e.status}: ${run.recording.title}")
+                } catch (e: TsSegmenter.NotLive) {
+                    // Its segments are already dropped. Waiting and reconnecting is what gets the channel back.
+                    run.reason = "The provider sent a placeholder instead of the channel."
+                    log.info("Placeholder, ${e.aheadMs / 1000} s ahead of the clock: ${run.recording.title}")
                 } catch (e: RecordingStopped) {
                     throw e
                 } catch (e: CancellationException) {

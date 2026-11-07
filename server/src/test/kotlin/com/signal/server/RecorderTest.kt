@@ -310,6 +310,18 @@ class RecorderTest {
         assertTrue(playlist(r).contains("#EXT-X-DISCONTINUITY\n#EXTINF:3.500,\nseg-000002.ts"), playlist(r))
     }
 
+    @Test fun aPlaceholderIsDroppedAndItReconnectsForTheChannel() {
+        var calls = 0
+        // The first two connections get a two-minute clip at once; the third gets the channel.
+        serve = { _, send -> if (++calls <= 2) Ts.stream(120).let { send(it, it.size) } else { feed(send); awaitCancellation() } }
+        val r = finished(start(recorder(), 800).id)
+        assertEquals(3, connected.size)
+        assertEquals(RecordingState.PARTIAL, r.state)
+        assertEquals(3_500L, r.durationMs, "only the channel counts")
+        assertEquals(1, Regex("seg-").findAll(playlist(r)).count(), playlist(r))
+        assertEquals("The provider sent a placeholder instead of the channel.", r.reason)
+    }
+
     @Test fun aStreamThatJustEndsCountsAsADrop() {
         var calls = 0
         serve = { _, send -> feed(send); if (++calls > 1) awaitCancellation() }
@@ -481,6 +493,49 @@ class RecorderTest {
         assertTrue(lengths.all { it <= 6.0 }, "the stall isn't counted as video: $lengths")
         assertEquals(1, stalls.size)
         assertTrue(stalls.single() >= 40_000, "the stall was ${stalls.single()}")
+    }
+
+    /** Futurama, 2026-11-06: each reconnect got a black clip of about 10 minutes, sent in seconds, and it was kept as the show. */
+    @Test fun aStreamFarAheadOfTheClockIsAPlaceholderAndLeavesNothing() {
+        val dir = java.nio.file.Files.createTempDirectory("placeholder").toFile()
+        val counted = mutableListOf<Long>()
+        val files = RecordingFiles(dir) { ms, _ -> counted += ms }
+        val s = TsSegmenter(files, clock = { 0 })
+        val notLive = kotlin.runCatching { s.feed(Ts.stream(120)) }.exceptionOrNull()
+        assertTrue(notLive is TsSegmenter.NotLive, "got $notLive")
+        s.close()
+        files.end()
+        assertFalse(dir.resolve(RecordingFiles.PLAYLIST).readText().contains("seg-"))
+        assertEquals(emptyList(), counted)
+        assertEquals(emptyList(), dir.list()!!.filter { it.startsWith("seg-") }, "its segments are deleted")
+
+        // The next connection carries on as if the placeholder never came, after a gap.
+        val next = TsSegmenter(files)
+        next.feed(Ts.stream(4))
+        next.close()
+        val playlist = dir.resolve(RecordingFiles.PLAYLIST).readText()
+        assertTrue(playlist.contains("#EXT-X-DISCONTINUITY\n#EXTINF:3.500,\nseg-000001.ts"), playlist)
+        assertEquals(listOf(3_500L), counted)
+    }
+
+    @Test fun aLiveStreamIsHeldUntilItProvesLiveThenKeptAsItGoes() {
+        val dir = java.nio.file.Files.createTempDirectory("held").toFile()
+        val files = RecordingFiles(dir)
+        var wall = 0L
+        val s = TsSegmenter(files, clock = { wall })
+        s.feed(Ts.pat + Ts.pmt)
+        // The provider's buffer on connect: 24 s at once.
+        repeat(48) { i -> s.feed(Ts.video(i * 500L, keyframe = i % 4 == 0)) }
+        fun entries() = Regex("seg-").findAll(dir.resolve(RecordingFiles.PLAYLIST).readText()).count()
+        assertEquals(0, entries(), "held, though two segments are done")
+        // Then real time.
+        for (i in 48 until 120) {
+            wall += 500
+            s.feed(Ts.video(i * 500L, keyframe = i % 4 == 0))
+        }
+        assertTrue(entries() >= 4, "kept once it ran 30 s without getting ahead")
+        s.close()
+        assertEquals(6, entries())
     }
 
     @Test fun aTickOfJitterOrAnotherStreamsClockIsntARestart() {

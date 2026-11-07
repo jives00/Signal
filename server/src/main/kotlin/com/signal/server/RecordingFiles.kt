@@ -10,20 +10,27 @@ import java.util.Locale
  * One recording's folder: numbered segments and an EVENT playlist that grows as they finish, so it
  * can be watched while it records (dvr.md → Capture). The playlist is only ever appended to. A folder
  * that already has one carries on after it with a gap, which is how a restart resumes.
+ *
+ * A finished segment waits off the playlist until the segmenter [confirm]s it's the channel, or
+ * [discard]s it when the provider sent a placeholder instead (TsSegmenter → NotLive).
  */
 class RecordingFiles(private val dir: File, private val onSegment: (durationMs: Long, bytes: Long) -> Unit = { _, _ -> }) : TsSegmenter.Sink {
+    private class Held(val file: File, val entry: String, val durationMs: Long, val bytes: Long)
+
     private val playlist = File(dir, PLAYLIST)
     private var number: Int
     private var gap: Boolean
     private var out: BufferedOutputStream? = null
     private var part: File? = null
     private var written = 0L
+    private val held = mutableListOf<Held>()
 
     init {
         dir.mkdirs()
         val resuming = playlist.exists()
         dir.listFiles { f -> f.name.endsWith(".part") }?.forEach { it.delete() }
-        number = (dir.list().orEmpty().mapNotNull { SEGMENT.matchEntire(it)?.groupValues?.get(1)?.toInt() }.maxOrNull() ?: 0) + 1
+        // Segments a crash left off the playlist are overwritten as numbering carries on from the playlist.
+        number = (playlist.takeIf { it.exists() }?.readLines().orEmpty().mapNotNull { SEGMENT.matchEntire(it)?.groupValues?.get(1)?.toInt() }.maxOrNull() ?: 0) + 1
         gap = resuming
         if (!resuming) {
             playlist.writeText(
@@ -54,16 +61,32 @@ class RecordingFiles(private val dir: File, private val onSegment: (durationMs: 
         out!!.close()
         out = null
         val name = name(number)
-        if (!part!!.renameTo(File(dir, name))) throw IOException("Couldn't finish a segment")
+        val file = File(dir, name)
+        if (!part!!.renameTo(file)) throw IOException("Couldn't finish a segment")
         val entry = buildString {
             if (gap) append("#EXT-X-DISCONTINUITY\n")
             append(String.format(Locale.ROOT, "#EXTINF:%.3f,\n", durationMs / 1000.0))
             append(name).append('\n')
         }
-        playlist.appendText(entry)
+        held += Held(file, entry, durationMs, written)
         gap = false
         number++
-        onSegment(durationMs, written)
+    }
+
+    override fun confirm() {
+        if (held.isEmpty()) return
+        val batch = held.toList()
+        held.clear()
+        playlist.appendText(batch.joinToString("") { it.entry })
+        batch.forEach { onSegment(it.durationMs, it.bytes) }
+    }
+
+    override fun discard() {
+        if (held.isEmpty()) return
+        held.forEach { it.file.delete() }
+        number -= held.size
+        held.clear()
+        gap = true
     }
 
     /** No more segments: players treat the playlist as complete. */

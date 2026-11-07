@@ -10,6 +10,13 @@ package com.signal.server
  * the PCR jumps, the provider restarted the channel on the same connection: the segment ends there at
  * its true length and the next is marked as a join, or a player waits for video that isn't there
  * ([onJump] gets how long it stalled; The Office, 2026-11-06, said 46.8 s for 6.5 s of video).
+ *
+ * A live channel can't run ahead of the clock by more than the provider's buffer on connect (about
+ * 25 s). A stream that runs further ahead is a file, not the channel: the provider answers some
+ * connections with a black clip of about 10 minutes, sent in seconds (Futurama, 2026-11-06, kept 100
+ * minutes of it). So each clock's segments are held for [confirmMs] before the sink [Sink.confirm]s
+ * them, and a stream more than [maxAheadMs] ahead has its held segments [Sink.discard]ed and throws
+ * [NotLive]. The segmenter takes nothing more after that.
  */
 class TsSegmenter(
     private val sink: Sink,
@@ -17,6 +24,8 @@ class TsSegmenter(
     private val maxMs: Long = MAX_MS,
     private val clock: () -> Long = System::currentTimeMillis,
     private val onJump: (stalledMs: Long) -> Unit = {},
+    private val confirmMs: Long = CONFIRM_MS,
+    private val maxAheadMs: Long = MAX_AHEAD_MS,
 ) {
     interface Sink {
         fun begin()
@@ -24,7 +33,14 @@ class TsSegmenter(
         fun finish(durationMs: Long)
         /** The next segment doesn't follow on from the last. */
         fun markGap() {}
+        /** The segments finished so far are the channel: keep them. */
+        fun confirm() {}
+        /** The segments finished since the last [confirm] weren't the channel: drop them. */
+        fun discard() {}
     }
+
+    /** The stream ran ahead of the clock, so it isn't the live channel. */
+    class NotLive(val aheadMs: Long) : Exception("The stream ran ${aheadMs / 1000} s ahead of the clock")
 
     private val buffer = ByteArray(BUFFER_SIZE)
     private var filled = 0
@@ -43,8 +59,14 @@ class TsSegmenter(
     private var lastPcr: Long? = null
     private var lastPcrWall = 0L
     private var segmentWall = 0L
+    /** Where this clock started, by the PCR and the wall; null until its first PCR. */
+    private var basePcr: Long? = null
+    private var baseWall = 0L
+    private var confirmed = false
+    private var dead = false
 
     fun feed(data: ByteArray, offset: Int = 0, length: Int = data.size) {
+        if (dead) return
         var from = offset
         var left = length
         while (left > 0) {
@@ -59,9 +81,18 @@ class TsSegmenter(
 
     /** Ends the open segment. The segmenter holds nothing after this; a new connection gets a new one. */
     fun close() {
-        drain(final = true)
-        filled = 0
+        if (dead) return
+        try {
+            drain(final = true)
+        } catch (_: NotLive) {
+            return
+        } finally {
+            filled = 0
+        }
         if (open) endSegment()
+        // A connection that ended before its hold ran out still never ran ahead.
+        sink.confirm()
+        dead = true
     }
 
     private fun drain(final: Boolean) {
@@ -98,6 +129,7 @@ class TsSegmenter(
             lastPcr = pcr
             lastPcrWall = clock()
             if (segmentPcr == null) segmentPcr = pcr
+            checkLive(pcr)
         }
         if (unitStart && control and 1 != 0) {
             val payload = if (hasField) o + 5 + fieldLength else o + 4
@@ -129,9 +161,44 @@ class TsSegmenter(
     private fun restart() {
         val stalled = clock() - lastPcrWall
         if (open) endSegment()
+        // The old clock never ran ahead, so what it gave is kept; the new one is held afresh.
+        sink.confirm()
         sink.markGap()
         segmentPcr = null
+        basePcr = null
+        confirmed = false
         onJump(stalled)
+    }
+
+    private fun checkLive(pcr: Long) {
+        val base = basePcr
+        if (base == null) {
+            basePcr = pcr
+            baseWall = clock()
+            return
+        }
+        val wall = clock() - baseWall
+        // Signed, so a tick of jitter behind the base is a little negative, not a whole wrap ahead.
+        val step = (pcr - base) and PCR_MASK
+        val ahead = (if (step > PCR_MASK / 2) step - PCR_MASK - 1 else step) / 90 - wall
+        if (ahead > maxAheadMs) {
+            if (open) {
+                sink.finish(elapsed())
+                open = false
+            }
+            sink.discard()
+            dead = true
+            throw NotLive(ahead)
+        }
+        if (!confirmed && wall >= confirmMs) {
+            confirmed = true
+            sink.confirm()
+        }
+    }
+
+    /** Called after each finished segment: once a clock has proved live, segments are kept as they finish. */
+    private fun afterSegment() {
+        if (confirmed) sink.confirm()
     }
 
     private fun readPat(b: ByteArray, o: Int, payload: Int) {
@@ -183,6 +250,7 @@ class TsSegmenter(
     private fun endSegment() {
         sink.finish(elapsed())
         open = false
+        afterSegment()
     }
 
     private fun elapsed(): Long {
@@ -204,6 +272,10 @@ class TsSegmenter(
         const val MAX_MS = 15_000L
         /** What the playlist declares: nothing runs past [MAX_MS] by more than one picture. */
         const val PLAYLIST_TARGET_SECONDS = 16
+        /** How long a new clock's segments are held before they count as the channel. */
+        const val CONFIRM_MS = 30_000L
+        /** Past the provider's buffer on connect (about 25 s): further ahead isn't live. */
+        const val MAX_AHEAD_MS = 60_000L
         private const val PACKET = 188
         private const val SYNC = 0x47.toByte()
         private const val BUFFER_SIZE = PACKET * 512
