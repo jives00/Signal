@@ -24,15 +24,15 @@ internal class DisplayModeMatcher(private val activity: Activity) {
 
     /**
      * [fps], [width] and [height] are the video's, or null while unknown. [match] is true on full screen
-     * and on-demand playback; a mode already set stays while video carries on elsewhere ([keep]), and
-     * goes back to the system's once nothing plays.
+     * and on-demand playback. A mode already set stays until the app leaves the screen ([reset]), even
+     * with nothing playing: an HDMI mode change blanks the TV for a second or two, so going back to the
+     * system's on the way into Settings cost one there and another coming back (2026-11-06).
      */
-    fun update(mode: FrameRateMode, fps: Float?, width: Int, height: Int, match: Boolean, keep: Boolean) {
+    fun update(mode: FrameRateMode, fps: Float?, width: Int, height: Int, match: Boolean) {
         val target = when {
             mode == FrameRateMode.OFF -> 0
             match && fps != null && fps > 0 -> pick(mode, fps, width, height)
-            match || keep -> applied
-            else -> 0
+            else -> applied
         }
         set(target)
     }

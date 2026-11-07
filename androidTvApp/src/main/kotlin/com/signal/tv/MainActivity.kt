@@ -95,7 +95,7 @@ class MainActivity : ComponentActivity() {
                 val playing = s.status == PlaybackState.Status.PLAYING || s.status == PlaybackState.Status.BUFFERING
                 val match = playing && (route is com.signal.app.Route.FullScreen || route == com.signal.app.Route.VodPlayer)
                 val video = s.video
-                displayModes.update(settings.frameRate, video?.frameRate, video?.width ?: 0, video?.height ?: 0, match = match, keep = playing)
+                displayModes.update(settings.frameRate, video?.frameRate, video?.width ?: 0, video?.height ?: 0, match = match)
             }
         }
     }
