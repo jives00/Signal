@@ -54,7 +54,9 @@ internal class DisplayModeMatcher(private val activity: Activity) {
         val display = activity.display ?: return 0
         if (applied == 0) systemMode = display.mode
         val base = (systemMode ?: display.mode).toMode()
-        val chosen = FrameRateMatch.choose(display.supportedModes.map { it.toMode() }, base, fps, width, height, mode) ?: return 0
+        val modes = display.supportedModes.map { it.toMode() }
+        val current = if (applied == 0) base else modes.firstOrNull { it.id == applied }
+        val chosen = FrameRateMatch.choose(modes, base, fps, width, height, mode, current) ?: return 0
         return if (chosen.id == base.id) 0 else chosen.id
     }
 

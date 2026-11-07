@@ -39,6 +39,18 @@ class FrameRateMatchTest {
         assertEquals(3840, choose(23.976f, 3840, 2160, FrameRateMode.ON_RESOLUTION)!!.width)
     }
 
+    @Test fun aNearRateOnScreenStays() {
+        val at60 = modes.first { it.width == 3840 && it.refreshRate == 60f }
+        // 59.94 on a display already at 60 (and the reverse) doesn't switch: a switch blanks the TV.
+        assertEquals(at60, FrameRateMatch.choose(modes, base, 59.94f, 1920, 1080, FrameRateMode.ON, current = at60))
+        assertEquals(base, FrameRateMatch.choose(modes, base, 60f, 1920, 1080, FrameRateMode.ON, current = base))
+        // 23.976 film still leaves 60.
+        assertEquals(23.976f, FrameRateMatch.choose(modes, base, 23.976f, 1920, 1080, FrameRateMode.ON, current = at60)!!.refreshRate)
+        // 24 on a display at 23.976 stays.
+        val film = modes.first { it.width == 3840 && it.refreshRate == 23.976f }
+        assertEquals(film, FrameRateMatch.choose(modes, base, 24f, 1920, 1080, FrameRateMode.ON, current = film))
+    }
+
     @Test fun noFitOrOffLeavesTheDisplayAlone() {
         assertNull(choose(12.5f * 1.1f))
         assertNull(choose(23.976f, setting = FrameRateMode.OFF))

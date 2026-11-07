@@ -16,8 +16,23 @@ object FrameRateMatch {
      *
      * 25 and 29.97 are usually interlaced TV shown as 50 or 59.94 fields a second, so they take the
      * doubled rate first; film (23.976, 24) its own. Otherwise the lowest whole multiple that exists.
+     *
+     * [current] is the mode on screen now. When it's within [NEAR] of the answer (60 for 59.94, 24 for
+     * 23.976) it stays: the mismatch costs one repeated frame every 17 s or more, but switching blanks
+     * the TV for a second or two. A 60 fps stream had left the Loft at 60 Hz, and going full screen
+     * on a 59.94 channel blanked it (user, 2026-11-07).
      */
-    fun choose(modes: List<Mode>, base: Mode, fps: Float, width: Int, height: Int, setting: FrameRateMode): Mode? {
+    fun choose(modes: List<Mode>, base: Mode, fps: Float, width: Int, height: Int, setting: FrameRateMode, current: Mode? = null): Mode? {
+        val chosen = exact(modes, base, fps, width, height, setting) ?: return null
+        val near = current != null && current.width == chosen.width && current.height == chosen.height &&
+            abs(current.refreshRate - chosen.refreshRate) / chosen.refreshRate < NEAR
+        return if (near) current else chosen
+    }
+
+    /** How far apart two rates can be and still count as the same: 60 against 59.94 is 0.1%. */
+    private const val NEAR = 0.002f
+
+    private fun exact(modes: List<Mode>, base: Mode, fps: Float, width: Int, height: Int, setting: FrameRateMode): Mode? {
         if (setting == FrameRateMode.OFF || fps <= 0f) return null
         fun sameSize(w: Int, h: Int) = modes.filter { it.width == w && it.height == h }
         val sized = if (setting == FrameRateMode.ON_RESOLUTION && width > 0 && height > 0) {
