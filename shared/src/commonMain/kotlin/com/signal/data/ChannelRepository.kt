@@ -134,7 +134,8 @@ class ChannelRepository(
             db.listsQueries.favoriteChannels(profile).asFlow().mapToList(io),
             db.channelLinkTrigger(),
             settings.changes(),
-        ) { rows, _, _ ->
+            EventChannels.changes,
+        ) { rows, _, _, _ ->
             rows.map { r ->
                 channel(
                     stream = r.stream(), displayName = r.display_name, userChannelId = r.fav_user_channel_id, customName = r.custom_name,
@@ -150,7 +151,8 @@ class ChannelRepository(
             db.listsQueries.playlistChannels(group.id).asFlow().mapToList(io),
             db.listsQueries.playlistSort(group.id).asFlow().mapToOneOrNull(io),
             settings.changes(),
-        ) { rows, sortRow, _ ->
+            EventChannels.changes,
+        ) { rows, sortRow, _, _ ->
             val sort = sortRow?.channel_sort?.let { runCatching { ChannelSort.valueOf(it) }.getOrNull() }
             rememberPlaylistSort(group.id, sort)
             rows.map { r ->
@@ -164,7 +166,9 @@ class ChannelRepository(
             db.streamQueries.channelsInGroup(profile, group.sourceId, group.name).asFlow().mapToList(io),
             db.listsQueries.groupOverrides(profile).asFlow().mapToList(io),
             settings.changes(),
-        ) { rows, overrides, _ ->
+            // ESPN said a game started or ended: event channels show or hide.
+            EventChannels.changes,
+        ) { rows, overrides, _, _ ->
             val sort = overrides.firstOrNull { it.source_id == group.sourceId && it.group_name == group.name }
                 ?.channel_sort?.let { runCatching { ChannelSort.valueOf(it) }.getOrNull() }
                 ?: settings.channelSort()

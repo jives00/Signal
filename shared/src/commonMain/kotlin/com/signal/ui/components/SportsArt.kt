@@ -3,6 +3,7 @@ package com.signal.ui.components
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -21,6 +22,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.signal.model.Channel
 import com.signal.model.Program
+import com.signal.sports.GameState
 import com.signal.sports.Sport
 import com.signal.sports.Team
 import com.signal.sports.Teams
@@ -55,17 +57,23 @@ fun TeamLogo(team: Team, size: Int, modifier: Modifier = Modifier) {
 /** A team's name with its ranking ("#11 Louisville"). */
 fun Team.label(): String = rank?.let { "#$it $name" } ?: name
 
-/** "[logo] Georgia Bulldogs vs. [logo] Ole Miss Rebels" on one line. */
+/** "[logo] Georgia Bulldogs vs. [logo] Ole Miss Rebels" on one line, each with its score once ESPN has one. */
 @Composable
 fun MatchupLine(teams: Teams, textSize: Int, logoSize: Int, color: Color, weight: FontWeight = FontWeight.SemiBold) {
+    val scored = teams.score != null
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
         TeamLogo(teams.firstTeam, logoSize)
         SText(teams.firstTeam.label(), textSize, weight = weight, color = color)
+        if (scored) SText(teams.firstTeam.score!!, textSize, weight = FontWeight.ExtraBold, color = color)
         SText("vs.", textSize, weight = weight, color = color)
         TeamLogo(teams.secondTeam, logoSize)
         SText(teams.secondTeam.label(), textSize, weight = weight, color = color)
+        if (scored) SText(teams.secondTeam.score!!, textSize, weight = FontWeight.ExtraBold, color = color)
     }
 }
+
+/** ESPN's status while a game is on or over ("Q3 5:12", "Final"), else null. */
+fun Teams.statusText(): String? = status?.takeIf { it.state != GameState.PRE }?.detail
 
 /**
  * The two teams' logos of the game on [channel] now, when ESPN knows it (live-sports.md → Round 2):
@@ -75,11 +83,21 @@ fun MatchupLine(teams: Teams, textSize: Int, logoSize: Int, color: Color, weight
 fun GameLogos(channel: Channel, program: Program?, size: Int, modifier: Modifier = Modifier) {
     val app = LocalApp.current
     val teams by produceState<Teams?>(null, channel.stream.id, program?.id) {
-        value = runCatching { app.sports.teamsOn(channel.stream.id, program, kotlin.time.Clock.System.now().toEpochMilliseconds()) }.getOrNull()
+        // Looked at again every minute while shown, for the score.
+        while (true) {
+            value = runCatching { app.sports.teamsOn(channel.stream.id, program, kotlin.time.Clock.System.now().toEpochMilliseconds()) }.getOrNull()
+            kotlinx.coroutines.delay(60_000)
+        }
     }
     val t = teams ?: return
     Row(modifier, verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         TeamLogo(t.firstTeam, size)
+        // The score between the logos, and ESPN's status under it, once the game is on.
+        val score = t.score
+        if (score != null) Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            SText(score, (size * 0.5f).toInt(), weight = FontWeight.ExtraBold)
+            t.statusText()?.let { SText(it, (size * 0.32f).toInt(), color = SignalTheme.colors.muted) }
+        }
         TeamLogo(t.secondTeam, size)
     }
 }

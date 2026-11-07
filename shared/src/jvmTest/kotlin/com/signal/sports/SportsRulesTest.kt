@@ -196,18 +196,18 @@ class SportsRulesTest {
         assertEquals(listOf("on"), SportsList.filter(all, SportsWhen.LIVE, emptySet(), now, zone).map { it.key })
         assertEquals(listOf("on", "later"), SportsList.filter(all, SportsWhen.TODAY, emptySet(), now, zone).map { it.key })
         assertEquals(listOf("tomorrow"), SportsList.filter(all, SportsWhen.TOMORROW, emptySet(), now, zone).map { it.key })
-        assertEquals(listOf("on", "tomorrow", "sunday"), SportsList.filter(all, SportsWhen.WEEK, setOf(Sport.NFL), now, zone).map { it.key })
-        assertEquals(listOf(Sport.NFL, Sport.NBA), SportsList.sports(all, SportsWhen.TODAY, now, zone))
+        assertEquals(listOf("on", "tomorrow", "sunday"), SportsList.filter(all, SportsWhen.WEEK, setOf("NFL"), now, zone).map { it.key })
+        assertEquals(listOf("NFL", "NBA"), SportsList.sports(all, SportsWhen.TODAY, now, zone))
         assertEquals(0.5f, event("half", now - 90 * 60_000, Sport.NFL).progress(now), 0.01f)
     }
 
     @Test fun filtersAreKept() {
-        val f = SportsFilters(region = SportsRegion.WORLDWIDE, whenOn = SportsWhen.LIVE).toggled(Sport.NFL).toggled(Sport.NBA)
+        val f = SportsFilters(region = SportsRegion.WORLDWIDE, whenOn = SportsWhen.LIVE).toggled("NFL").toggled("NBA")
         assertEquals(f, SportsFilters.parse(f.encode()))
-        assertEquals(setOf(Sport.NFL, Sport.NBA), f.chosen)
+        assertEquals(setOf("NFL", "NBA"), f.chosen)
         assertEquals("NFL, NBA", f.sportLabel)
-        assertEquals("3 sports", f.toggled(Sport.MLB).sportLabel)
-        assertEquals("All sports", f.toggled(Sport.NFL).toggled(Sport.NBA).sportLabel)
+        assertEquals("3 sports", f.toggled("MLB").sportLabel)
+        assertEquals("All sports", f.toggled("NFL").toggled("NBA").sportLabel)
         assertEquals(SportsFilters(), SportsFilters.parse("""{"whenOn":"NEVER"}"""), "a value this version does not know")
         assertNull(SportsFilters().encode())
     }

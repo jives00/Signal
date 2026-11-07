@@ -74,7 +74,7 @@ class LiveSportsKeyMapTest {
         press(RemoteAction.Back)
         focusedStartsWith("NFL, NBA")
         eventually("only those two") { shows("Knicks vs. Celtics") && !shows("Rangers vs. Bruins") }
-        assertEquals(setOf(Sport.NFL, Sport.NBA), app.sports.filters().chosen)
+        assertEquals(setOf("NFL", "NBA"), app.sports.filters().chosen)
 
         // Away and back: still set.
         ui.runOnIdle { app.navigator.go(Route.Search) }

@@ -84,7 +84,7 @@ class LeaguesTest {
 
     @Test fun oldSettingsNames() {
         assertEquals(setOf("MENS_COLLEGE_BASKETBALL", "WOMENS_COLLEGE_BASKETBALL", "NFL"), SportsSettings.parse("""{"hiddenSports":["COLLEGE_BASKETBALL","NFL"]}""").hiddenSports)
-        assertEquals(setOf(Sport.G_LEAGUE, Sport.INTL_BASKETBALL), SportsFilters.parse("""{"sports":["BASKETBALL"]}""").chosen)
+        assertEquals(setOf("G_LEAGUE", "INTL_BASKETBALL"), SportsFilters.parse("""{"sports":["BASKETBALL"]}""").chosen)
     }
 
     @Test fun images() {
@@ -132,24 +132,24 @@ class LeaguesTest {
         val index = EspnMatch.Index(espnGames())
         val start = et(2026, 11, 7, 12)
         val abbreviated = Found(Sport.OTHER, "UGA vs. MISS", null, Teams("UGA", "#10 MISS"), start, start + 3 * 3_600_000L, true, false, listOf(ch("a")), Classified.NONE)
-        val byTeams = EspnMatch.apply(listOf(abbreviated), index).single()
+        val byTeams = EspnMatch.apply(listOf(abbreviated), index, now).single()
         assertEquals(Sport.COLLEGE_FOOTBALL, byTeams.sport)
         assertEquals(Classified.ESPN, byTeams.certainty)
         assertEquals("Georgia Bulldogs", byTeams.teams!!.first)
         assertEquals("https://e.test/miss.png", byTeams.teams!!.secondTeam.logo)
 
         val swapped = Found(Sport.COLLEGE_FOOTBALL, "x", null, Teams("Ole Miss", "Georgia"), start + 600_000, start, true, false, listOf(ch("b")))
-        assertEquals("Ole Miss Rebels", EspnMatch.apply(listOf(swapped), index).single().teams!!.first, "the order it was written")
+        assertEquals("Ole Miss Rebels", EspnMatch.apply(listOf(swapped), index, now).single().teams!!.first, "the order it was written")
 
         val noTeams = Found(Sport.COLLEGE_FOOTBALL, "College Football", "From Vaught-Hemingway Stadium in Oxford, Miss.", null, start - 30 * 60_000, start, false, false,
             listOf(ch("c", description = "From Vaught-Hemingway Stadium in Oxford, Miss.")), Classified.NAMED)
-        assertEquals("Georgia Bulldogs vs. Ole Miss Rebels", EspnMatch.apply(listOf(noTeams), index).single().teams!!.let { "${it.first} vs. ${it.second}" })
+        assertEquals("Georgia Bulldogs vs. Ole Miss Rebels", EspnMatch.apply(listOf(noTeams), index, now).single().teams!!.let { "${it.first} vs. ${it.second}" })
 
         val otherSport = Found(Sport.MENS_COLLEGE_BASKETBALL, "x", null, Teams("Georgia", "Ole Miss"), start, start, true, false, listOf(ch("d")), Classified.NAMED)
-        assertNull(EspnMatch.apply(listOf(otherSport), index).single().teams!!.sides, "basketball isn't the football game")
+        assertNull(EspnMatch.apply(listOf(otherSport), index, now).single().teams!!.sides, "basketball isn't the football game")
 
         val days = Found(Sport.OTHER, "x", null, Teams("Georgia", "Ole Miss"), start + 2 * 24 * 3_600_000L, start, true, false, listOf(ch("e")), Classified.NONE)
-        assertNull(EspnMatch.apply(listOf(days), index).single().teams!!.sides, "two days off")
+        assertNull(EspnMatch.apply(listOf(days), index, now).single().teams!!.sides, "two days off")
 
         assertNotNull(EspnMatch.find(index, "Georgia Bulldogs", "Ole Miss Rebels", start - 15 * 60_000))
     }

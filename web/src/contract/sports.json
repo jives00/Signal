@@ -12,7 +12,9 @@
         {
             "id": "NFL",
             "label": "NFL",
-            "shown": true
+            "shown": true,
+            "kind": "league",
+            "inOther": false
         }
     ],
     "groups": [
@@ -45,5 +47,8 @@
             "defaultUrl": null,
             "chosen": null
         }
-    ]
+    ],
+    "order": [],
+    "asOther": [],
+    "ownEntry": []
 }

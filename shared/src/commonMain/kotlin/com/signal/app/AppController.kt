@@ -98,7 +98,8 @@ class AppController(val platform: Platform, val log: Log) {
     /** ESPN's games: the companion's copy, else straight from ESPN (live-sports.md → Round 2). */
     private val sportsScores = com.signal.sports.SportsScores(
         scope, { nas.sportsGames() }, com.signal.sports.EspnScoreboards(http, clock = { Clock.System.now().toEpochMilliseconds() }), { Clock.System.now().toEpochMilliseconds() },
-    ) { log.info(it) }
+        { log.info(it) }, { nas.sportsGamesNow() },
+    )
     val sports = com.signal.sports.SportsRepository(db, settings, guideStore, guide, platform.io, guideIo, { search.version }, sportsScores) { log.info(it) }
     val reminderList: StateFlow<List<Reminder>> = reminders.reminders().stateIn(scope, SharingStarted.Eagerly, emptyList())
     val dispatcher = RemoteDispatcher()
@@ -1441,6 +1442,10 @@ class AppController(val platform: Platform, val log: Log) {
     /** From the activity's onStop to the next onStart, whichever activity instance that is. */
     var inBackground = false
         private set
+
+    // ESPN's status for games around now, every few minutes while the app is in front (EventChannels hides finished games).
+    init { sportsScores.start { !inBackground } }
+
     /** Counts returns from the background, for screens that must catch up with the clock (the guide). */
     val foregrounds = kotlinx.coroutines.flow.MutableStateFlow(0)
     /** What's set to record, for the guide's markers and the Record buttons. */

@@ -69,8 +69,8 @@ class SportsRepository(
         val espn = scores?.index()
         withContext(guideIo) {
             nameGames(all, now, found)
-            val named = espn?.let { EspnMatch.apply(found, it) } ?: found
-            SportsMerge.merge(named).filter { it.stop > now && s.shows(it.sport) }
+            val named = espn?.let { EspnMatch.apply(found, it, now) } ?: found
+            SportsMerge.merge(named).filter { it.stop > now && s.shows(it) }
         }.also { log?.invoke("Live Sports: ${it.size} games from ${all.size} channels in ${started.elapsedNow().inWholeMilliseconds} ms") }
     }
 
@@ -140,7 +140,7 @@ class SportsRepository(
             val channels = LinkedHashMap<String, MutableList<EventChannel>>()
             val firsts = HashMap<String, Listing>()
             for (l in all) {
-                if (l.program.stop <= now) continue
+                if (l.program.stop + OVERTIME_MS <= now) continue // ESPN can say it runs on; the rest go after merging
                 val on = map["${l.program.epgSourceId}|${l.program.guideChannelId}"] ?: continue
                 val key = "${l.title}|${l.program.start}|${l.detail}"
                 firsts.getOrPut(key) { l }
@@ -180,7 +180,7 @@ class SportsRepository(
             if (!r.read) continue
             for (p in PpvNames.parseAll(r.channel.group, r.rawName, now)) {
                 val stop = p.stop ?: (p.start + PpvNames.typicalLength(p.sport))
-                if (stop <= now || p.start > now + WEEK_MS) continue
+                if (stop + OVERTIME_MS <= now || p.start > now + WEEK_MS) continue
                 val channel = if (p.sharedWithOthers) r.channel.copy(sharedWithOthers = true) else r.channel
                 into += Found(p.sport, p.title, null, p.teams, p.start, stop, stopGuessed = p.stop == null, dayGuessed = p.dayGuessed, channels = listOf(channel), certainty = p.certainty, sportName = p.sportName)
             }
@@ -198,23 +198,34 @@ class SportsRepository(
     }
 
     /**
-     * The teams, with ESPN's logos, of the game on [streamId] now, for the info bar and zap banner:
-     * the page's own row for the channel, else ESPN found by the listing's teams. Null for anything
-     * that isn't a game ESPN knows.
+     * The teams, with ESPN's logos, status and score, of the game on [streamId] now, for the info bar
+     * and zap banner: ESPN found by the listing's teams (a guide game, or an event channel's own
+     * program), else the page's own row for the channel. Null for anything that isn't a game ESPN knows.
      */
     suspend fun teamsOn(streamId: String, program: Program?, now: Long): Teams? {
-        lastEvents?.firstOrNull { e -> e.isOn(now) && e.teams?.hasLogos == true && e.channels.any { it.streamId == streamId } }?.let { return it.teams }
-        val p = program ?: return null
-        if (!GuideGames.isLiveGame(p.title, p.categories)) return null
-        val m = GameTitles.matchup(GuideGames.cleanTitle(p.title)) ?: return null
-        val index = scores?.index(waitMs = 3_000) ?: return null
-        return withContext(guideIo) { EspnMatch.find(index, m.away, m.home, p.start) }?.takeIf { it.hasLogos }
+        val sides = program?.let { p ->
+            when {
+                p.epgSourceId == EventChannels.EPG_SOURCE -> eventTeams.find(p.title)?.let { it.groupValues[1] to it.groupValues[2] }
+                GuideGames.isLiveGame(p.title, p.categories) -> GameTitles.matchup(GuideGames.cleanTitle(p.title))?.let { it.away to it.home }
+                else -> null
+            }
+        }
+        if (sides != null) {
+            val index = scores?.index(waitMs = 3_000)
+            val found = index?.let { withContext(guideIo) { EspnMatch.find(it, sides.first, sides.second, program.start) } }?.takeIf { it.hasLogos }
+            if (found != null) return found
+        }
+        return lastEvents?.firstOrNull { e -> e.isOn(now) && e.teams?.hasLogos == true && e.channels.any { it.streamId == streamId } }?.teams
     }
 
     private companion object {
         const val HOUR_MS = 3_600_000L
         const val DAY_MS = 24 * HOUR_MS
         const val WEEK_MS = 8 * DAY_MS
+        /** How long past its listed or guessed end a game is kept for ESPN to say whether it is still on. */
+        const val OVERTIME_MS = 3 * HOUR_MS
         const val DETAIL_LENGTH = 90
+        /** An event channel's title as two sides: "Cowboys at Colts", "#7 TEX vs. #18 MIZ". */
+        val eventTeams = Regex("""^(.+?)\s+(?:vs\.?|at|@|v\.?)\s+(.+)$""", RegexOption.IGNORE_CASE)
     }
 }

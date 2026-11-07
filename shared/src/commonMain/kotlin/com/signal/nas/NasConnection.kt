@@ -321,6 +321,15 @@ class NasConnection(
         return withContext(kotlinx.coroutines.Dispatchers.Default) { runCatching { json.decodeFromString<com.signal.sports.EspnGames>(body).games }.getOrNull() }
     }
 
+    /** The companion's games around now, for their status and score; null as for [sportsGames], or from a companion before 1.1.16. */
+    suspend fun sportsGamesNow(): List<com.signal.sports.EspnGame>? {
+        if (!isPaired) return null
+        val response = call(SPORTS_TIMEOUT_MS) { base -> http.get(base + com.signal.sports.EspnPaths.NOW) { asDevice() } } ?: return null
+        if (!response.status.isSuccess()) return null
+        val body = response.bodyAsText()
+        return runCatching { json.decodeFromString<com.signal.sports.EspnGames>(body).games }.getOrNull()
+    }
+
     /** Where to play a recording from, and the device key to send: a header, never in the URL. Null when no address has answered. */
     fun recordingPlayback(id: String): Pair<String, Map<String, String>>? {
         val base = active?.second ?: return null

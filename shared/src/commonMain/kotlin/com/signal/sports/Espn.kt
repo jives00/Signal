@@ -41,7 +41,13 @@ data class EspnTeam(
     val logo: String? = null,
     val record: String? = null,
     val rank: Int? = null,
+    /** The score once the game has started, as ESPN writes it. */
+    val score: String? = null,
 )
+
+/** Where a game is: not started, on, or over (ESPN's status.type.state). */
+@Serializable
+enum class GameState { PRE, IN, POST }
 
 /** A game in ESPN's scoreboard (live-sports.md → Round 2). [league] is a [Sport] name. */
 @Serializable
@@ -54,7 +60,14 @@ data class EspnGame(
     val networks: List<String> = emptyList(),
     /** For a feed with no filter of its own ([Sport.OTHER]), its sport: "Field Hockey". */
     val label: String? = null,
+    /** Null from a companion that doesn't read it yet. */
+    val state: GameState? = null,
+    /** ESPN's short status: "Q3 5:12", "Halftime", "Final", "Final/OT". */
+    val detail: String? = null,
 ) {
+    /** One game across fetches: the league, the start and both teams. */
+    val key: String get() = "$league|$start|${away.name}|${home.name}"
+
     val sport: Sport get() = Sport.entries.firstOrNull { it.name == league } ?: Sport.OTHER
 }
 
@@ -65,6 +78,8 @@ data class EspnGames(val games: List<EspnGame> = emptyList())
 object EspnPaths {
     /** GET with the device's key → [EspnGames]: the week's games, from the companion's copy of ESPN's scoreboards. */
     const val GAMES = "/device/sports/games"
+    /** GET with the device's key → [EspnGames]: only games around now, for their status and score every few minutes. */
+    const val NOW = "/device/sports/games/now"
 }
 
 /**
@@ -98,6 +113,8 @@ class EspnScoreboards(
                         val found = fetch(key.first, key.second)
                         val keepFor = when {
                             found == null -> FAILED_MS
+                            // A game on, or about to start: its status and score change by the minute.
+                            found.any { live(it, clock()) } -> LIVE_MS
                             key.second == today -> TODAY_MS
                             else -> LATER_MS
                         }
@@ -128,6 +145,8 @@ class EspnScoreboards(
             val start = (c.str("date") ?: e.str("date"))?.let(::time)
                 ?: return@mapNotNull null
             val sides = c.arr("competitors").mapNotNull { it as? JsonObject }
+            val status = (c.obj("status") ?: e.obj("status"))?.obj("type")
+            val state = when (status?.str("state")) { "pre" -> GameState.PRE; "in" -> GameState.IN; "post" -> GameState.POST; else -> null }
             fun side(which: String): EspnTeam? {
                 val s = sides.firstOrNull { it.str("homeAway") == which } ?: return null
                 val t = s.obj("team") ?: return null
@@ -137,10 +156,14 @@ class EspnScoreboards(
                 return EspnTeam(
                     name = name, short = t.str("shortDisplayName"), abbr = t.str("abbreviation"), location = t.str("location"),
                     nickname = t.str("name"), logo = t.str("logo"), record = record, rank = rank,
+                    score = s.str("score")?.takeIf { state != GameState.PRE },
                 )
             }
             val networks = c.arr("broadcasts").flatMap { (it as? JsonObject)?.arr("names").orEmpty() }.mapNotNull { (it as? JsonPrimitive)?.contentOrNull }
-            EspnGame(sport.name, start, side("away") ?: return@mapNotNull null, side("home") ?: return@mapNotNull null, c.obj("venue")?.str("fullName"), networks.distinct())
+            EspnGame(
+                sport.name, start, side("away") ?: return@mapNotNull null, side("home") ?: return@mapNotNull null, c.obj("venue")?.str("fullName"), networks.distinct(),
+                state = state, detail = status?.str("shortDetail"),
+            )
         }
     }
 
@@ -152,6 +175,11 @@ class EspnScoreboards(
         private const val TODAY_MS = 60 * 60_000L
         private const val LATER_MS = 6 * 60 * 60_000L
         private const val FAILED_MS = 15 * 60_000L
+        private const val LIVE_MS = 2 * 60_000L
+        private const val SOON_MS = 15 * 60_000L
+
+        /** On now, or due to start: worth asking about again in [LIVE_MS]. */
+        fun live(g: EspnGame, now: Long): Boolean = g.state == GameState.IN || (g.state == GameState.PRE && g.start <= now + SOON_MS && g.start > now - 12 * 60 * 60_000L)
         private val eastern = TimeZone.of("America/New_York")
 
         val FEEDS: List<Feed> = listOf(
@@ -247,22 +275,35 @@ internal object EspnMatch {
         return if (ns.any { n -> (n - filler).let { it.isNotEmpty() && (it.containsAll(core) || core.containsAll(it)) } }) 1 else 0
     }
 
-    private fun side(t: EspnTeam) = Team(t.name, t.logo, t.record, t.rank)
+    private fun side(t: EspnTeam) = Team(t.name, t.logo, t.record, t.rank, t.score)
 
-    private fun fits(f: Found, g: EspnGame): Boolean =
-        f.certainty == Classified.NONE || f.sport.family == SportFamily.OTHER || g.sport.family == f.sport.family
+    fun status(g: EspnGame): GameStatus? = g.state?.let { GameStatus(it, g.detail) }
 
-    /** [found] with each game ESPN has filled in. */
-    fun apply(found: List<Found>, index: Index): List<Found> {
-        if (index.games.isEmpty()) return found
-        return found.map { f -> (if (f.teams != null) byTeams(f, f.teams, index) else byDescription(f, index)) ?: f }
+    /** A game on runs at least this long past now, whatever the guess said. */
+    private const val RUNNING_MS = 30 * 60_000L
+
+    /** A stop that follows ESPN: on past the guess while it's in progress, and over once it's final. */
+    fun stopFor(g: EspnGame, stop: Long, now: Long): Long = when (g.state) {
+        GameState.IN -> maxOf(stop, now + RUNNING_MS)
+        GameState.POST -> minOf(stop, now)
+        else -> stop
     }
 
-    private fun byTeams(f: Found, teams: Teams, index: Index): Found? {
+    private fun fits(sport: Sport, certainty: Int, g: EspnGame): Boolean =
+        certainty == Classified.NONE || sport.family == SportFamily.OTHER || g.sport.family == sport.family
+
+    /** [found] with each game ESPN has filled in, its status and score, and a stop that follows ESPN. */
+    fun apply(found: List<Found>, index: Index, now: Long): List<Found> {
+        if (index.games.isEmpty()) return found
+        return found.map { f -> (if (f.teams != null) byTeams(f, f.teams, index, now) else byDescription(f, index, now)) ?: f }
+    }
+
+    /** The game ESPN has for [teams] near [start], and whether its home team is the one written first. */
+    fun game(index: Index, teams: Teams, sport: Sport, certainty: Int, start: Long, dayGuessed: Boolean): Pair<EspnGame, Boolean>? {
         val first = words(teams.first) + listOfNotNull(teams.first.replace(rank, "").trim().takeIf { abbr.matches(it) }?.lowercase())
-        val within = if (f.dayGuessed) GUESSED_DAY_MS else WINDOW_MS
-        val best = first.flatMap { index.byWord[it].orEmpty() }.distinct()
-            .filter { abs(it.start - f.start) <= within && fits(f, it) }
+        val within = if (dayGuessed) GUESSED_DAY_MS else WINDOW_MS
+        return first.flatMap { index.byWord[it].orEmpty() }.distinct()
+            .filter { abs(it.start - start) <= within && fits(sport, certainty, it) }
             .mapNotNull { g ->
                 val straight = score(teams.first, g.away).let { a -> if (a == 0) 0 else score(teams.second, g.home).let { b -> if (b == 0) 0 else a + b } }
                 val swapped = score(teams.first, g.home).let { a -> if (a == 0) 0 else score(teams.second, g.away).let { b -> if (b == 0) 0 else a + b } }
@@ -272,14 +313,22 @@ internal object EspnMatch {
                     else -> Triple(g, swapped, true)
                 }
             }
-            .sortedWith(compareByDescending<Triple<EspnGame, Int, Boolean>> { it.second }.thenBy { abs(it.first.start - f.start) })
-            .firstOrNull() ?: return null
-        val (g, _, swapped) = best
-        val t = if (swapped) Teams.of(side(g.home), side(g.away)) else Teams.of(side(g.away), side(g.home))
-        return f.copy(sport = g.sport, sportName = g.label ?: f.sportName, certainty = Classified.ESPN, teams = t, start = if (f.dayGuessed) g.start else f.start, dayGuessed = false)
+            .sortedWith(compareByDescending<Triple<EspnGame, Int, Boolean>> { it.second }.thenBy { abs(it.first.start - start) })
+            .firstOrNull()?.let { it.first to it.third }
     }
 
-    private fun byDescription(f: Found, index: Index): Found? {
+    /** ESPN's teams for [g], in the order [teams] wrote them. */
+    private fun teamsOf(g: EspnGame, swapped: Boolean): Teams =
+        if (swapped) Teams.of(side(g.home), side(g.away), status(g)) else Teams.of(side(g.away), side(g.home), status(g))
+
+    private fun byTeams(f: Found, teams: Teams, index: Index, now: Long): Found? {
+        val (g, swapped) = game(index, teams, f.sport, f.certainty, f.start, f.dayGuessed) ?: return null
+        val start = if (f.dayGuessed) g.start else f.start
+        val stop = stopFor(g, if (f.dayGuessed) g.start + (f.stop - f.start) else f.stop, now)
+        return f.copy(sport = g.sport, sportName = g.label ?: f.sportName, certainty = Classified.ESPN, teams = teamsOf(g, swapped), start = start, stop = stop, dayGuessed = false)
+    }
+
+    private fun byDescription(f: Found, index: Index, now: Long): Found? {
         if (!f.sport.teamSport) return null
         val text = f.channels.firstNotNullOfOrNull { it.program?.description } ?: f.detail ?: return null
         val d = " " + SearchText.fold(text) + " "
@@ -295,12 +344,12 @@ internal object EspnMatch {
             .filter { it.second > 0 }.sortedByDescending { it.second }.toList()
         if (scored.isEmpty() || (scored.size > 1 && scored[0].second == scored[1].second)) return null
         val g = scored[0].first
-        return f.copy(sport = g.sport, sportName = g.label ?: f.sportName, certainty = Classified.ESPN, teams = Teams.of(side(g.away), side(g.home)))
+        return f.copy(sport = g.sport, sportName = g.label ?: f.sportName, certainty = Classified.ESPN, teams = teamsOf(g, false), stop = stopFor(g, f.stop, now))
     }
 
     /** The game for a listing's teams, for the info bar: none unless both teams and the time agree. */
     fun find(index: Index, first: String, second: String, start: Long): Teams? {
-        val f = Found(Sport.OTHER, "$first vs. $second", null, Teams(first, second), start, start, false, false, emptyList(), Classified.NONE)
-        return byTeams(f, Teams(first, second), index)?.teams
+        val teams = Teams(first, second)
+        return game(index, teams, Sport.OTHER, Classified.NONE, start, false)?.let { (g, swapped) -> teamsOf(g, swapped) }
     }
 }

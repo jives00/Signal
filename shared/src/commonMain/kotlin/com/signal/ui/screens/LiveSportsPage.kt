@@ -38,6 +38,7 @@ import com.signal.sports.EventChannel
 import com.signal.sports.Sport
 import com.signal.sports.SportEvent
 import com.signal.sports.SportsFilters
+import com.signal.sports.SportKeys
 import com.signal.sports.SportsList
 import com.signal.sports.SportsRegion
 import com.signal.sports.SportsWhen
@@ -47,6 +48,7 @@ import com.signal.ui.LocalApp
 import com.signal.ui.components.Focusable
 import com.signal.ui.components.ListRow
 import com.signal.ui.components.MatchupLine
+import com.signal.ui.components.statusText
 import com.signal.ui.components.SportBadge
 import com.signal.ui.components.TeamLogo
 import com.signal.ui.components.label
@@ -153,7 +155,7 @@ fun LiveSportsPage() {
         all = sports.events(now).also { sports.lastEvents = it }
     }
 
-    fun rows(): List<SportEvent> = SportsList.filter(all.orEmpty(), filters.whenOn, filters.chosen, now)
+    fun rows(): List<SportEvent> = SportsList.filter(all.orEmpty(), filters.whenOn, filters.chosen, now, settings = sports.settings())
 
     fun setFilters(value: SportsFilters) {
         filters = value
@@ -194,9 +196,11 @@ fun LiveSportsPage() {
 
     /** Stays open, so several can be ticked. A chosen sport with no games right now is still listed, to take it off. */
     fun chooseSport(returnTo: FocusRequester) {
-        val present = SportsList.sports(all.orEmpty(), filters.whenOn, now).toSet() + filters.chosen
+        // In the profile's order (the web admin's Live Sports page), with Other holding what it was told to.
+        val settings = sports.settings()
+        val present = settings.sorted(SportsList.sports(all.orEmpty(), filters.whenOn, now, settings = settings) + filters.chosen)
         val page = PanelPage.Custom("Sports") {
-            SportFilter(Sport.entries.filter { it in present }, filters) { setFilters(it) }
+            SportFilter(present, filters) { setFilters(it) }
         }
         lastFilter = returnTo
         app.panel.open(page, returnTo)
@@ -306,8 +310,10 @@ private fun GameRow(
             Modifier.fillMaxWidth().background(if (focused) c.accent else Color.Transparent).padding(horizontal = 32.dp, vertical = 14.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Box(Modifier.width(200.dp)) {
+            Column(Modifier.width(200.dp)) {
                 SText(whenText(e, now, use24), 24, weight = if (on) FontWeight.ExtraBold else FontWeight.SemiBold, color = if (on) text else muted)
+                // ESPN's clock while it's on ("Q3 5:12", "Halftime").
+                e.teams?.statusText()?.let { SText(it, 20, color = muted) }
             }
             SportBadge(e.sport, 64, onAccent = focused)
             Column(Modifier.weight(1f).padding(start = 28.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -331,23 +337,26 @@ private fun GameHeader(e: SportEvent) {
         }
         val teams = e.teams
         if (teams != null && teams.hasLogos) {
+            val scored = teams.score != null
             listOf(teams.firstTeam, teams.secondTeam).forEach { t ->
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     TeamLogo(t, 56)
                     Spacer(Modifier.width(16.dp))
-                    Column {
+                    Column(Modifier.weight(1f, fill = false)) {
                         SText(t.label(), 26, weight = FontWeight.SemiBold)
                         t.record?.let { SText(it, 20, color = c.muted) }
                     }
+                    if (scored) SText(t.score!!, 32, Modifier.padding(start = 24.dp), weight = FontWeight.ExtraBold)
                 }
             }
+            teams.statusText()?.let { SText(it, 22, color = c.muted) }
         }
     }
 }
 
 /** The Sport filter: All sports clears it, and each sport turns on or off. */
 @Composable
-private fun SportFilter(present: List<Sport>, start: SportsFilters, change: (SportsFilters) -> Unit) {
+private fun SportFilter(present: List<String>, start: SportsFilters, change: (SportsFilters) -> Unit) {
     var current by remember { mutableStateOf(start) }
     val first = remember { FocusRequester() }
     fun set(value: SportsFilters) {
@@ -358,9 +367,9 @@ private fun SportFilter(present: List<Sport>, start: SportsFilters, change: (Spo
         item(key = "all") {
             ListRow("All sports", selected = current.sports.isEmpty(), focusRequester = first, onSelect = { set(current.copy(sports = emptySet())) })
         }
-        items(present, key = { it.name }) { s ->
+        items(present, key = { it }) { s ->
             val on = s in current.chosen
-            ListRow(s.label, detail = if (on) "On" else null, selected = on, onSelect = { set(current.toggled(s)) })
+            ListRow(SportKeys.label(s), detail = if (on) "On" else null, selected = on, onSelect = { set(current.toggled(s)) })
         }
     }
     LaunchedEffect(Unit) { first.requestFocusWhenReady() }

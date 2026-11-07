@@ -203,7 +203,15 @@ export const SportsView = z.object({
   hiddenSports: z.array(z.string()),
   groupsOn: z.array(z.string()),
   groupsOff: z.array(z.string()),
-  sports: z.array(z.object({ id: z.string(), label: z.string(), shown: z.boolean() })),
+  // The filter's entries in the profile's order: leagues, sports given their own entry ("named:Field Hockey"), and Other.
+  sports: z.array(z.object({
+    id: z.string(), label: z.string(), shown: z.boolean(),
+    kind: z.enum(["league", "named", "other"]).default("league"),
+    inOther: z.boolean().default(false),
+  })),
+  order: z.array(z.string()).default([]),
+  asOther: z.array(z.string()).default([]),
+  ownEntry: z.array(z.string()).default([]),
   groups: z.array(z.object({ name: z.string(), on: z.boolean(), us: z.boolean() })),
   images: z.record(z.string(), z.string()).default({}),
   imageRows: z.array(z.object({

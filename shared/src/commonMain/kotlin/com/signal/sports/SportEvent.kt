@@ -76,7 +76,10 @@ enum class SportsWhen(val label: String) {
 }
 
 /** One side of a game, with what ESPN knows of it when it was found there. */
-data class Team(val name: String, val logo: String? = null, val record: String? = null, val rank: Int? = null)
+data class Team(val name: String, val logo: String? = null, val record: String? = null, val rank: Int? = null, val score: String? = null)
+
+/** ESPN's word on a game: not started, on or over, with its short status ("Q3 5:12", "Final"). */
+data class GameStatus(val state: GameState, val detail: String?)
 
 /** The two sides of a game, in the order they were written. */
 data class Teams(
@@ -84,13 +87,18 @@ data class Teams(
     val second: String,
     /** ESPN's logos, records and rankings, when the game was found there (live-sports.md → Round 2). */
     val sides: Pair<Team, Team>? = null,
+    /** ESPN's status, when the game was found there. */
+    val status: GameStatus? = null,
 ) {
+    /** "21–17", once ESPN has a score for both. */
+    val score: String? get() = sides?.let { (a, b) -> if (a.score != null && b.score != null && status?.state != GameState.PRE) "${a.score}–${b.score}" else null }
+
     val firstTeam: Team get() = sides?.first ?: Team(first)
     val secondTeam: Team get() = sides?.second ?: Team(second)
     val hasLogos: Boolean get() = sides?.let { it.first.logo != null || it.second.logo != null } == true
 
     companion object {
-        fun of(first: Team, second: Team): Teams = Teams(first.name, second.name, first to second)
+        fun of(first: Team, second: Team, status: GameStatus? = null): Teams = Teams(first.name, second.name, first to second, status)
     }
 }
 
