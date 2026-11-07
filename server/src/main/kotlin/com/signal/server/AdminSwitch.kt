@@ -114,12 +114,25 @@ class AdminSwitch(private val companion: Companion) {
         )
     }
 
-    /** Counts for the Dashboard: channels to review across sources, when there's more than one. */
+    /**
+     * Counts for the Dashboard: channels to review across sources, when there's more than one. Two
+     * accounts on one provider (Xtream logins to the same server) aren't a switch: both stay enabled
+     * for different profiles, so a source only counts while another enabled one is a different provider.
+     */
     fun pending(profile: String): Int {
         val view = AdminView(companion.sync.liveItems(), profile)
-        val enabled = view.sources.filter { it.first.enabled }
+        val enabled = view.sources.map { it.first }.filter { it.enabled }
         if (enabled.size < 2) return 0
-        return enabled.sumOf { (s, _) -> report(s.id, profile).let { it.suggested.size + it.confident.size } }
+        return enabled.filter { s -> enabled.any { it.id != s.id && !sameProvider(it, s) } }
+            .sumOf { s -> report(s.id, profile).let { it.suggested.size + it.confident.size } }
+    }
+
+    companion object Providers {
+        /** Xtream logins to the same server: the same channels under the same stream IDs. */
+        fun sameProvider(a: com.signal.model.Source, b: com.signal.model.Source): Boolean =
+            a.kind == com.signal.model.SourceKind.XTREAM && b.kind == com.signal.model.SourceKind.XTREAM && server(a.url) == server(b.url)
+
+        private fun server(url: String): String = url.trim().lowercase().removeSuffix("/").substringAfter("://")
     }
 
     /**
