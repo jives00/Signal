@@ -141,11 +141,11 @@ fun Route.recordingDeviceRoutes(companion: Companion) {
             val device = call.device(companion) ?: return@post
             val body = call.receive<DeviceSchedule>()
             if (body.title.isBlank() || body.stop <= body.start) return@post call.respondText("That isn't a program.", status = HttpStatusCode.BadRequest)
-            val row = channels.channel(device.profileId, body.streamId, System.currentTimeMillis())
+            val name = channels.channelName(device.profileId, body.streamId)
                 ?: return@post call.respondText("The companion doesn't have that channel.", status = HttpStatusCode.NotFound)
             val settings = companion.settings
             runCatching {
-                recorder.schedule(device.profileId, body.streamId, body.title, row.name, body.start, body.stop, settings.recordBeforeMinutes * 60_000L, settings.recordAfterMinutes * 60_000L)
+                recorder.schedule(device.profileId, body.streamId, body.title, name, body.start, body.stop, settings.recordBeforeMinutes * 60_000L, settings.recordAfterMinutes * 60_000L)
             }
                 .onSuccess { call.respond(DeviceScheduled(it, it.id in conflicts(companion))) }
                 .onFailure { call.respondText(it.message ?: "Couldn't set that.", status = HttpStatusCode.Conflict) }

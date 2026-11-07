@@ -452,6 +452,24 @@ class RecorderTest {
         assertEquals("That program has ended.", runCatching { schedule(rec, -2_000, 1_000) }.exceptionOrNull()?.message)
     }
 
+    /** Four presses reached the NAS together on 1.1.8 and saved four rows, each racing the check for the others. */
+    @Test fun settingAProgramFromManyRequestsAtOnceSavesOne() {
+        val rec = recorder()
+        val start = System.currentTimeMillis() + 60_000
+        val gate = java.util.concurrent.CountDownLatch(1)
+        val ids = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+        val threads = List(8) {
+            kotlin.concurrent.thread {
+                gate.await()
+                ids += rec.schedule("main", "s:x:1", "Show", "Channel", start, start + 1_000, 0, 0).id
+            }
+        }
+        gate.countDown()
+        threads.forEach { it.join() }
+        assertEquals(1, ids.size)
+        assertEquals(1, store.scheduled().size)
+    }
+
     @Test fun aProgramAlreadyOnRecordsFromNowWithNoGap() {
         val rec = recorder()
         rec.runSchedule()

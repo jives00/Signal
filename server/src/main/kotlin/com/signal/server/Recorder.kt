@@ -184,7 +184,7 @@ class Recorder(
      * program twice gives back the first. If it's already on, it records from now. Throws
      * [IllegalStateException] with the reason when it can't.
      */
-    fun schedule(profileId: String, streamId: String, title: String, channelName: String, programStart: Long, programStop: Long, beforeMs: Long, afterMs: Long): Recording {
+    @Synchronized fun schedule(profileId: String, streamId: String, title: String, channelName: String, programStart: Long, programStop: Long, beforeMs: Long, afterMs: Long): Recording {
         problem()?.let { error(it) }
         val store = store() ?: error("The database isn't connected yet.")
         val at = now()

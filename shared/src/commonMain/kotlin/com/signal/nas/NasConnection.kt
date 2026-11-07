@@ -318,19 +318,22 @@ class NasConnection(
 
     /** Sets a recording. The answer says why not: a TV away from home must be told, never left thinking it's set (dvr.md). */
     suspend fun scheduleRecording(streamId: String, start: Long, stop: Long, title: String): RecordingAnswer {
-        val response = if (!isPaired) null else call { base ->
+        val response = if (!isPaired) null else call(RECORD_TIMEOUT_MS) { base ->
             http.post(base + NasRecordingPaths.LIST) {
                 asDevice()
                 contentType(ContentType.Application.Json)
                 setBody(json.encodeToString(NasRecordingRequest(streamId, start, stop, title)))
             }
         }
-        response ?: return RecordingAnswer.OutOfReach
+        response ?: return if (canReach()) RecordingAnswer.NoAnswer else RecordingAnswer.OutOfReach
         val body = response.bodyAsText()
         if (!response.status.isSuccess()) return RecordingAnswer.Refused(body)
         val set = runCatching { json.decodeFromString<NasRecordingSet>(body) }.getOrNull() ?: return RecordingAnswer.OutOfReach
         return RecordingAnswer.Set(set.conflict)
     }
+
+    /** Whether the companion is there at all: what tells "away from home" from "it didn't answer". */
+    suspend fun canReach(): Boolean = findAddress() != null
 
     suspend fun stopRecording(id: String): Boolean =
         isPaired && call { base -> http.post(base + NasRecordingPaths.stop(id)) { asDevice() } }?.status?.isSuccess() == true
@@ -462,6 +465,8 @@ class NasConnection(
         const val DEFAULT_TAILSCALE = "synology:3013"
         const val PROBE_TIMEOUT_MS = 3_000L
         const val REQUEST_TIMEOUT_MS = 10_000L
+        /** Setting a recording can wait: giving up early leaves the user pressing again. */
+        const val RECORD_TIMEOUT_MS = 30_000L
         const val POLL_MS = 2_000L
         const val DOWNLOAD_TIMEOUT_MS = 10 * 60_000L
         const val SYNC_TIMEOUT_MS = 30_000L

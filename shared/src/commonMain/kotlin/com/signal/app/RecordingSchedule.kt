@@ -19,6 +19,7 @@ fun findRecording(all: List<NasRecording>, streamId: String, p: Program): NasRec
 fun recordNote(answer: RecordingAnswer): String? = when (answer) {
     is RecordingAnswer.Set -> if (answer.conflict) RecordingText.CONFLICT else null
     RecordingAnswer.OutOfReach -> RecordingText.OUT_OF_REACH
+    RecordingAnswer.NoAnswer -> RecordingText.NO_ANSWER
     is RecordingAnswer.Refused -> answer.message.ifBlank { "The companion couldn't set that." }
 }
 
@@ -44,9 +45,13 @@ class RecordingSchedule(private val nas: NasConnection, private val settleMs: Lo
 
     suspend fun record(ch: Channel, p: Program): RecordingAnswer {
         val answer = nas.scheduleRecording(ch.stream.id, p.start, p.stop, p.title)
-        if (answer is RecordingAnswer.Set) refresh()
+        // No answer may still mean it was set.
+        if (answer is RecordingAnswer.Set || answer is RecordingAnswer.NoAnswer) refresh()
         return answer
     }
+
+    /** What to say when a Cancel or a Keep recording failed: the true reason, not always the network's fault. */
+    suspend fun failure(): String = if (nas.canReach()) RecordingText.NO_ANSWER else RecordingText.OUT_OF_REACH
 
     /**
      * Takes it back. It may have started since this TV last looked: the companion won't delete one

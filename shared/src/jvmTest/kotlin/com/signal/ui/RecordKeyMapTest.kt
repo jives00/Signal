@@ -76,6 +76,34 @@ class RecordKeyMapTest {
         }
     }
 
+    @Test fun aSlowNasShowsAtOnceAndIgnoresMorePresses() {
+        val answer = kotlinx.coroutines.CompletableDeferred<Unit>()
+        var posts = 0
+        keyMapTest(nas = { path ->
+            when (path) {
+                NasPaths.HEALTH -> health
+                "POST ${NasRecordingPaths.LIST}" -> {
+                    posts++
+                    kotlinx.coroutines.runBlocking { answer.await() }
+                    """{"recording":{"id":"r","title":"Show","channelName":"C","startMs":1,"stopMs":2,"state":"SCHEDULED"}}"""
+                }
+                NasRecordingPaths.LIST -> """{"recordings":[]}"""
+                else -> null
+            }
+        }) {
+            pair()
+            detailsOfAFutureProgram()
+            focusedStartsWith("Record")
+            press(RemoteAction.Select)
+            eventually("the press showing") { shows(RecordingText.SETTING) }
+            press(RemoteAction.Select)
+            press(RemoteAction.Select)
+            answer.complete(Unit)
+            eventually("done") { !shows(RecordingText.SETTING) }
+            assertEquals(1, posts)
+        }
+    }
+
     @Test fun findsOnlyWhatsStillToComeOnThatStream() {
         val p = Program(0, "", "", 1_000, 2_000, "Game")
         fun rec(state: String = "SCHEDULED", stream: String = "s", start: Long = 1_000, title: String = "Game") =
@@ -93,6 +121,7 @@ class RecordKeyMapTest {
         assertNull(recordNote(RecordingAnswer.Set(conflict = false)))
         assertEquals(RecordingText.CONFLICT, recordNote(RecordingAnswer.Set(conflict = true)))
         assertEquals(RecordingText.OUT_OF_REACH, recordNote(RecordingAnswer.OutOfReach))
+        assertEquals(RecordingText.NO_ANSWER, recordNote(RecordingAnswer.NoAnswer))
         assertEquals("That program has ended.", recordNote(RecordingAnswer.Refused("That program has ended.")))
         assertTrue(recordNote(RecordingAnswer.Refused(""))!!.isNotBlank())
     }

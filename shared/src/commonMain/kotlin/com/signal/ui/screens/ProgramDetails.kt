@@ -75,9 +75,19 @@ private fun ProgramDetailsContent(app: AppController, ch: Channel, p: Program, n
             runCatching { app.recordings.refresh() }
         }
     }
-    fun recordAction(action: suspend () -> String?) {
-        recordNote = null
-        app.scope.launch { recordNote = action() }
+    // One at a time: the NAS can take seconds, and a press has to show at once or it gets pressed again.
+    var recordBusy by remember(p.id) { mutableStateOf(false) }
+    fun recordAction(working: String, action: suspend () -> String?) {
+        if (recordBusy) return
+        recordBusy = true
+        recordNote = working
+        app.scope.launch {
+            try {
+                recordNote = action()
+            } finally {
+                recordBusy = false
+            }
+        }
     }
     val actions = buildList<Pair<String, () -> Unit>> {
         if (onNow && !watching) add("Watch" to {
@@ -89,18 +99,18 @@ private fun ProgramDetailsContent(app: AppController, ch: Channel, p: Program, n
         // Only with a companion, which does the recording; one out of reach keeps the button and says so (dvr.md).
         if (app.nas.isPaired && p.stop > now) {
             when {
-                recording == null -> add((if (onNow) "Record from now" else "Record") to { recordAction { recordNote(app.recordings.record(ch, p)) } })
+                recording == null -> add((if (onNow) "Record from now" else "Record") to { recordAction(RecordingText.SETTING) { recordNote(app.recordings.record(ch, p)) } })
                 recording.running -> add("Stop recording" to {
                     app.panel.push(PanelPage.Confirm("Stop recording", p.title, "Stop recording") {
                         app.scope.launch { app.recordings.stop(recording) }
                     })
                 })
                 else -> add("Cancel recording" to {
-                    recordAction { if (app.recordings.cancel(recording)) null else RecordingText.OUT_OF_REACH }
+                    recordAction(RecordingText.WORKING) { if (app.recordings.cancel(recording)) null else app.recordings.failure() }
                 })
             }
             if (recording != null) add(RecordingText.KEEP_LONGER to {
-                recordAction { if (app.recordings.keepLonger(recording)) RecordingText.KEPT_LONGER else RecordingText.OUT_OF_REACH }
+                recordAction(RecordingText.WORKING) { if (app.recordings.keepLonger(recording)) RecordingText.KEPT_LONGER else app.recordings.failure() }
             })
         }
         // Remind me / Remove reminder, only for a future program (PLAN §4.3.4).

@@ -10,6 +10,9 @@ object RecordingText {
     /** Set, but it won't all fit: said straight away, since the user can still change it. */
     const val CONFLICT = "Set, but no source is free for all of it, so some of it may be missed."
     const val MAY_MISS = "No free source for all of it"
+    const val SETTING = "Setting the recording…"
+    const val WORKING = "One moment…"
+    const val NO_ANSWER = "The companion didn't answer in time. Check Recordings before trying again."
     const val KEEP_LONGER = "Keep recording 30 more minutes"
     const val KEPT_LONGER = "It'll keep recording 30 minutes longer."
     const val KEEP_LONGER_MINUTES = 30

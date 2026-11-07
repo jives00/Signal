@@ -63,6 +63,14 @@ class NasConnectionTest {
         assertEquals(emptyList(), schedule.list.value)
     }
 
+    @Test fun aFailedRequestWithTheCompanionThereIsntOutOfReach() = runBlocking {
+        settings.put(Settings.Key.NAS_API_KEY, box.encrypt("key"))
+        val there = nas { r -> if (r.url.encodedPath == NasPaths.HEALTH) respond(health) else throw java.io.IOException("reset") }
+        assertEquals(RecordingAnswer.NoAnswer, there.scheduleRecording("s", 1, 2, "Show"))
+        val away = nas { throw java.io.IOException("down") }
+        assertEquals(RecordingAnswer.OutOfReach, away.scheduleRecording("s", 1, 2, "Show"))
+    }
+
     @Test fun cancelingWhileOutOfReachSaysItFailed() = runBlocking {
         settings.put(Settings.Key.NAS_API_KEY, box.encrypt("key"))
         val nas = nas { throw java.io.IOException("down") }

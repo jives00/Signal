@@ -53,6 +53,8 @@ sealed interface RecordingAnswer {
     /** [conflict]: more recordings overlap than there are sources. */
     data class Set(val conflict: Boolean) : RecordingAnswer
     data object OutOfReach : RecordingAnswer
+    /** It's there but didn't answer, so it may have been set. */
+    data object NoAnswer : RecordingAnswer
     data class Refused(val message: String) : RecordingAnswer
 }
 

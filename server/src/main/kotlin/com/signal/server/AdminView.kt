@@ -365,6 +365,12 @@ class AdminChannels(private val companion: Companion) {
         }
     }
 
+    /** Only a channel's name. Never reaches the guide, whose first look after a restart takes many seconds on the NAS. */
+    fun channelName(profileId: String, streamId: String): String? {
+        val s = companion.catalog.streams.firstOrNull { it.id == streamId } ?: return null
+        return row(view(profileId), s, emptyMap(), withPrograms = false, now = 0).name
+    }
+
     /** A channel's guide between two times; empty when it has no guide. */
     fun programs(profileId: String, streamId: String, from: Long, to: Long): List<ProgramBrief> {
         val view = view(profileId)
