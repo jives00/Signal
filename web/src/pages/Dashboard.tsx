@@ -1,9 +1,9 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { getOverview } from "../admin";
+import { getOverview, getRecordings } from "../admin";
 import { ago, getSync, type Status, type SyncStatus } from "../api";
 import { useProfiles } from "../context";
-import type { Overview } from "../schema";
+import type { Overview, Recording } from "../schema";
 import Detail from "../Detail";
 import GuideCard from "./GuideCard";
 
@@ -17,6 +17,33 @@ export function older(version: string, than: string): boolean {
   return false;
 }
 
+const DAY_MS = 24 * 60 * 60_000;
+/** How long before a source runs out the dashboard starts saying so. */
+const EXPIRY_NOTICE_DAYS = 30;
+
+const shortDate = (ms: number) => new Date(ms).toLocaleDateString([], { month: "short", day: "numeric" });
+
+/**
+ * Sources running out, and what's set to record after they do. The provider gives the date in
+ * seconds. A recording on such a channel can still find another source, so it says may.
+ */
+export function expiryWarnings(
+  sources: { name: string; id: string; enabled: boolean; expiresAt: number | null }[],
+  recordings: Pick<Recording, "state" | "title" | "streamId" | "startMs" | "programStart">[],
+  now: number,
+): string[] {
+  return sources.flatMap((s) => {
+    if (!s.enabled || !s.expiresAt) return [];
+    const at = s.expiresAt * 1000;
+    const after = recordings.filter((r) => r.state === "SCHEDULED" && r.streamId.startsWith(`${s.id}:`) && (r.programStart ?? r.startMs) >= at);
+    const missing = after.map((r) => `${s.name} expires ${shortDate(at)}, before ${r.title} on ${shortDate(r.programStart ?? r.startMs)}: it may not record`);
+    if (at <= now) return [`${s.name} expired ${shortDate(at)}`, ...missing];
+    if (at - now > EXPIRY_NOTICE_DAYS * DAY_MS) return missing;
+    const days = Math.ceil((at - now) / DAY_MS);
+    return [`${s.name} expires in ${days === 1 ? "1 day" : `${days} days`} (${shortDate(at)})`, ...missing];
+  });
+}
+
 /**
  * The landing page (PLAN §4.3.18 → Dashboard): the health of everything, each linking to its page.
  * VOD enrichment and the provider switch join with their milestones.
@@ -24,12 +51,14 @@ export function older(version: string, than: string): boolean {
 export default function Dashboard({ status, failed }: { status: Status | null; failed: boolean }) {
   const { profile } = useProfiles();
   const [overview, setOverview] = useState<Overview | null>(null);
+  const [recordings, setRecordings] = useState<Recording[]>([]);
   const [sync, setSync] = useState<SyncStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     const load = () => {
       getOverview(profile).then((o) => { setOverview(o); setError(null); }).catch((e: Error) => setError(e.message));
+      getRecordings(profile).then((v) => setRecordings(v.recordings)).catch(() => undefined);
       getSync().then(setSync).catch(() => undefined);
     };
     load();
@@ -40,6 +69,7 @@ export default function Dashboard({ status, failed }: { status: Status | null; f
   const attention: { text: string; to: string }[] = [];
   if (overview) {
     const unmapped = overview.coverage.total - overview.coverage.mapped;
+    for (const text of expiryWarnings(overview.sources, recordings, Date.now())) attention.push({ text, to: "/sources" });
     if (overview.switchReview) attention.push({ text: `${overview.switchReview} channels to review in the provider switch`, to: "/switch" });
     if (overview.unmappedFavorites) attention.push({ text: `${overview.unmappedFavorites} favorites without guide data`, to: "/mapping" });
     if (overview.unavailableFavorites) attention.push({ text: `${overview.unavailableFavorites} favorites unavailable: their streams are gone`, to: "/favorites" });
