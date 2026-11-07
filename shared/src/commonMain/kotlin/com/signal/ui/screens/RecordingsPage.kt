@@ -166,7 +166,7 @@ fun RecordingsPage() {
             when {
                 !loaded -> {}
                 current == null -> Column(Modifier.padding(top = 48.dp), verticalArrangement = Arrangement.spacedBy(24.dp)) {
-                    SText(RecordingText.OUT_OF_REACH, 28, maxLines = 3)
+                    SText(RecordingText.OUT_OF_REACH, 28, weight = FontWeight.Bold, color = c.warning, maxLines = 3)
                     SButton("Try again", { scope.launch { load(); focusList() } }, focusRequester = first)
                 }
                 sections.isEmpty() -> Column(Modifier.padding(top = 48.dp), verticalArrangement = Arrangement.spacedBy(24.dp)) {

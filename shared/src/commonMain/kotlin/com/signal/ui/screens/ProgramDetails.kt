@@ -152,7 +152,15 @@ private fun ProgramDetailsContent(app: AppController, ch: Channel, p: Program, n
             }
             // A platform limit, said plainly (PLAN §4.3.4): Android TV can't show reminders while the app is closed.
             if (reminder != null) SText("You'll be reminded while the app is open.", 22, Modifier.padding(top = 16.dp), color = c.muted)
-            recordNote?.let { SText(it, 22, Modifier.padding(top = 16.dp), color = c.text, maxLines = 3) }
+            recordNote?.let {
+                // Being out of reach is something the user has to fix, so it stands out.
+                val outOfReach = it == RecordingText.OUT_OF_REACH
+                SText(
+                    it, 22, Modifier.padding(top = 16.dp),
+                    weight = if (outOfReach) FontWeight.Bold else FontWeight.Normal,
+                    color = if (outOfReach) c.warning else c.text, maxLines = 3,
+                )
+            }
         }
         item {
             // The full description, never truncated (PLAN §4.3.4).

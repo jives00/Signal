@@ -20,6 +20,8 @@ data class SignalColors(
     val onAccent: Color,
     /** Marks what's recording. Never focus or selection: only focus uses the accent. */
     val record: Color,
+    /** Something the user must fix before it works, like being off the home network and Tailscale. */
+    val warning: Color,
     val neutral300: Color,
     val neutral400: Color,
     val muted: Color,
@@ -45,6 +47,7 @@ val DarkSlate = SignalColors(
     tagText = Color(0xFFBCD4FF),
     onAccent = Color(0xFFFFFFFF),
     record = Color(0xFFE5484D),
+    warning = Color(0xFFF5B83D),
     neutral300 = Color(0xFF474C55),
     neutral400 = Color(0xFF575D67),
     muted = Color(0xFFAEB4BD),
