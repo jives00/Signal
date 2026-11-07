@@ -42,6 +42,9 @@ class LiveSportsKeyMapTest {
         open()
         eventually("a game focused") { focusedText()?.contains(" vs. ") == true }
         val row = focusedText()!!
+        // The game, not its text: ESPN's names can arrive while it's full screen and change the row's words.
+        val game = app.sports.lastEvent
+        assertTrue(game != null, "the focused game is remembered")
         assertTrue(!shows("Arsenal vs. Spurs"), "US shows only US channels")
         press(RemoteAction.Select)
         eventually("full screen") { app.navigator.current is Route.FullScreen }
@@ -49,7 +52,7 @@ class LiveSportsKeyMapTest {
         assertEquals("LIVE", row.substringBefore(' '))
         press(RemoteAction.Back)
         route(Route.LiveSports)
-        eventually("back on its row") { focusedText() == row }
+        eventually("back on its row") { focusedText()?.contains(" vs. ") == true && app.sports.lastEvent == game }
     }
 
     @Test fun choosesSeveralSportsAndKeepsTheFilters() = keyMapTest {
