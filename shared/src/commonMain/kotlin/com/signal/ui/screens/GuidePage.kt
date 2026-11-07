@@ -56,6 +56,7 @@ import com.signal.model.Channel
 import com.signal.model.ChannelGroup
 import com.signal.model.Program
 import com.signal.ui.LocalApp
+import com.signal.ui.components.Focusable
 import com.signal.ui.components.HDivider
 import com.signal.ui.components.Icon
 import com.signal.ui.components.SignalIcons
@@ -411,6 +412,28 @@ fun LiveTvPage() {
         }
     }
 
+    // The preview, between the nav bar and the grid: Down from the bar lands here, OK goes full screen
+    // on the playing channel without finding it in the grid, Down goes on to the grid (2026-11-07).
+    var previewHasFocus by remember { mutableStateOf(false) }
+    fun previewFullScreen() {
+        val ch = app.playback.current.value ?: return
+        if (app.platform.player.state.value.status == com.signal.player.PlaybackState.Status.ERROR) { app.playback.retry(); return }
+        // Its own group when it's in the one showing, so full screen zaps through what the guide shows.
+        val g = group?.takeIf { g -> loadedNow.value.orEmpty().any { it.stream.id == ch.stream.id } } ?: groupFor(ch)
+        app.playback.tune(ch, fullScreen = true, group = g)
+        app.navigator.go(Route.FullScreen(g))
+    }
+    RemoteHandler(enabled = previewHasFocus) { action ->
+        when (action) {
+            RemoteAction.Down -> focusGrid()
+            // The bar is hidden, so Up has nowhere to go by itself.
+            RemoteAction.Up -> chrome.focusNav()
+            RemoteAction.Left, RemoteAction.Right -> {}
+            else -> return@RemoteHandler false
+        }
+        true
+    }
+
     val focusedChannel = channelAt(focusRow)
     val focused = focusedProgram()
     val nowX = nowX(now, windowStart)
@@ -418,16 +441,28 @@ fun LiveTvPage() {
     TopLevelPage(Route.LiveTv, chrome, hideNav = true) {
         Column(Modifier.fillMaxSize()) {
             Row(Modifier.fillMaxWidth().height(GuideGeometry.STRIP_HEIGHT.dp)) {
-                VideoBox(Modifier.width(640.dp).fillMaxHeight(), compact = true, emptyText = "Pick a channel")
+                Focusable(
+                    Modifier.width(640.dp).fillMaxHeight().onFocusChanged { previewHasFocus = it.isFocused }.semantics { contentDescription = "Preview · ${current?.displayName ?: "nothing playing"}" },
+                    focusRequester = chrome.contentFocus,
+                    onSelect = ::previewFullScreen,
+                    onOptions = { app.playback.current.value?.let { ch -> app.panel.open(app.menus.channelMenu(ch, null, null), chrome.contentFocus) } },
+                    // Nothing playing: nothing to go full screen on, so straight on to the grid.
+                    onFocused = { if (app.playback.current.value == null) focusGrid() },
+                ) { f ->
+                    val outline = if (f) SignalSizes.FOCUS_OUTLINE.dp else 0.dp
+                    Box(Modifier.fillMaxSize().border(outline, if (f) SignalTheme.colors.accent else Color.Transparent)) {
+                        VideoBox(Modifier.fillMaxSize().padding(outline), compact = true, emptyText = "Pick a channel")
+                    }
+                }
                 VDivider()
-                DetailsStrip(app, focusedChannel ?: current, if (onChannelColumn) programsAt(focusRow)?.firstOrNull { it.isOn(now) } else focused, now)
+                if (previewHasFocus) DetailsStrip(app, current, rememberNowAndNext(current, now).first, now)
+                else DetailsStrip(app, focusedChannel ?: current, if (onChannelColumn) programsAt(focusRow)?.firstOrNull { it.isOn(now) } else focused, now)
             }
             HDivider()
             Box(Modifier.fillMaxSize()) {
                 Column(
                     Modifier
                         .fillMaxSize()
-                        .focusRequester(chrome.contentFocus)
                         .focusRequester(gridFocus)
                         .onFocusChanged { gridHasFocus = it.isFocused }
                         .remoteItem(onSelect = ::select, onOptions = ::options)

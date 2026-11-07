@@ -34,6 +34,34 @@ class LiveTvKeyMapTest {
         eventually("full screen") { app.navigator.current is Route.FullScreen }
     }
 
+    // 2026-11-07: Back to the menu, Down to the preview, OK goes full screen on the playing channel,
+    // without finding it in the grid first.
+    @Test fun theMenuReachesThePreviewAndOkGoesFullScreen() = keyMapTest {
+        guide()
+        val playing = current!!
+        press(RemoteAction.Down)
+        eventually("next row") { focusedChannel() != playing.displayName }
+        press(RemoteAction.Back)
+        focusedStartsWith("Live TV")
+        press(RemoteAction.Down)
+        focusedStartsWith("Preview · ${playing.displayName}")
+        // Down goes on to the grid, on the row it left; Back and Down return to the preview.
+        press(RemoteAction.Down)
+        eventually("the grid") { focusedText()?.contains(" · ") == true && !focusedText()!!.startsWith("Preview") }
+        assertNotEquals(playing.displayName, focusedChannel())
+        press(RemoteAction.Back)
+        focusedStartsWith("Live TV")
+        press(RemoteAction.Down)
+        focusedStartsWith("Preview")
+        press(RemoteAction.Up)
+        focusedStartsWith("Live TV")
+        press(RemoteAction.Down)
+        focusedStartsWith("Preview")
+        press(RemoteAction.Select)
+        eventually("full screen") { app.navigator.current is Route.FullScreen }
+        assertEquals(playing.key, current?.key)
+    }
+
     @Test fun okOnAFutureProgramOpensDetails() = keyMapTest {
         guide()
         val live = focusedText()
