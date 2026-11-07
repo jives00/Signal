@@ -53,6 +53,13 @@ class EventChannelsTest {
         assertEquals("Adelaide United vs. Wellington Phoenix", EventChannels.shortName("US| ESPN+ PPV VIP", "LIVE | ADELAIDE UNITED VS. WELLINGTON PHOENIX | Fri 06 Nov 02:55 EST (US) | 8K EXCLUSIVE | US: ESPN+ PPV 1", now))
     }
 
+    @Test fun onNowWithNoTimeKeepsOneStart() {
+        val name = "LIVE | Jets vs. Chiefs | all | 8K EXCLUSIVE | US: NFL PPV 1"
+        val first = assertNotNull(PpvNames.parse(nfl, name, now + 60_000)).start
+        assertEquals(first, assertNotNull(PpvNames.parse(nfl, name, now + 20 * 60_000)).start, "read again later in the hour")
+        assertEquals(now, first)
+    }
+
     @Test fun overAndEmptySlotsAreHidden() {
         assertTrue(EventChannels.hides(espn, "US (ESPN+ 001) | Adelaide United vs. Wellington Phoenix Nov 06 2:55AM ET (2026-11-06 02:55:05)", now), "yesterday's")
         assertFalse(EventChannels.hides(espn, "US (ESPN+ 375) | Football: Dartmouth vs. Princeton (Dartmouth vs. Princeton) (2026-11-07 12:00:30)", now), "today's, still to come")

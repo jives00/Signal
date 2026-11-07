@@ -252,7 +252,9 @@ object PpvNames {
             at(d.groupValues[3].toInt(), d.groupValues[2].toInt(), d.groupValues[1].toInt(), d.groupValues[4].toInt(), d.groupValues[5].toInt(), TimeZone.UTC)
         }
         // "Live | ... " with no date is on, as of the last channel list.
-        val start = written ?: if (status == "LIVE" || status == "END") now else return null
+        // On now with no time given: the hour it's in, not the moment read, so the event (and Live
+        // Sports' row key, which holds the start) stays the same each time the name is read again.
+        val start = written ?: if (status == "LIVE" || status == "END") now - now % HOUR_MS else return null
         return Found(m.groupValues[2], start, null, false, ended = status == "END")
     }
 
