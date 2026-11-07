@@ -63,7 +63,7 @@ fun VideoBox(modifier: Modifier = Modifier, aspect: AspectMode = AspectMode.FIT,
         contentAlignment = Alignment.Center,
     ) {
         when (state.status) {
-            PlaybackState.Status.BUFFERING -> DelayedSpinner(if (compact) 48 else 72)
+            PlaybackState.Status.BUFFERING -> DelayedSpinner(if (compact) 48 else 72, compact)
             PlaybackState.Status.ERROR -> Column(Modifier.background(c.videoGround).padding(32.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                 SText(errorTitle, if (compact) 26 else 32, weight = FontWeight.ExtraBold)
                 SText(app.playbackErrorText(state.error), if (compact) 22 else 26, color = c.muted, maxLines = 3)
@@ -78,16 +78,28 @@ fun VideoBox(modifier: Modifier = Modifier, aspect: AspectMode = AspectMode.FIT,
     LaunchedEffect(aspect, active) { if (active) layer.bounds?.let { layer.claim(owner, it, aspect) } }
 }
 
-/** Nothing for short stalls; a spinner after about 1 second (PLAN §4.3.3). */
+/**
+ * Nothing for short stalls; a spinner after about 1 second (PLAN §4.3.3). A long wait says so: some
+ * providers' event channels take 20 s or more before the first picture, or before saying they have none.
+ */
 @Composable
-private fun DelayedSpinner(size: Int) {
+private fun DelayedSpinner(size: Int, compact: Boolean) {
     var visible by remember { mutableStateOf(false) }
+    var slow by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) {
         delay(1000)
         visible = true
+        delay(SLOW_START_MS - 1000)
+        slow = true
     }
-    if (visible) Spinner(size)
+    if (visible) Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Spinner(size)
+        if (slow) SText("Still waiting for the provider…", if (compact) 18 else 24, Modifier.padding(top = 16.dp), color = SignalTheme.colors.muted)
+    }
 }
+
+/** How long buffering lasts before it says it's still waiting. */
+private const val SLOW_START_MS = 6_000L
 
 /** A spinning arc: buffering, and work in progress like Settings' update check. */
 @Composable

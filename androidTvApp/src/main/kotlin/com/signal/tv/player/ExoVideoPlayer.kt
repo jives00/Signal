@@ -82,6 +82,8 @@ class ExoVideoPlayer(private val context: Context) : VideoPlayer {
     private var request: PlayRequest? = null
     /** Automatic retries left for the current request (Settings → Playback → Stream retries). */
     private var retriesLeft = 0
+    /** True once the current attempt has played. A live stream that ends before that had nothing to send. */
+    private var played = false
     @Volatile private var settings = PlayerSettings()
     /** Where the player's lines go: the app log once [SignalApplication] wires it, so Send logs carries them. */
     var log: (String) -> Unit = { android.util.Log.i("Signal", it) }
@@ -389,6 +391,7 @@ class ExoVideoPlayer(private val context: Context) : VideoPlayer {
     private fun start(request: PlayRequest) {
         stalls.begin(request)
         this.request = request
+        played = false
         // Another decoder, passthrough or buffer than this ExoPlayer has: build a new one (PLAN §4.3.15 → 5).
         val wanted = engineFor(request.isLive)
         if (wanted != engine) {
@@ -577,15 +580,36 @@ class ExoVideoPlayer(private val context: Context) : VideoPlayer {
                 else -> return
             }
             stalls.onState(playbackState)
+            if (playbackState == Player.STATE_READY) played = true
             if (playbackState == Player.STATE_ENDED) {
                 // On-demand ends for real (autoplay, PLAN §4.3.9); live streams "end" when the provider drops them.
-                if (request?.isLive == false) _state.update { it.copy(status = PlaybackState.Status.PLAYING, ended = true) } else retry()
+                when {
+                    request?.isLive == false -> _state.update { it.copy(status = PlaybackState.Status.PLAYING, ended = true) }
+                    // Ended before playing at all: the provider answered and closed with nothing, which is how
+                    // it says a channel isn't on (ESPN+ PPV VIP, 2026-11-07: about 21 s, then no data). Reconnecting
+                    // only repeats that, and play() would reset the retries, so it buffered forever.
+                    !played -> {
+                        log("Player: the stream ended before playing; the provider isn't sending this channel")
+                        _state.update { it.copy(status = PlaybackState.Status.ERROR, error = PlaybackError(PlaybackError.Kind.NOT_SENDING)) }
+                    }
+                    else -> retry()
+                }
                 return
             }
             _state.update { it.copy(status = status, error = null) }
         }
 
         override fun onPlayerError(error: PlaybackException) {
+            // An HLS answer that isn't a playlist is the provider's own "nothing here" ("Cannot read .../123_.m3u8"):
+            // retrying only waits for the same answer again.
+            // Over TS the same "nothing here" is an empty answer, which can surface as a container nothing recognizes.
+            val nothingSent = error.errorCode == PlaybackException.ERROR_CODE_PARSING_MANIFEST_MALFORMED ||
+                (request?.isLive == true && error.errorCode == PlaybackException.ERROR_CODE_PARSING_CONTAINER_UNSUPPORTED)
+            if (nothingSent && !played) {
+                log("Player error: ${error.errorCodeName}; the provider isn't sending this channel")
+                _state.update { it.copy(status = PlaybackState.Status.ERROR, error = PlaybackError(PlaybackError.Kind.NOT_SENDING)) }
+                return
+            }
             // Retries (one by default, Settings → Playback), then the message (PLAN §4.3.3 → Stream failure).
             log("Player error: ${error.errorCodeName}${if (retriesLeft > 0) ", retrying" else ""} (${stalls.network()})")
             if (retriesLeft > 0) {

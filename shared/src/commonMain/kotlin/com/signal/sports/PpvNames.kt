@@ -99,7 +99,15 @@ object PpvNames {
 
     /** What a named event says it is, with no teams and no sport to go on. */
     private val eventWord = Regex("""\b(?:Final|Finals|Semifinal|Championship|Championships|Tournament|Open|Cup|Grand Prix|Nationals|Race|Round)\b""", RegexOption.IGNORE_CASE)
-    private val shortForms = setOf("fc", "cf", "afc", "sc", "ac", "fk", "kff", "usa", "lsu", "ucla", "usc")
+    /** Kept in capitals when a shouted name is cased: clubs' and schools' short forms, and leagues. */
+    private val shortForms = setOf(
+        "fc", "cf", "afc", "sc", "ac", "fk", "kff", "rcd", "msv", "f.c.", "usa", "lsu", "ucla", "usc", "unc", "ut", "uc", "uic",
+        "utep", "utsa", "uab", "ucf", "tcu", "smu", "byu", "vmi", "vcu", "njit", "fiu", "fau", "fgcu", "liu", "siu", "siue", "iu",
+        "ul", "umbc", "unlv", "uncw", "etsu", "mtsu", "rpi", "csun", "lmu", "uconn", "nj", "pa", "mn", "oh", "ca", "al",
+        "sec", "acc", "avca", "nfl", "nba", "nhl", "mlb", "mls", "ufc", "wwe", "ncaa", "espn", "ii", "iii",
+    )
+    /** Exceptions to [shortForms]' capitals. */
+    private val cased = mapOf("uconn" to "UConn")
 
     private val soccerV = Regex("""\s+v\.?\s+""")
 
@@ -360,7 +368,15 @@ object PpvNames {
 
     /** "ADELAIDE UNITED FC" → "Adelaide United FC". Only for names written all in capitals. */
     private fun titleCase(text: String): String {
-        return text.lowercase().split(' ').joinToString(" ") { w -> if (w in shortForms) w.uppercase() else w.replaceFirstChar { it.uppercase() } }
+        return text.lowercase().split(' ').joinToString(" ") { w ->
+            when {
+                w in cased -> cased.getValue(w)
+                // "A&M", "A&T"; "(NJ)" keeps its brackets.
+                w in shortForms || '&' in w -> w.uppercase()
+                w.trim('(', ')', ',') in shortForms -> w.uppercase()
+                else -> w.replaceFirstChar { it.uppercase() }
+            }
+        }
     }
 
     private fun hour24(hour: Int, half: String): Int = when {

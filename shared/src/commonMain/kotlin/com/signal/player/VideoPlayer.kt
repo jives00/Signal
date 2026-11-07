@@ -90,7 +90,7 @@ data class Track(val id: String, val label: String, val language: String?, val c
 
 /** Errors mapped to the messages in PLAN §4.3.3 → Errors and buffering. */
 data class PlaybackError(val kind: Kind, val detail: String? = null) {
-    enum class Kind { OFFLINE, TIMEOUT, UNSUPPORTED_FORMAT, CONNECTION_LIMIT, UNKNOWN }
+    enum class Kind { OFFLINE, TIMEOUT, UNSUPPORTED_FORMAT, CONNECTION_LIMIT, NOT_SENDING, UNKNOWN }
 
     val message: String
         get() = when (kind) {
@@ -98,6 +98,7 @@ data class PlaybackError(val kind: Kind, val detail: String? = null) {
             Kind.TIMEOUT -> "The stream timed out"
             Kind.UNSUPPORTED_FORMAT -> "This format isn't supported"
             Kind.CONNECTION_LIMIT -> "The provider's connection limit is reached. Stop playback on another device and try again."
+            Kind.NOT_SENDING -> "The provider isn't sending anything on this channel right now"
             Kind.UNKNOWN -> detail ?: "Something went wrong"
         }
 }

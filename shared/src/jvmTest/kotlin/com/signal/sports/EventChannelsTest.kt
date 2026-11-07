@@ -51,6 +51,11 @@ class EventChannelsTest {
 
     @Test fun shoutedNamesAreCased() {
         assertEquals("Adelaide United vs. Wellington Phoenix", EventChannels.shortName("US| ESPN+ PPV VIP", "LIVE | ADELAIDE UNITED VS. WELLINGTON PHOENIX | Fri 06 Nov 02:55 EST (US) | 8K EXCLUSIVE | US: ESPN+ PPV 1", now))
+        fun vip(game: String) = EventChannels.shortName("US| ESPN+ PPV VIP", "NEXT | $game | Sat 07 Nov 15:00 EST (US) | 8K EXCLUSIVE | US: ESPN+ PPV 59", now)
+        assertEquals("Samford vs. UNC Greensboro", vip("SAMFORD VS. UNC GREENSBORO"))
+        assertEquals("Prairie View A&M vs. UT Rio Grande Valley", vip("PRAIRIE VIEW A&M VS. UT RIO GRANDE VALLEY"))
+        assertEquals("UIC vs. Bradley", vip("UIC VS. BRADLEY"))
+        assertEquals("Miami (OH) vs. UConn", vip("MIAMI (OH) VS. UCONN"))
     }
 
     @Test fun onNowWithNoTimeKeepsOneStart() {
