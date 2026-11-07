@@ -5,14 +5,16 @@
             "title": "Signal 0.2.30",
             "publishedAt": 1791828000000,
             "stable": false,
-            "notes": "- Release channels"
+            "notes": "- Release channels",
+            "draftNotes": "## 0.2.30\n- Release channels"
         },
         {
             "tag": "apk-v0.2.29",
             "title": "Signal 0.2.29",
             "publishedAt": 1791741600000,
             "stable": true,
-            "notes": "- Banner is back"
+            "notes": "- Banner is back",
+            "draftNotes": ""
         }
     ],
     "tokenSet": true,

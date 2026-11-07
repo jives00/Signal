@@ -116,11 +116,15 @@ object GitHubReleases {
      * after [currentTag] up to [latestTag], newest first, each under its version. The notes' own
      * "Signal 0.2.29" first line goes, since the heading says it. Null when [releases] has nothing
      * to show, so the latest release's notes stand alone.
+     *
+     * [stableOnly]: only stable releases' notes. A stable release's notes summarize the testing
+     * builds before it (the web admin's Mark stable, 2026-11-07), so listing those too repeats it all.
      */
-    fun changesSince(releases: List<Release>, currentTag: String, latestTag: String): String? {
+    fun changesSince(releases: List<Release>, currentTag: String, latestTag: String, stableOnly: Boolean = false): String? {
         val current = version(currentTag) ?: return null
         val latest = version(latestTag) ?: return null
-        val between = releases.mapNotNull { r -> version(r.tag)?.let { it to r } }
+        val between = releases.filter { !stableOnly || !it.prerelease }
+            .mapNotNull { r -> version(r.tag)?.let { it to r } }
             .filter { (v, _) -> compare(v, current) > 0 && compare(v, latest) <= 0 }
             .sortedWith { a, b -> compare(b.first, a.first) }
             .distinctBy { it.second.tag }

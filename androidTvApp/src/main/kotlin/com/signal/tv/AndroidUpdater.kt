@@ -68,9 +68,10 @@ class AndroidUpdater(
             release = offer
             val dismissed = if (manual) null else prefs.getString(KEY_DISMISSED, null)
             _state.value = if (offer != null && offer.tag != dismissed) {
-                // Every release's notes since the installed version, testing ones included: the
-                // offered build has their changes too (user, 2026-10-16).
-                UpdateState.Available(offer.tag, list?.let { GitHubReleases.changesSince(it, currentTag, offer.tag) } ?: offer.body)
+                // Every release's notes since the installed version: the offered build has their
+                // changes too (user, 2026-10-16). On stable only, just the stable ones, whose notes
+                // summarize the testing builds before them (2026-11-07).
+                UpdateState.Available(offer.tag, list?.let { GitHubReleases.changesSince(it, currentTag, offer.tag, stable) } ?: offer.body)
             } else {
                 UpdateState.None
             }

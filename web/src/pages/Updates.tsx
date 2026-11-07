@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { getReleases, getSettings, markRelease, putSetting } from "../admin";
 import { useProfiles, useToast } from "../context";
-import type { ReleasesView } from "../schema";
+import Drawer from "../Drawer";
+import type { ReleaseView, ReleasesView } from "../schema";
 
 /** The update_channel profile setting (shared/data/Settings.kt): unset is stable only. */
 const ALL = "ALL";
@@ -37,10 +38,14 @@ export default function Updates() {
     } catch (e) { say((e as Error).message, true); }
   }
 
-  async function mark(tag: string, stable: boolean) {
+  const [marking, setMarking] = useState<ReleaseView | null>(null);
+  const closeMarking = useCallback(() => setMarking(null), []);
+
+  async function mark(tag: string, stable: boolean, notes?: string) {
     setBusy(tag);
     try {
-      await markRelease(tag, stable);
+      await markRelease(tag, stable, notes);
+      setMarking(null);
       say(stable ? `${tag.replace("apk-", "")} is stable` : `${tag.replace("apk-", "")} is back to testing`);
       loadReleases();
     } catch (e) { say((e as Error).message, true); }
@@ -92,7 +97,7 @@ export default function Updates() {
                   <td>{r.stable ? "Stable" : "Testing"}</td>
                   <td className="actions">
                     {releases.tokenSet && (
-                      <button type="button" disabled={busy === r.tag} onClick={() => mark(r.tag, !r.stable)}>
+                      <button type="button" disabled={busy === r.tag} onClick={() => (r.stable ? mark(r.tag, false) : setMarking(r))}>
                         {r.stable ? "Back to testing" : "Mark stable"}
                       </button>
                     )}
@@ -103,6 +108,42 @@ export default function Updates() {
           </table>
         </div>
       )}
+      {marking && (
+        <MarkStable release={marking} busy={busy === marking.tag} onMark={(notes) => mark(marking.tag, true, notes)} onClose={closeMarking} />
+      )}
     </section>
+  );
+}
+
+/**
+ * Marking a release stable, with its notes rewritten as a summary: a "Stable only" TV sees only the
+ * stable release's notes, so they start as every testing release's since the last stable one.
+ */
+function MarkStable({ release, busy, onMark, onClose }: {
+  release: ReleaseView; busy: boolean; onMark: (notes: string) => void; onClose: () => void;
+}) {
+  const version = release.tag.replace("apk-v", "");
+  const [notes, setNotes] = useState(release.draftNotes || release.notes);
+  const several = release.draftNotes.includes("\n## ");
+  return (
+    <Drawer label={`Mark ${version} stable`} onClose={onClose}>
+      <h2>Mark {version} stable</h2>
+      <p className="detail">
+        TVs on <b>Stable only</b> see only these notes when they update.
+        {several && " They start as every testing release's since the last stable one: rewrite them as a short summary of what changed."}
+        {" "}A first line is the title; lines starting with <code>-</code> are bullets. Lines starting with <code>#</code> aren't shown on the TV.
+      </p>
+      <div className="form">
+        <label>
+          Release notes
+          <textarea className="notes" value={notes} onChange={(e) => setNotes(e.target.value)} rows={18} aria-label="Release notes" />
+        </label>
+        <div className="row">
+          <button type="button" className="primary" disabled={busy || !notes.trim()} onClick={() => onMark(notes)}>Mark stable</button>
+          <button type="button" onClick={onClose}>Cancel</button>
+          {several && <button type="button" className="link" onClick={() => setNotes(release.notes)}>Use only {version}'s notes</button>}
+        </div>
+      </div>
+    </Drawer>
   );
 }

@@ -34,6 +34,27 @@ class ChangelogTest {
         )
     }
 
+    // A stable release's notes summarize the testing builds before it, so stable only lists just those (2026-11-07).
+    @Test
+    fun `stable only leaves out testing builds`() {
+        fun r(tag: String, notes: String, prerelease: Boolean) = GitHubReleases.Release(tag, GitHubReleases.changelog(notes), "", prerelease)
+        val releases = listOf(
+            r("apk-v1.2.1", "- Test fix", prerelease = true),
+            r("apk-v1.2.0", "Big update\n\n## leftover heading\n- Everything since 1.1", prerelease = false),
+            r("apk-v1.1.16", "- Live scores", prerelease = true),
+            r("apk-v1.1.15", "- Event channels", prerelease = true),
+            r("apk-v1.1.0", "- Old stable", prerelease = false),
+        )
+        assertEquals(
+            "Version 1.2.0\nBig update\n\n• Everything since 1.1",
+            GitHubReleases.changesSince(releases, "apk-v1.1.0", "apk-v1.2.0", stableOnly = true),
+        )
+        assertEquals(
+            "Version 1.2.0\nBig update\n\n• Everything since 1.1\n\nVersion 1.1.16\n• Live scores\n\nVersion 1.1.15\n• Event channels",
+            GitHubReleases.changesSince(releases, "apk-v1.1.0", "apk-v1.2.0"),
+        )
+    }
+
     @Test
     fun `nothing to show falls back to the newest notes`() {
         assertEquals(null, GitHubReleases.changesSince(emptyList(), "apk-v0.2.27", "apk-v0.2.29"))

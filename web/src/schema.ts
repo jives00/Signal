@@ -449,7 +449,7 @@ export const VoiceHelp = z.object({ intro: z.string(), groups: z.array(VoiceHelp
 export type VoiceHelp = z.infer<typeof VoiceHelp>;
 
 /** server/Releases.kt /api/releases (PLAN §4.3.15 → Release channels): recent app releases. */
-export const ReleaseView = z.object({ tag: z.string(), title: z.string(), publishedAt: z.number(), stable: z.boolean(), notes: z.string() });
+export const ReleaseView = z.object({ tag: z.string(), title: z.string(), publishedAt: z.number(), stable: z.boolean(), notes: z.string(), draftNotes: z.string() });
 export const ReleasesView = z.object({ releases: z.array(ReleaseView), tokenSet: z.boolean(), error: z.string().nullable() });
 export type ReleaseView = z.infer<typeof ReleaseView>;
 export type ReleasesView = z.infer<typeof ReleasesView>;

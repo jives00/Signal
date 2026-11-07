@@ -87,7 +87,7 @@ class ContractTest {
             "releases", ReleasesView.serializer(),
             ReleasesView(
                 listOf(
-                    ReleaseView("apk-v0.2.30", "Signal 0.2.30", 1_791_828_000_000, stable = false, notes = "- Release channels"),
+                    ReleaseView("apk-v0.2.30", "Signal 0.2.30", 1_791_828_000_000, stable = false, notes = "- Release channels", draftNotes = "## 0.2.30\n- Release channels"),
                     ReleaseView("apk-v0.2.29", "Signal 0.2.29", 1_791_741_600_000, stable = true, notes = "- Banner is back"),
                 ),
                 tokenSet = true,

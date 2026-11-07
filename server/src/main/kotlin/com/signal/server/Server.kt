@@ -274,7 +274,7 @@ fun Application.signalModule(companion: Companion) {
                     val tag = call.parameters["tag"].orEmpty()
                     if (!tag.startsWith("apk-")) return@post call.respondText("Not an app release.", status = HttpStatusCode.BadRequest)
                     val mark = call.receive<MarkRelease>()
-                    when (val error = companion.releases.mark(tag, mark.stable)) {
+                    when (val error = companion.releases.mark(tag, mark.stable, mark.notes?.trim()?.takeIf { it.isNotEmpty() })) {
                         null -> call.respond(HttpStatusCode.NoContent)
                         else -> call.respondText(error, status = HttpStatusCode.BadGateway)
                     }

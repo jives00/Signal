@@ -15,12 +15,19 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.longOrNull
 
-/** One app release, for Devices & Profiles → Updates. [stable]: not a pre-release (testing). */
+/**
+ * One app release, for Devices & Profiles → Updates. [stable]: not a pre-release (testing).
+ * [draftNotes]: for a testing release, the notes of every testing release since the last stable one,
+ * newest first, each under a `## <version>` heading. Marking it stable starts from these and writes
+ * the result as its notes, since a "Stable only" TV sees only that release's notes. Empty when stable.
+ */
 @Serializable
-data class ReleaseView(val tag: String, val title: String, val publishedAt: Long, val stable: Boolean, val notes: String)
+data class ReleaseView(val tag: String, val title: String, val publishedAt: Long, val stable: Boolean, val notes: String, val draftNotes: String = "")
 
 /** The recent releases, and whether a GitHub token is saved (marking needs one). [error] when GitHub couldn't be reached. */
 @Serializable
@@ -60,18 +67,23 @@ class Releases(private val http: HttpClient, private val token: () -> String?) {
             )
         }
         // GitHub doesn't list releases in version order (0.2.31 came 10th, 2026-10-16): sorted here.
-        val newest = releases.sortedWith { a, b -> compareVersions(b.tag, a.tag) }.take(SHOWN)
+        val sorted = releases.sortedWith { a, b -> compareVersions(b.tag, a.tag) }
+        val newest = sorted.take(SHOWN).map { if (it.stable) it else it.copy(draftNotes = draftNotes(sorted, it.tag)) }
         return ReleasesView(newest, tokenSet)
     }
 
-    /** Marks [tag] stable or back to testing. Returns an error for people, or null. */
-    suspend fun mark(tag: String, stable: Boolean): String? {
+    /** Marks [tag] stable or back to testing; [notes], when given, replace its notes. Returns an error for people, or null. */
+    suspend fun mark(tag: String, stable: Boolean, notes: String? = null): String? {
         if (token() == null) return "Save a GitHub token in Settings → Companion first."
         val found = runCatching { http.get("$API/releases/tags/$tag") { github() } }.getOrElse { return "GitHub couldn't be reached: ${it.message}" }
         if (!found.status.isSuccess()) return "No release $tag on GitHub (${found.status.value})."
         val id = (json.parseToJsonElement(found.bodyAsText()) as? JsonObject)?.get("id")?.jsonPrimitive?.longOrNull ?: return "GitHub's answer had no release ID."
         // Stable also makes it GitHub's "latest", which app versions before 0.2.30 still read.
-        val body = """{"prerelease":${!stable},"make_latest":"${if (stable) "true" else "false"}"}"""
+        val body = buildJsonObject {
+            put("prerelease", !stable)
+            put("make_latest", if (stable) "true" else "false")
+            if (notes != null) put("body", notes)
+        }.toString()
         val updated: HttpResponse = runCatching {
             http.patch("$API/releases/$id") { github(); contentType(ContentType.Application.Json); setBody(body) }
         }.getOrElse { return "GitHub couldn't be reached: ${it.message}" }
@@ -93,6 +105,22 @@ class Releases(private val http: HttpClient, private val token: () -> String?) {
         private const val FETCH = 100
         private const val SHOWN = 15
 
+        /**
+         * The notes of [tag] and every testing release before it back to the last stable one, from
+         * [newestFirst] (sorted by version). Headings, which the TV drops (Updater.changelog), keep
+         * the versions apart; a release's own first line (its title) goes into its heading.
+         */
+        fun draftNotes(newestFirst: List<ReleaseView>, tag: String): String =
+            newestFirst.dropWhile { it.tag != tag }
+                .takeWhile { !it.stable }
+                .joinToString("\n\n") { r ->
+                    val lines = r.notes.trim().lines().map { it.trimEnd() }.filterNot { it.startsWith("**Full Changelog**") }
+                    val title = lines.firstOrNull()?.takeIf { it.isNotBlank() && !it.startsWith("- ") && !it.startsWith("* ") && !it.startsWith("#") }
+                    val rest = (if (title != null) lines.drop(1) else lines).joinToString("\n").trim()
+                    val version = r.tag.removePrefix("apk-v")
+                    listOf("## $version" + (title?.let { ": $it" } ?: ""), rest).filter { it.isNotEmpty() }.joinToString("\n")
+                }
+
         /** "apk-v0.2.31" against "apk-v0.2.9", by number. */
         fun compareVersions(a: String, b: String): Int {
             fun parts(t: String) = t.removePrefix("apk-").removePrefix("v").split('.').map { it.toIntOrNull() ?: 0 }
@@ -107,6 +135,6 @@ class Releases(private val http: HttpClient, private val token: () -> String?) {
     }
 }
 
-/** POST /api/releases/{tag}: [stable] true marks it stable, false back to testing. */
+/** POST /api/releases/{tag}: [stable] true marks it stable, false back to testing; [notes], when given, replace its notes. */
 @Serializable
-data class MarkRelease(val stable: Boolean)
+data class MarkRelease(val stable: Boolean, val notes: String? = null)

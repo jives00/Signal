@@ -243,5 +243,6 @@ export const getVoiceHelp = () => read(S.VoiceHelp, "/api/voice/commands");
 
 // ---- Release channels (PLAN §4.3.15) ----
 export const getReleases = () => read(S.ReleasesView, "/api/releases");
-export const markRelease = (tag: string, stable: boolean) =>
-  send<void>(`/api/releases/${encodeURIComponent(tag)}`, { method: "POST", body: JSON.stringify({ stable }) });
+/** [notes], when given, replace the release's notes on GitHub (a stable release's summary). */
+export const markRelease = (tag: string, stable: boolean, notes?: string) =>
+  send<void>(`/api/releases/${encodeURIComponent(tag)}`, { method: "POST", body: JSON.stringify({ stable, notes }) });
