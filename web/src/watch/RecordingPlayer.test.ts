@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Recording } from "../schema";
 import { ordered } from "../viewer/Recordings";
-import { canPlay, recordingLine, resumeMs, silentAudio } from "./RecordingPlayer";
+import { canPlay, noSound, recordingLine, resumeMs } from "./RecordingPlayer";
 
 const rec = (over: Partial<Recording> = {}): Recording => ({
   id: "r", profileId: "main", streamId: "s", title: "Show", channelName: "C", startMs: 0, stopMs: 1, state: "DONE",
@@ -32,12 +32,10 @@ describe("recordings in a browser", () => {
     expect(recordingLine(rec({ state: "FAILED", reason: "No source was free.", durationMs: 0 }))).toBe("No source was free.");
   });
 
-  it("warns only about sound this browser can't play", () => {
-    expect(silentAudio("ac-3", () => false)).toBe(true);
-    expect(silentAudio("ec-3", () => false)).toBe(true);
-    expect(silentAudio("ac-3", () => true)).toBe(false);
-    expect(silentAudio("mp4a.40.2", () => false)).toBe(false);
-    expect(silentAudio(undefined, () => false)).toBe(false);
+  it("warns when no sound track reached the browser", () => {
+    expect(noSound({ video: {} } as object)).toBe(true);
+    expect(noSound({ audio: {}, video: {} } as object)).toBe(false);
+    expect(noSound({ audiovideo: {} })).toBe(false);
   });
 
   it("orders what's on, what's coming, then newest saved", () => {

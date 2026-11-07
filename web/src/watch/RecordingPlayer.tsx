@@ -30,9 +30,11 @@ export function recordingLine(r: Recording): string {
   return [state[r.state], canPlay(r) ? length(r.durationMs) : null, r.watchedAt != null ? "Watched" : null].filter(Boolean).join(" · ");
 }
 
-/** True for sound a browser can't be expected to play, which comes through silent rather than as an error. */
-export const silentAudio = (codec: string | undefined, supported: (type: string) => boolean) =>
-  !!codec && /^(ac-3|ec-3)/i.test(codec) && !supported(`audio/mp4; codecs="${codec}"`);
+/**
+ * True when what reached the browser has no sound. hls.js drops AC3 it can't play without an error:
+ * the track never arrives, the video shows as muted, and it can't be unmuted (dvr.md, ABC 7, 2026-11-06).
+ */
+export const noSound = (tracks: { audio?: unknown; audiovideo?: unknown }) => !tracks.audio && !tracks.audiovideo;
 
 /**
  * Plays one recording from the NAS. [headers] carries a viewer's key: on the request, never in the
@@ -66,9 +68,7 @@ export default function RecordingPlayer({ url, startMs, headers, onPosition }: {
       });
       let recovered = false;
       hls.on(Hls.Events.BUFFER_CODECS, (_e, data) => {
-        if (silentAudio(data.audio?.codec, (t) => MediaSource.isTypeSupported(t))) {
-          setNote("This recording's sound is AC3, which this browser can't play. It plays with sound on the TV.");
-        }
+        if (noSound(data)) setNote("This browser can't play this recording's sound, which is usually AC3. It plays with sound on the TV.");
       });
       hls.on(Hls.Events.ERROR, (_e, data) => {
         if (!data.fatal) return;

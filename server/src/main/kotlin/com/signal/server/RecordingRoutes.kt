@@ -227,10 +227,12 @@ fun Route.recordingRoutes(companion: Companion) {
     post("/recordings") {
         val body = call.receive<StartRecording>()
         if (body.minutes !in 1..MAX_MINUTES) return@post call.respondText("Choose up to $MAX_MINUTES minutes.", status = HttpStatusCode.BadRequest)
-        val row = channels.channel(body.profile, body.streamId, System.currentTimeMillis())
+        val name = channels.channelName(body.profile, body.streamId)
             ?: return@post call.respondText("No such channel", status = HttpStatusCode.NotFound)
-        val stopMs = System.currentTimeMillis() + body.minutes * 60_000L
-        runCatching { recorder.start(body.profile, body.streamId, row.now?.title ?: row.name, row.name, stopMs) }
+        val now = System.currentTimeMillis()
+        val onNow = channels.programs(body.profile, body.streamId, now, now + 1).firstOrNull { it.start <= now && now < it.stop }
+        val stopMs = now + body.minutes * 60_000L
+        runCatching { recorder.start(body.profile, body.streamId, onNow?.title ?: name, name, stopMs) }
             .onSuccess { call.respond(it) }
             .onFailure { call.respondText(it.message ?: "Couldn't start.", status = HttpStatusCode.Conflict) }
     }
