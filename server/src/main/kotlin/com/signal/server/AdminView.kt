@@ -371,6 +371,23 @@ class AdminChannels(private val companion: Companion) {
         return row(view(profileId), s, emptyMap(), withPrograms = false, now = 0).name
     }
 
+    /** The channel logo each of [streamIds] has for the profile (its custom logo, else the provider's), for the recordings lists. */
+    fun logos(profileId: String, streamIds: Collection<String>): Map<String, String?> {
+        if (streamIds.isEmpty()) return emptyMap()
+        val view = view(profileId)
+        val wanted = streamIds.toSet()
+        return companion.catalog.streams.filter { it.id in wanted }.associate { it.id to row(view, it, emptyMap(), withPrograms = false, now = 0).logo }
+    }
+
+    /** What the guide says about the program starting at [start] on a channel, for a recording; null when it has nothing more than the title. */
+    fun programDetails(profileId: String, streamId: String, start: Long, title: String?): com.signal.nas.RecordingDetails? {
+        val view = view(profileId)
+        val s = companion.catalog.streams.firstOrNull { it.id == streamId } ?: return null
+        val ref = guideRefFor(view, s)[s.id] ?: return null
+        val program = companion.guideReader.program(ref.epgSourceId, ref.guideChannelId, ref.timeShiftMs, start, title) ?: return null
+        return com.signal.nas.RecordingDetails.of(program)
+    }
+
     /** A channel's guide between two times; empty when it has no guide. */
     fun programs(profileId: String, streamId: String, from: Long, to: Long): List<ProgramBrief> {
         val view = view(profileId)

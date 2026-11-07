@@ -127,6 +127,20 @@ export const Recording = z.object({
   extraMs: z.number(),
   positionMs: z.number(),
   watchedAt: z.number().nullable(),
+  /** What the guide said about the program (dvr.md → TV, the redesign). */
+  details: z.object({
+    subTitle: z.string().nullable().optional(),
+    description: z.string().nullable().optional(),
+    season: z.number().nullable().optional(),
+    episode: z.number().nullable().optional(),
+    episodeLabel: z.string().nullable().optional(),
+    icon: z.string().nullable().optional(),
+    rating: z.string().nullable().optional(),
+    year: z.number().nullable().optional(),
+    isNew: z.boolean().optional(),
+    categories: z.array(z.string()).optional(),
+  }).nullable().default(null),
+  channelLogo: z.string().nullable().default(null),
 });
 export type Recording = z.infer<typeof Recording>;
 /** server/RecordingRoutes.kt → RecordingsView. */

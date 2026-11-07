@@ -706,6 +706,25 @@ class RecorderTest {
         assertNull(store.get(r.id)!!.reason, "found again")
     }
 
+    @Test fun theGuideFillsInMissingDetailsButNeverReplacesThem() {
+        val rec = recorder()
+        val r = schedule(rec, 3_600_000, 1_000)
+        assertNull(r.details)
+        val program = ProgramBrief("Show", r.programStart!!, r.programStop!!)
+        val found = com.signal.nas.RecordingDetails(subTitle = "Pilot", season = 1, episode = 1)
+        rec.follow(r, program, 0, 0, found)
+        assertEquals(found, store.get(r.id)!!.details)
+        rec.follow(store.get(r.id)!!, program, 0, 0, com.signal.nas.RecordingDetails(subTitle = "Something else"))
+        assertEquals(found, store.get(r.id)!!.details, "what was set stays")
+    }
+
+    @Test fun detailsSetWithARecordingAreKept() {
+        val start = System.currentTimeMillis() + 3_600_000
+        val details = com.signal.nas.RecordingDetails(description = "A story.", isNew = true)
+        val r = recorder().schedule("main", "s:x:1", "Show", "Channel", start, start + 1_000, 0, 0, details)
+        assertEquals(details, store.get(r.id)!!.details)
+    }
+
     @Test fun aRunningRecordingFollowsANewEndButNeverItsStart() {
         val got = CompletableDeferred<Unit>()
         serve = { _, send -> feed(send); got.complete(Unit); awaitCancellation() }

@@ -1,7 +1,6 @@
 package com.signal.app
 
 import com.signal.nas.NasRecording
-import com.signal.ui.screens.recordingSections
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -52,14 +51,5 @@ class RecordingTextTest {
     @Test fun homeShowsWhatsOnThenComingThenUnwatched() {
         val rows = listOf(rec("seen", watched = 1), rec("old", at = 1), rec("new", at = 2), rec("soon", "SCHEDULED", at = 5), rec("on", "RECORDING", at = 3), rec("bad", "FAILED"))
         assertEquals(listOf("on", "soon", "new", "old"), com.signal.ui.screens.homeRecordings(rows).map { it.id })
-    }
-
-    @Test fun sectionsPutWhatsOnFirstAndNewestRecordedOnTop() {
-        val rows = listOf(rec("old", at = 1), rec("new", at = 2), rec("later", "SCHEDULED", at = 9), rec("soon", "SCHEDULED", at = 5), rec("on", "RECORDING", at = 3))
-        val sections = recordingSections(rows)
-        assertEquals(listOf("Recording now", "Scheduled", "Recorded"), sections.map { it.first })
-        assertEquals(listOf("soon", "later"), sections[1].second.map { it.id })
-        assertEquals(listOf("new", "old"), sections[2].second.map { it.id })
-        assertEquals(emptyList(), recordingSections(emptyList()))
     }
 }

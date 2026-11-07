@@ -6,7 +6,7 @@ import { canPlay, noSound, recordingLine, resumeMs } from "./RecordingPlayer";
 const rec = (over: Partial<Recording> = {}): Recording => ({
   id: "r", profileId: "main", streamId: "s", title: "Show", channelName: "C", startMs: 0, stopMs: 1, state: "DONE",
   loginName: null, endedAt: null, updatedAt: 0, bytes: 1, durationMs: 3_600_000, gaps: 0, gapMs: 0, reason: null,
-  expiresAt: null, programStart: null, programStop: null, extraMs: 0, positionMs: 0, watchedAt: null, ...over,
+  expiresAt: null, programStart: null, programStop: null, extraMs: 0, positionMs: 0, watchedAt: null, details: null, channelLogo: null, ...over,
 });
 
 describe("recordings in a browser", () => {

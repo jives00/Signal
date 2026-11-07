@@ -1,6 +1,7 @@
 package com.signal.server
 
 import com.signal.model.LiveFormat
+import com.signal.nas.RecordingDetails
 import com.signal.model.SourceAccount
 import com.signal.model.SourceKind
 import com.signal.model.StreamUrls
@@ -33,7 +34,7 @@ import java.io.File
 @Serializable data class ScheduleRecording(val profile: String, val streamId: String, val start: Long, val title: String? = null)
 @Serializable data class ExtendRecording(val minutes: Int)
 /** From a TV: what its guide showed, so what's set is what the user chose, whichever guide it has. */
-@Serializable data class DeviceSchedule(val streamId: String, val start: Long, val stop: Long, val title: String)
+@Serializable data class DeviceSchedule(val streamId: String, val start: Long, val stop: Long, val title: String, val details: RecordingDetails? = null)
 @Serializable data class DeviceScheduled(val recording: Recording, val conflict: Boolean)
 
 private const val MAX_MINUTES = 12 * 60
@@ -76,7 +77,11 @@ fun followGuide(companion: Companion) {
         val start = recording.programStart ?: return@forEach
         val programs = channels.programs(recording.profileId, recording.streamId, start - FOLLOW_MS, start + FOLLOW_MS + 1)
         // Nothing at all there means the guide has no data for it, which says nothing about the program.
-        if (programs.isNotEmpty()) companion.recorder.follow(recording, sameProgram(programs, recording.title, start), before, after)
+        if (programs.isEmpty()) return@forEach
+        val program = sameProgram(programs, recording.title, start)
+        // One set before details were saved, or from a TV whose own guide had none, gets them filled in.
+        val details = if (recording.details == null && program != null) channels.programDetails(recording.profileId, recording.streamId, program.start, program.title) else null
+        companion.recorder.follow(recording, program, before, after, details)
     }
 }
 
@@ -112,6 +117,14 @@ private suspend fun conflicts(companion: Companion): List<String> {
     return if (upcoming.isEmpty()) emptyList() else recordingConflicts(upcoming, store?.unfinished().orEmpty()) { recordingLogins(companion, it).size }
 }
 
+/** A profile's recordings, each with its channel's logo. */
+private suspend fun recordingsView(companion: Companion, profileId: String): RecordingsView {
+    val recorder = companion.recorder
+    val rows = companion.recordingStore?.forProfile(profileId).orEmpty()
+    val logos = runCatching { AdminChannels(companion).logos(profileId, rows.map { it.streamId }) }.getOrDefault(emptyMap())
+    return RecordingsView(recorder.problem(), recorder.freeBytes(), rows.map { it.copy(channelLogo = logos[it.streamId]) }, conflicts(companion))
+}
+
 private suspend fun RoutingCall.respondRecordingFile(file: File) {
     // A player re-reads the playlist while it records, so it's never cached.
     if (file.name == RecordingFiles.PLAYLIST) respondBytes(file.readBytes(), ContentType("application", "vnd.apple.mpegurl"))
@@ -134,7 +147,7 @@ fun Route.recordingDeviceRoutes(companion: Companion) {
     route("/device/recordings") {
         get {
             val device = call.device(companion) ?: return@get
-            call.respond(RecordingsView(recorder.problem(), recorder.freeBytes(), companion.recordingStore?.forProfile(device.profileId).orEmpty(), conflicts(companion)))
+            call.respond(recordingsView(companion, device.profileId))
         }
         // Set from the TV's guide. Also takes a program already on, which records from now.
         post {
@@ -145,7 +158,8 @@ fun Route.recordingDeviceRoutes(companion: Companion) {
                 ?: return@post call.respondText("The companion doesn't have that channel.", status = HttpStatusCode.NotFound)
             val settings = companion.settings
             runCatching {
-                recorder.schedule(device.profileId, body.streamId, body.title, name, body.start, body.stop, settings.recordBeforeMinutes * 60_000L, settings.recordAfterMinutes * 60_000L)
+                val details = body.details ?: channels.programDetails(device.profileId, body.streamId, body.start, body.title)
+                recorder.schedule(device.profileId, body.streamId, body.title, name, body.start, body.stop, settings.recordBeforeMinutes * 60_000L, settings.recordAfterMinutes * 60_000L, details)
             }
                 .onSuccess { call.respond(DeviceScheduled(it, it.id in conflicts(companion))) }
                 .onFailure { call.respondText(it.message ?: "Couldn't set that.", status = HttpStatusCode.Conflict) }
@@ -192,7 +206,7 @@ fun Route.recordingRoutes(companion: Companion) {
 
     get("/recordings") {
         val profile = call.request.queryParameters["profile"]?.takeIf { it.isNotBlank() } ?: SyncService.MAIN
-        call.respond(RecordingsView(recorder.problem(), recorder.freeBytes(), companion.recordingStore?.forProfile(profile).orEmpty(), conflicts(companion)))
+        call.respond(recordingsView(companion, profile))
     }
 
     // What a channel has coming up, to choose from.
@@ -211,7 +225,8 @@ fun Route.recordingRoutes(companion: Companion) {
             ?: return@post call.respondText("The guide doesn't have that program.", status = HttpStatusCode.NotFound)
         val settings = companion.settings
         runCatching {
-            recorder.schedule(body.profile, body.streamId, program.title, name, program.start, program.stop, settings.recordBeforeMinutes * 60_000L, settings.recordAfterMinutes * 60_000L)
+            val details = channels.programDetails(body.profile, body.streamId, program.start, program.title)
+            recorder.schedule(body.profile, body.streamId, program.title, name, program.start, program.stop, settings.recordBeforeMinutes * 60_000L, settings.recordAfterMinutes * 60_000L, details)
         }
             .onSuccess { call.respond(it) }
             .onFailure { call.respondText(it.message ?: "Couldn't schedule that.", status = HttpStatusCode.Conflict) }
@@ -232,7 +247,8 @@ fun Route.recordingRoutes(companion: Companion) {
         val now = System.currentTimeMillis()
         val onNow = channels.programs(body.profile, body.streamId, now, now + 1).firstOrNull { it.start <= now && now < it.stop }
         val stopMs = now + body.minutes * 60_000L
-        runCatching { recorder.start(body.profile, body.streamId, onNow?.title ?: name, name, stopMs) }
+        val details = onNow?.let { channels.programDetails(body.profile, body.streamId, it.start, it.title) }
+        runCatching { recorder.start(body.profile, body.streamId, onNow?.title ?: name, name, stopMs, details) }
             .onSuccess { call.respond(it) }
             .onFailure { call.respondText(it.message ?: "Couldn't start.", status = HttpStatusCode.Conflict) }
     }

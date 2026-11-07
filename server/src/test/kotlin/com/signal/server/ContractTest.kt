@@ -77,7 +77,8 @@ class ContractTest {
                 listOf(
                     Recording("r1", "main", "src:x:42", "Live football", "FOX Sports 1", 1_791_828_000_000, 1_791_835_200_000, RecordingState.RECORDING, "Provider", updatedAt = 1_791_828_010_000, bytes = 3_000_000, durationMs = 10_000),
                     Recording("r2", "main", "src:x:42", "News", "FOX Sports 1", 1_791_820_000_000, 1_791_823_600_000, RecordingState.PARTIAL, "Provider", 1_791_823_600_000, 1_791_823_600_000, 1_500_000_000, 3_000_000, 1, 600_000, "The stream dropped.", 1_794_415_600_000),
-                    Recording("r3", "main", "src:x:42", "The game", "FOX Sports 1", 1_791_900_000_000, 1_791_910_000_000, RecordingState.SCHEDULED, updatedAt = 1_791_828_010_000, programStart = 1_791_900_060_000, programStop = 1_791_909_700_000, extraMs = 900_000),
+                    Recording("r3", "main", "src:x:42", "The game", "FOX Sports 1", 1_791_900_000_000, 1_791_910_000_000, RecordingState.SCHEDULED, updatedAt = 1_791_828_010_000, programStart = 1_791_900_060_000, programStop = 1_791_909_700_000, extraMs = 900_000,
+                        details = com.signal.nas.RecordingDetails(subTitle = "Week 10", description = "Two rivals meet.", season = 2026, episode = 10, isNew = true, categories = listOf("Sports")), channelLogo = "https://logos.example/fs1.png"),
                 ),
                 listOf("r3"),
             ),

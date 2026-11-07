@@ -329,12 +329,12 @@ class NasConnection(
     }
 
     /** Sets a recording. The answer says why not: a TV away from home must be told, never left thinking it's set (dvr.md). */
-    suspend fun scheduleRecording(streamId: String, start: Long, stop: Long, title: String): RecordingAnswer {
+    suspend fun scheduleRecording(streamId: String, start: Long, stop: Long, title: String, details: RecordingDetails? = null): RecordingAnswer {
         val response = if (!isPaired) null else call(RECORD_TIMEOUT_MS) { base ->
             http.post(base + NasRecordingPaths.LIST) {
                 asDevice()
                 contentType(ContentType.Application.Json)
-                setBody(json.encodeToString(NasRecordingRequest(streamId, start, stop, title)))
+                setBody(json.encodeToString(NasRecordingRequest(streamId, start, stop, title, details)))
             }
         }
         response ?: return if (canReach()) RecordingAnswer.NoAnswer else RecordingAnswer.OutOfReach

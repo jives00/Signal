@@ -53,6 +53,8 @@ class Settings(private val db: UserDatabase, private val io: CoroutineDispatcher
         SPORTS(Scope.PROFILE, "sports"),
         // The Live Sports page's filters on this TV (SportsFilters).
         SPORTS_FILTERS(Scope.DEVICE, "sports_filters"),
+        // The Recordings page's filter on this TV (RecordingsFilter), dvr.md → TV.
+        RECORDINGS_FILTER(Scope.DEVICE, "recordings_filter"),
         // Live Sports' image per league or sport, as JSON (SportImages); unset is ESPN's logos. Set in the web admin.
         SPORT_IMAGES(Scope.HOUSEHOLD, "sport_images"),
         // The same for movie and series titles; kept apart from channels (PLAN §4.3.6 → Categories).

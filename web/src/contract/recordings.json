@@ -24,7 +24,9 @@
             "programStop": null,
             "extraMs": 0,
             "positionMs": 0,
-            "watchedAt": null
+            "watchedAt": null,
+            "details": null,
+            "channelLogo": null
         },
         {
             "id": "r2",
@@ -48,7 +50,9 @@
             "programStop": null,
             "extraMs": 0,
             "positionMs": 0,
-            "watchedAt": null
+            "watchedAt": null,
+            "details": null,
+            "channelLogo": null
         },
         {
             "id": "r3",
@@ -72,7 +76,22 @@
             "programStop": 1791909700000,
             "extraMs": 900000,
             "positionMs": 0,
-            "watchedAt": null
+            "watchedAt": null,
+            "details": {
+                "subTitle": "Week 10",
+                "description": "Two rivals meet.",
+                "season": 2026,
+                "episode": 10,
+                "episodeLabel": null,
+                "icon": null,
+                "rating": null,
+                "year": null,
+                "isNew": true,
+                "categories": [
+                    "Sports"
+                ]
+            },
+            "channelLogo": "https://logos.example/fs1.png"
         }
     ],
     "conflicts": [

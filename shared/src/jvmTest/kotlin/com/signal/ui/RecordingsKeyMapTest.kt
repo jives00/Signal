@@ -7,8 +7,6 @@ import com.signal.input.RemoteAction
 import com.signal.nas.NasPaths
 import com.signal.nas.NasRecording
 import com.signal.nas.NasRecordingPaths
-import com.signal.ui.screens.recordingListIndex
-import com.signal.ui.screens.recordingSections
 import kotlinx.coroutines.launch
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -99,19 +97,66 @@ class RecordingsKeyMapTest {
         eventually("the player") { app.navigator.current == Route.VodPlayer }
     }
 
+    private val show = """{"recordings":[
+        {"id":"j2","title":"Jeopardy!","channelName":"ABC 7","startMs":5000,"stopMs":6000,"state":"DONE","durationMs":1000,"details":{"subTitle":"Teachers Tournament"}},
+        {"id":"j1","title":"Jeopardy!","channelName":"ABC 7","startMs":4000,"stopMs":5000,"state":"DONE","durationMs":1000,"watchedAt":4500,"details":{"season":42,"episode":7}},
+        {"id":"m","title":"A Movie","channelName":"FX","startMs":1000,"stopMs":2000,"state":"DONE","durationMs":1000,"expiresAt":9000000000000},
+        {"id":"s","title":"Later Show","channelName":"FX","startMs":9000000000000,"stopMs":9000003600000,"state":"SCHEDULED","programStart":9000000000000}
+    ]}"""
+    private val showNas: (String) -> String? = {
+        when (it) {
+            NasPaths.HEALTH -> health
+            NasRecordingPaths.LIST -> show
+            else -> null
+        }
+    }
+
+    @Test fun aShowOpensToItsEpisodesAndBackClosesIt() = keyMapTest(nas = showNas) {
+        open()
+        focusedStartsWith("Later Show")
+        press(RemoteAction.Down)
+        focusedStartsWith("Jeopardy! · 2 recordings · 1 new")
+        press(RemoteAction.Select)
+        // Unwatched first: the one with no position comes before the watched one.
+        focusedStartsWith("Teachers Tournament")
+        press(RemoteAction.Down)
+        focusedStartsWith("S42 E7")
+        press(RemoteAction.Back)
+        focusedStartsWith("Jeopardy! · 2 recordings")
+    }
+
+    @Test fun rightGoesToTheFocusedRecordingsButtonsAndLeftComesBack() = keyMapTest(nas = showNas) {
+        open()
+        focusedStartsWith("Later Show")
+        press(RemoteAction.Down)
+        press(RemoteAction.Down)
+        focusedStartsWith("A Movie")
+        press(RemoteAction.Right)
+        focusedStartsWith("Play")
+        press(RemoteAction.Down)
+        focusedStartsWith("Keep 30 more days")
+        press(RemoteAction.Down)
+        focusedStartsWith("Delete")
+        press(RemoteAction.Left)
+        focusedStartsWith("A Movie")
+    }
+
+    @Test fun theFilterIsKeptForTheTv() = keyMapTest(nas = showNas) {
+        open()
+        focusedStartsWith("Later Show")
+        press(RemoteAction.Up)
+        focusedStartsWith("All")
+        press(RemoteAction.Right)
+        press(RemoteAction.Right)
+        focusedStartsWith("Scheduled (1)")
+        press(RemoteAction.Select)
+        eventually("only what's scheduled") { !shows("A Movie") && shows("Later Show") }
+        assertEquals("SCHEDULED", app.settings.raw(Settings.Key.RECORDINGS_FILTER))
+    }
+
     @Test fun outOfReachSaysSoAndOffersTryAgain() = keyMapTest {
         open()
         focusedStartsWith("Try again")
         eventually("the warning") { shows(RecordingText.OUT_OF_REACH) }
-    }
-
-    @Test fun rowsAreFoundPastEachSectionTitle() {
-        fun rec(id: String, state: String, at: Long) = NasRecording(id, "Show", "Channel", at, at + 1, state, durationMs = 1)
-        val sections = recordingSections(listOf(rec("on", "RECORDING", 3), rec("soon", "SCHEDULED", 5), rec("new", "DONE", 2), rec("old", "DONE", 1)))
-        assertEquals(1, recordingListIndex(sections, "on"))
-        assertEquals(3, recordingListIndex(sections, "soon"))
-        assertEquals(6, recordingListIndex(sections, "old"))
-        assertEquals(0, recordingListIndex(sections, "gone"))
-        assertEquals(0, recordingListIndex(sections, null))
     }
 }

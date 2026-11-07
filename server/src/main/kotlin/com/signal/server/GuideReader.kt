@@ -3,6 +3,7 @@ package com.signal.server
 import app.cash.sqldelight.driver.jdbc.sqlite.JdbcSqliteDriver
 import com.signal.db.guide.GuideDatabase
 import com.signal.guide.GuideResolver
+import com.signal.guide.toModel
 import com.signal.match.GuideNames
 import com.signal.model.EpgSource
 import com.signal.model.GuideRef
@@ -70,6 +71,14 @@ class GuideReader(private val builds: () -> File?) {
         val db = current() ?: return emptyList()
         return db.guideQueries.programsBetween(epgSourceId, guideChannelId, from - shiftMs, to - shiftMs).executeAsList()
             .map { ProgramBrief(it.title, it.start + shiftMs, it.stop + shiftMs) }
+    }
+
+    /** The full program starting at [start] (displayed time), for a recording's details; [title] picks between two listed at once. */
+    @Synchronized fun program(epgSourceId: String, guideChannelId: String, shiftMs: Long, start: Long, title: String?): com.signal.model.Program? {
+        val db = current() ?: return null
+        val at = db.guideQueries.programsBetween(epgSourceId, guideChannelId, start - shiftMs, start - shiftMs + 1).executeAsList()
+            .map { it.toModel(shiftMs) }.filter { it.start == start }
+        return at.firstOrNull { title == null || it.title.trim().equals(title.trim(), ignoreCase = true) } ?: at.singleOrNull()
     }
 
     /** The program on now and the next one on a guide channel; [shiftMs] is its EPG source's time shift. */

@@ -295,28 +295,29 @@ class GuideRepository(
         val shift = state.value.sources.firstOrNull { it.id == row.epg_source_id }?.timeShiftMs ?: 0
         row.toModel(shift)
     }
-
-    private fun com.signal.db.guide.Program.toModel(shift: Long) = Program(
-        id = id,
-        epgSourceId = epg_source_id,
-        guideChannelId = guide_channel_id,
-        start = start + shift,
-        stop = stop + shift,
-        title = title,
-        subTitle = sub_title,
-        description = description,
-        categories = categories?.split(GuideBuilder.SEPARATOR).orEmpty(),
-        season = season?.toInt(),
-        episode = episode?.toInt(),
-        episodeLabel = episode_label,
-        icon = icon,
-        rating = rating,
-        year = year?.toInt(),
-        isNew = flags and 1L != 0L,
-        isLive = flags and 2L != 0L,
-        credits = credits?.split(GuideBuilder.SEPARATOR).orEmpty(),
-    )
 }
+
+/** A guide.db row as a [Program] in displayed time; [shift] is its EPG source's time shift. The companion reads its guide builds with it too. */
+fun com.signal.db.guide.Program.toModel(shift: Long) = Program(
+    id = id,
+    epgSourceId = epg_source_id,
+    guideChannelId = guide_channel_id,
+    start = start + shift,
+    stop = stop + shift,
+    title = title,
+    subTitle = sub_title,
+    description = description,
+    categories = categories?.split(GuideBuilder.SEPARATOR).orEmpty(),
+    season = season?.toInt(),
+    episode = episode?.toInt(),
+    episodeLabel = episode_label,
+    icon = icon,
+    rating = rating,
+    year = year?.toInt(),
+    isNew = flags and 1L != 0L,
+    isLive = flags and 2L != 0L,
+    credits = credits?.split(GuideBuilder.SEPARATOR).orEmpty(),
+)
 
 /** New resolutions are saved this long after the last one, so a screenful saves once. */
 private const val SAVE_AFTER_MS = 3_000L

@@ -1,6 +1,8 @@
 package com.signal.server
 
+import com.signal.nas.RecordingDetails
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.Json
 import java.sql.ResultSet
 import java.sql.Types
 import java.util.concurrent.ConcurrentHashMap
@@ -41,6 +43,10 @@ data class Recording(
     val positionMs: Long = 0,
     /** When it was watched to the end. */
     val watchedAt: Long? = null,
+    /** What the guide said about the program when it was set, or since. */
+    val details: RecordingDetails? = null,
+    /** The channel's logo for the profile: added to lists, never stored. */
+    val channelLogo: String? = null,
 )
 
 interface RecordingStore {
@@ -60,16 +66,18 @@ interface RecordingStore {
 }
 
 class JdbcRecordingStore(private val db: DataSource) : RecordingStore {
+    private val detailsJson = Json { ignoreUnknownKeys = true }
+
     override fun save(recording: Recording) {
         db.connection.use { c ->
             c.prepareStatement(
                 """INSERT INTO recording (id, profile_id, stream_id, title, channel_name, start_ms, stop_ms, state, login_name, ended_at,
-                   updated_at, bytes, duration_ms, gaps, gap_ms, reason, expires_at, program_start_ms, program_stop_ms, extra_ms)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                   updated_at, bytes, duration_ms, gaps, gap_ms, reason, expires_at, program_start_ms, program_stop_ms, extra_ms, details)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                    ON DUPLICATE KEY UPDATE start_ms = VALUES(start_ms), stop_ms = VALUES(stop_ms), program_start_ms = VALUES(program_start_ms),
                    program_stop_ms = VALUES(program_stop_ms), extra_ms = VALUES(extra_ms), state = VALUES(state), login_name = VALUES(login_name),
                    ended_at = VALUES(ended_at), updated_at = VALUES(updated_at), bytes = VALUES(bytes), duration_ms = VALUES(duration_ms),
-                   gaps = VALUES(gaps), gap_ms = VALUES(gap_ms), reason = VALUES(reason), expires_at = VALUES(expires_at)""",
+                   gaps = VALUES(gaps), gap_ms = VALUES(gap_ms), reason = VALUES(reason), expires_at = VALUES(expires_at), details = VALUES(details)""",
             ).use { s ->
                 val r = recording
                 s.setString(1, r.id)
@@ -92,6 +100,7 @@ class JdbcRecordingStore(private val db: DataSource) : RecordingStore {
                 if (r.programStart != null) s.setLong(18, r.programStart) else s.setNull(18, Types.BIGINT)
                 if (r.programStop != null) s.setLong(19, r.programStop) else s.setNull(19, Types.BIGINT)
                 s.setLong(20, r.extraMs)
+                s.setString(21, r.details?.let { detailsJson.encodeToString(RecordingDetails.serializer(), it) })
                 s.executeUpdate()
             }
         }
@@ -156,12 +165,13 @@ class JdbcRecordingStore(private val db: DataSource) : RecordingStore {
         extraMs = getLong("extra_ms"),
         positionMs = getLong("position_ms"),
         watchedAt = getLong("watched_at").takeIf { !wasNull() },
+        details = getString("details")?.let { runCatching { detailsJson.decodeFromString(RecordingDetails.serializer(), it) }.getOrNull() },
     )
 }
 
 class MemoryRecordingStore : RecordingStore {
     private val rows = ConcurrentHashMap<String, Recording>()
-    override fun save(recording: Recording) { rows[recording.id] = recording }
+    override fun save(recording: Recording) { rows[recording.id] = recording.copy(channelLogo = null) }
     override fun get(id: String) = rows[id]
     override fun forProfile(profileId: String) = rows.values.filter { it.profileId == profileId }.sortedByDescending { it.startMs }
     override fun unfinished() = rows.values.filter { it.state == RecordingState.WAITING || it.state == RecordingState.RECORDING }

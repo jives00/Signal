@@ -1,5 +1,6 @@
 package com.signal.server
 
+import com.signal.nas.RecordingDetails
 import com.signal.app.ProviderAccounts
 import com.signal.model.Source
 import com.signal.parse.XtreamParser
@@ -174,12 +175,12 @@ class Recorder(
     }.getOrDefault(false)
 
     /** Starts recording now, until [stopMs]. Throws [IllegalStateException] with the reason when it can't. */
-    fun start(profileId: String, streamId: String, title: String, channelName: String, stopMs: Long): Recording {
+    fun start(profileId: String, streamId: String, title: String, channelName: String, stopMs: Long, details: RecordingDetails? = null): Recording {
         problem()?.let { error(it) }
         if (stopping) error("The companion is shutting down.")
         val store = store() ?: error("The database isn't connected yet.")
         val at = now()
-        val recording = Recording(UUID.randomUUID().toString(), profileId, streamId, title, channelName, at, stopMs, RecordingState.WAITING, updatedAt = at)
+        val recording = Recording(UUID.randomUUID().toString(), profileId, streamId, title, channelName, at, stopMs, RecordingState.WAITING, updatedAt = at, details = details)
         store.save(recording)
         sweepQuietly()
         launch(Run(recording, resumed = false))
@@ -191,7 +192,7 @@ class Recorder(
      * program twice gives back the first. If it's already on, it records from now. Throws
      * [IllegalStateException] with the reason when it can't.
      */
-    @Synchronized fun schedule(profileId: String, streamId: String, title: String, channelName: String, programStart: Long, programStop: Long, beforeMs: Long, afterMs: Long): Recording {
+    @Synchronized fun schedule(profileId: String, streamId: String, title: String, channelName: String, programStart: Long, programStop: Long, beforeMs: Long, afterMs: Long, details: RecordingDetails? = null): Recording {
         problem()?.let { error(it) }
         val store = store() ?: error("The database isn't connected yet.")
         val at = now()
@@ -202,7 +203,7 @@ class Recorder(
         val recording = Recording(
             UUID.randomUUID().toString(), profileId, streamId, title, channelName,
             maxOf(at, programStart - beforeMs), programStop + afterMs, RecordingState.SCHEDULED, updatedAt = at,
-            programStart = programStart, programStop = programStop,
+            programStart = programStart, programStop = programStop, details = details,
         )
         store.save(recording)
         return recording
@@ -308,7 +309,7 @@ class Recorder(
      * After a guide build: moves a recording to where the guide has its program now, or, when
      * [program] is null, flags one still to come that it can't find.
      */
-    fun follow(recording: Recording, program: ProgramBrief?, beforeMs: Long, afterMs: Long) {
+    fun follow(recording: Recording, program: ProgramBrief?, beforeMs: Long, afterMs: Long, details: RecordingDetails? = null) {
         val store = store() ?: return
         val run = runs[recording.id]
         val current = run?.recording ?: store.get(recording.id) ?: return
@@ -322,6 +323,8 @@ class Recorder(
                         stopMs = program.stop + afterMs + extraMs,
                         programStart = program.start, programStop = program.stop,
                         reason = reason.takeIf { it != GUIDE_LOST },
+                        // Only filled in, never replaced: what the user chose stays as it was set.
+                        details = this.details ?: details,
                     )
                 }
             }

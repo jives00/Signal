@@ -6,6 +6,7 @@ import com.signal.nas.NasConnection
 import com.signal.nas.NasRecording
 import com.signal.nas.NasRecordings
 import com.signal.nas.RecordingAnswer
+import com.signal.nas.RecordingDetails
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -44,7 +45,7 @@ class RecordingSchedule(private val nas: NasConnection, private val settleMs: Lo
     }
 
     suspend fun record(ch: Channel, p: Program): RecordingAnswer {
-        val answer = nas.scheduleRecording(ch.stream.id, p.start, p.stop, p.title)
+        val answer = nas.scheduleRecording(ch.stream.id, p.start, p.stop, p.title, RecordingDetails.of(p))
         // No answer may still mean it was set.
         if (answer is RecordingAnswer.Set || answer is RecordingAnswer.NoAnswer) refresh()
         return answer
@@ -78,6 +79,13 @@ class RecordingSchedule(private val nas: NasConnection, private val settleMs: Lo
     }
 
     suspend fun keepLonger(r: NasRecording): Boolean = nas.extendRecording(r.id, RecordingText.KEEP_LONGER_MINUTES)
+
+    // The Recordings page is rebuilt on each visit, and comes back from the player: what it had open is kept here.
+    /** The line focus was last on. */
+    var lastFocus: String? = null
+    /** The show listed on its own, by [com.signal.ui.screens.showKeyOf]. */
+    var openShow: String? = null
+    var failedOpen: Boolean = false
 
     companion object {
         const val REFRESH_MS = 5 * 60_000L
