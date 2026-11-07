@@ -27,6 +27,8 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /** A little TS: PAT, PMT on 0x1000 (H.264 on 0x100, AC3 on 0x101) and video packets with a PCR and a keyframe flag. */
+private object BASE_OFFSET { var value = 0L }
+
 internal object Ts {
     const val VIDEO = 0x100
     const val PMT = 0x1000
@@ -151,13 +153,13 @@ class TsSegmenterTest {
         }
     }
 
-    @Test fun durationsSurviveThePcrWrappingAndFallBackWhenItJumps() {
+    @Test fun durationsSurviveThePcrWrappingAndStayTrueWhenItJumps() {
         val wrap = (1L shl 33) / 90
         val sink = Sink()
         val s = TsSegmenter(sink)
         s.feed(Ts.pat + Ts.pmt)
-        s.feed(Ts.video(wrap - 6_000, keyframe = true))
-        s.feed(Ts.video(wrap + 5_000, keyframe = true))
+        // Small steps across the wrap, as a real clock ticks.
+        for (i in 0..22) s.feed(Ts.video(wrap - 6_000 + i * 500L, keyframe = i == 0 || i == 22))
         s.close()
         assertEquals(11_000L, sink.segments.first().second)
 
@@ -169,7 +171,7 @@ class TsSegmenterTest {
         clock = 12_000
         t.feed(Ts.video(1_000, keyframe = true))
         t.close()
-        assertEquals(12_000L, jumped.segments.first().second)
+        assertEquals(500L, jumped.segments.first().second, "what the video holds, not the time that passed")
     }
 }
 
@@ -450,6 +452,55 @@ class RecorderTest {
         assertNotEquals(a.id, rec.schedule("parents", "s:x:1", "Show", "Channel", start, start + 1_000, 0, 0).id)
         assertNotEquals(a.id, rec.schedule("main", "s:x:1", "The other show at that time", "Channel", start, start + 1_000, 0, 0).id)
         assertEquals("That program has ended.", runCatching { schedule(rec, -2_000, 1_000) }.exceptionOrNull()?.message)
+    }
+
+    /** The Office, 2026-11-06: a channel's clock restarted on an open connection, after a 40 s stall. */
+    @Test fun aClockResetOnTheConnectionEndsTheSegmentTrulyAndMarksTheJoin() {
+        val dir = java.nio.file.Files.createTempDirectory("reset").toFile()
+        val files = RecordingFiles(dir)
+        var wall = 0L
+        val stalls = mutableListOf<Long>()
+        val s = TsSegmenter(files, clock = { wall }, onJump = { stalls += it })
+        s.feed(Ts.pat)
+        s.feed(Ts.pmt)
+        fun pictures(seconds: Int) = repeat(seconds * 2) { i ->
+            s.feed(Ts.video(i * 500L + BASE_OFFSET.value, keyframe = i % 4 == 0))
+            s.feed(Ts.pat) // As in a real chunk: the packet after a picture is what lets it through.
+            wall += 500
+        }
+        BASE_OFFSET.value = 1_000_000
+        pictures(6)
+        wall += 40_000
+        BASE_OFFSET.value = 0
+        pictures(6)
+        s.close()
+        files.end()
+        val playlist = dir.resolve(RecordingFiles.PLAYLIST).readText()
+        val lengths = Regex("#EXTINF:([0-9.]+)").findAll(playlist).map { it.groupValues[1].toDouble() }.toList()
+        assertEquals(1, Regex("#EXT-X-DISCONTINUITY\\n").findAll(playlist).count(), playlist)
+        assertTrue(lengths.all { it <= 6.0 }, "the stall isn't counted as video: $lengths")
+        assertEquals(1, stalls.size)
+        assertTrue(stalls.single() >= 40_000, "the stall was ${stalls.single()}")
+    }
+
+    @Test fun aTickOfJitterOrAnotherStreamsClockIsntARestart() {
+        val dir = java.nio.file.Files.createTempDirectory("jitter").toFile()
+        val files = RecordingFiles(dir)
+        val stalls = mutableListOf<Long>()
+        val s = TsSegmenter(files, clock = { 0 }, onJump = { stalls += it })
+        s.feed(Ts.pat)
+        s.feed(Ts.pmt)
+        s.feed(Ts.video(5_000, keyframe = true))
+        s.feed(Ts.video(4_990))
+        s.feed(Ts.video(5_500))
+        // A clock on another PID, far from the video's.
+        val other = Ts.video(900_000).also { it[1] = 0x41; it[2] = 0x01 }
+        s.feed(other)
+        s.feed(Ts.video(6_000))
+        s.close()
+        files.end()
+        assertEquals(emptyList(), stalls)
+        assertFalse(dir.resolve(RecordingFiles.PLAYLIST).readText().contains("DISCONTINUITY"))
     }
 
     /** Four presses reached the NAS together on 1.1.8 and saved four rows, each racing the check for the others. */

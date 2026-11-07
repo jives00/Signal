@@ -6,18 +6,24 @@ package com.signal.server
  * after [targetMs], or at [maxMs] on a channel that never flags one. Each segment opens with the
  * latest PAT and PMT, so it plays on its own after a seek.
  *
- * Durations come from the stream's PCR. The clock is only the fallback when the PCR is missing or jumps.
+ * Durations come from the stream's PCR. The clock is only the fallback when the PCR is missing. When
+ * the PCR jumps, the provider restarted the channel on the same connection: the segment ends there at
+ * its true length and the next is marked as a join, or a player waits for video that isn't there
+ * ([onJump] gets how long it stalled; The Office, 2026-11-06, said 46.8 s for 6.5 s of video).
  */
 class TsSegmenter(
     private val sink: Sink,
     private val targetMs: Long = TARGET_MS,
     private val maxMs: Long = MAX_MS,
     private val clock: () -> Long = System::currentTimeMillis,
+    private val onJump: (stalledMs: Long) -> Unit = {},
 ) {
     interface Sink {
         fun begin()
         fun write(data: ByteArray, offset: Int, length: Int)
         fun finish(durationMs: Long)
+        /** The next segment doesn't follow on from the last. */
+        fun markGap() {}
     }
 
     private val buffer = ByteArray(BUFFER_SIZE)
@@ -26,6 +32,8 @@ class TsSegmenter(
     private var pat: ByteArray? = null
     private var pmt: ByteArray? = null
     private var pmtPid = -1
+    /** The one clock to trust: other streams can carry their own, on another base. */
+    private var pcrPid = -1
     /** Where segments may cut: the video, or the first stream on a radio channel. */
     private var cutPid = -1
     private var readyAt = 0L
@@ -33,6 +41,7 @@ class TsSegmenter(
     private var open = false
     private var segmentPcr: Long? = null
     private var lastPcr: Long? = null
+    private var lastPcrWall = 0L
     private var segmentWall = 0L
 
     fun feed(data: ByteArray, offset: Int = 0, length: Int = data.size) {
@@ -82,10 +91,13 @@ class TsSegmenter(
         val fieldLength = if (hasField) u(b, o + 4) else 0
         val flags = if (hasField && fieldLength > 0) u(b, o + 5) else 0
         val keyframe = flags and 0x40 != 0
-        if (flags and 0x10 != 0 && fieldLength >= 7) {
-            lastPcr = (u(b, o + 6).toLong() shl 25) or (u(b, o + 7).toLong() shl 17) or (u(b, o + 8).toLong() shl 9) or
+        if (flags and 0x10 != 0 && fieldLength >= 7 && (pcrPid < 0 || pid == pcrPid)) {
+            val pcr = (u(b, o + 6).toLong() shl 25) or (u(b, o + 7).toLong() shl 17) or (u(b, o + 8).toLong() shl 9) or
                 (u(b, o + 9).toLong() shl 1) or (u(b, o + 10).toLong() shr 7)
-            if (segmentPcr == null) segmentPcr = lastPcr
+            lastPcr?.let { before -> if (jumped(before, pcr)) restart() }
+            lastPcr = pcr
+            lastPcrWall = clock()
+            if (segmentPcr == null) segmentPcr = pcr
         }
         if (unitStart && control and 1 != 0) {
             val payload = if (hasField) o + 5 + fieldLength else o + 4
@@ -108,6 +120,18 @@ class TsSegmenter(
             }
         }
         sink.write(b, o, PACKET)
+    }
+
+    /** Either way round, so the mask's wrap and a tick of jitter don't count. */
+    private fun jumped(before: Long, pcr: Long) =
+        minOf((pcr - before) and PCR_MASK, (before - pcr) and PCR_MASK) / 90 > PCR_JUMP_MS
+
+    private fun restart() {
+        val stalled = clock() - lastPcrWall
+        if (open) endSegment()
+        sink.markGap()
+        segmentPcr = null
+        onJump(stalled)
     }
 
     private fun readPat(b: ByteArray, o: Int, payload: Int) {
@@ -141,6 +165,8 @@ class TsSegmenter(
         }
         if (first < 0) return
         cutPid = if (video >= 0) video else first
+        val pcr = ((b[section + 8].toInt() and 0x1f) shl 8) or u(b, section + 9)
+        pcrPid = if (pcr == NO_PCR) -1 else pcr
         if (pmt == null) readyAt = clock()
         pmt = b.copyOfRange(o, o + PACKET)
     }
@@ -163,7 +189,7 @@ class TsSegmenter(
         val first = segmentPcr
         val last = lastPcr
         if (first != null && last != null) {
-            // The mask keeps the 26-hour wrap positive. A backward jump comes out huge and is thrown out.
+            // The mask keeps the 26-hour wrap positive.
             val ms = ((last - first) and PCR_MASK) / 90
             if (ms <= MAX_PCR_STEP_MS) return ms
         }
@@ -185,6 +211,9 @@ class TsSegmenter(
         private const val START_WAIT_MS = 3_000L
         private const val PCR_MASK = (1L shl 33) - 1
         private const val MAX_PCR_STEP_MS = 60_000L
+        /** PCRs come at least every 100 ms, so more than this is a new clock. */
+        private const val PCR_JUMP_MS = 2_000L
+        private const val NO_PCR = 0x1fff
         /** MPEG-2, H.264, HEVC, MPEG-4 part 2. */
         private val VIDEO_TYPES = setOf(0x02, 0x1b, 0x24, 0x10)
     }

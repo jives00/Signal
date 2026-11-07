@@ -34,7 +34,7 @@ class RecordingFiles(private val dir: File, private val onSegment: (durationMs: 
     }
 
     /** The next segment follows a stretch that wasn't recorded. */
-    fun markGap() {
+    override fun markGap() {
         gap = true
     }
 

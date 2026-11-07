@@ -112,6 +112,8 @@ class Recorder(
     )
 
     companion object Limits {
+        /** A channel restart shorter than this lost nothing to speak of. */
+        private const val MIN_STALL_MS = 1_000L
         private const val STUCK_AFTER_MS = 5 * 60_000L
         /** A deploy waits this long ahead of a scheduled recording, padding included (dvr.md). */
         private const val HOLD_AHEAD_MS = 15 * 60_000L
@@ -432,7 +434,8 @@ class Recorder(
                     continue
                 }
                 update(run) { copy(state = RecordingState.RECORDING, loginName = login.name) }
-                val segmenter = TsSegmenter(files)
+                // The channel restarting on this connection loses time too, with no reconnect to count it.
+                val segmenter = TsSegmenter(files, onJump = { ms -> if (ms >= MIN_STALL_MS) addGap(run, now() - ms, now(), starting = false) })
                 var dropped = true
                 try {
                     dropped = streamUntilOver(run) {
