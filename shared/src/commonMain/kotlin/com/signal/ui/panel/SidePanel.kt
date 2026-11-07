@@ -60,6 +60,8 @@ sealed interface PanelPage {
         val subtitle: String? = null,
         /** Read-only text below the actions, one row per line, scrolled with Up/Down (the update changelog). */
         val notes: String? = null,
+        /** Shown above the actions, not focusable: a game's teams with their logos (live-sports.md → Round 2). */
+        val header: (@Composable () -> Unit)? = null,
     ) : PanelPage
 
     data class TextInput(
@@ -170,6 +172,7 @@ fun SidePanelHost(state: SidePanelState) {
 private fun ActionsPage(state: SidePanelState, page: PanelPage.Actions) {
     val first = remember { FocusRequester() }
     page.subtitle?.let { SText(it, 22, Modifier.padding(start = 40.dp, top = 16.dp, end = 40.dp, bottom = 24.dp), color = SignalTheme.colors.muted, maxLines = 3) }
+    page.header?.let { Box(Modifier.padding(start = 40.dp, top = 8.dp, end = 40.dp, bottom = 24.dp)) { it() } }
     LazyColumn(Modifier.fillMaxSize()) {
         itemsIndexed(page.actions) { i, action ->
             ListRow(

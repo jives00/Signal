@@ -23,7 +23,8 @@ data class SportsSettings(
 
     companion object {
         fun parse(raw: String?): SportsSettings =
-            raw?.let { runCatching { json.decodeFromString(serializer(), it) }.getOrNull() } ?: SportsSettings()
+            (raw?.let { runCatching { json.decodeFromString(serializer(), it) }.getOrNull() } ?: SportsSettings())
+                .let { it.copy(hiddenSports = Sport.upgrade(it.hiddenSports)) }
     }
 }
 
@@ -54,6 +55,7 @@ data class SportsFilters(
 
     companion object {
         fun parse(raw: String?): SportsFilters =
-            raw?.let { runCatching { json.decodeFromString(serializer(), it) }.getOrNull() } ?: SportsFilters()
+            (raw?.let { runCatching { json.decodeFromString(serializer(), it) }.getOrNull() } ?: SportsFilters())
+                .let { it.copy(sports = Sport.upgrade(it.sports)) }
     }
 }

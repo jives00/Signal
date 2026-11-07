@@ -4,7 +4,7 @@ import com.signal.match.SearchText
 import kotlin.math.abs
 
 /** A game as one feed found it, before games are made one row each. */
-internal class Found(
+internal data class Found(
     val sport: Sport,
     val title: String,
     val detail: String?,
@@ -15,6 +15,8 @@ internal class Found(
     /** Only a time of day was given, so it can match a game on another day. */
     val dayGuessed: Boolean,
     val channels: List<EventChannel>,
+    /** How sure [sport] is ([Classified]): the surest feed's league wins on the row. */
+    val certainty: Int = Classified.NAMED,
 )
 
 /**
@@ -35,6 +37,9 @@ internal object SportsMerge {
         var start = first.start
         var stopGuessed = first.stopGuessed
         var dayGuessed = first.dayGuessed
+        var sport = first.sport
+        var certainty = first.certainty
+        var teams = first.teams
     }
 
     fun merge(found: List<Found>, maxChannels: Int = 40): List<SportEvent> {
@@ -59,6 +64,9 @@ internal object SportsMerge {
                 // A listing's end beats a guess at one.
                 if (row.stopGuessed && !f.stopGuessed) { row.stop = f.stop; row.stopGuessed = false }
                 if (row.dayGuessed && !f.dayGuessed) { row.start = f.start; row.dayGuessed = false }
+                // The surest league, and ESPN's teams with their logos (live-sports.md → Round 2).
+                if (f.certainty > row.certainty) { row.sport = f.sport; row.certainty = f.certainty }
+                if (f.teams?.hasLogos == true && row.teams?.hasLogos != true) row.teams = f.teams
             } else {
                 val added = Row(f, first, second)
                 rows += added
@@ -70,15 +78,18 @@ internal object SportsMerge {
             val f = r.first
             SportEvent(
                 key = "${SearchText.fold(f.title)}|${f.detail.orEmpty().take(24)}|${r.start}",
-                sport = f.sport, title = f.title, detail = f.detail, teams = f.teams,
+                sport = r.sport, title = f.title, detail = f.detail, teams = r.teams,
                 start = r.start, stop = r.stop, stopGuessed = r.stopGuessed,
                 channels = r.channels.values.sortedWith(best).take(maxChannels),
             )
         }
     }
 
-    /** A channel the user chose first, then a visible one, then one with a guide, then the provider's order. */
-    private val best = compareBy<EventChannel>({ !it.favorite }, { it.hidden }, { it.program == null }, { it.order })
+    /**
+     * A favorite first, then a channel showing only this game, then a visible one, then one with a
+     * guide, then the provider's order.
+     */
+    private val best = compareBy<EventChannel>({ !it.favorite }, { it.sharedWithOthers }, { it.hidden }, { it.program == null }, { it.order })
 
     private fun foreign(title: String) = title.startsWith("Fútbol") || title.startsWith("Futbol") || title.startsWith("Boxeo")
 

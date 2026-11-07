@@ -84,6 +84,27 @@ class LiveSportsKeyMapTest {
         assertTrue(app.settings.raw(Settings.Key.SPORTS_FILTERS)!!.contains("NBA"))
     }
 
+    /** live-sports.md → Round 2: Left from a game goes back to the filter used last, When until one is. */
+    @Test fun leftGoesBackToTheFilters() = keyMapTest {
+        games()
+        open()
+        eventually("a game focused") { focusedText()?.contains(" vs. ") == true }
+        press(RemoteAction.Left)
+        focusedStartsWith("Today")
+        press(RemoteAction.Right)
+        focusedStartsWith("All sports")
+        press(RemoteAction.Select)
+        eventually("the sports") { shows("NHL") && focusedText()?.startsWith("All sports") == true }
+        press(RemoteAction.Back)
+        focusedStartsWith("All sports")
+        press(RemoteAction.Down)
+        eventually("a game focused") { focusedText()?.contains(" vs. ") == true }
+        press(RemoteAction.Down)
+        eventually("the next game") { focusedText()?.contains(" vs. ") == true }
+        press(RemoteAction.Left)
+        focusedStartsWith("All sports")
+    }
+
     @Test fun worldwideAddsInternationalChannels() = keyMapTest {
         games()
         app.sports.save(app.sports.filters().copy(region = SportsRegion.WORLDWIDE, whenOn = SportsWhen.LIVE))

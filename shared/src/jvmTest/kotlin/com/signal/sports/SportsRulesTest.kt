@@ -41,7 +41,7 @@ class SportsRulesTest {
         assertEquals(Sport.COLLEGE_FOOTBALL, GuideGames.sport("Live: College Football", listOf("Sports", "Football")))
         assertEquals(Sport.RACING, GuideGames.sport("Live: NASCAR Cup Series", listOf("Sports", "Auto racing")))
         assertEquals(Sport.GOLF, GuideGames.sport("Live: PGA Tour Golf", listOf("Sports", "Golf")))
-        assertEquals(Sport.BASKETBALL, GuideGames.sport("Live: WNBA Basketball", listOf("Sports", "WNBA")))
+        assertEquals(Sport.WNBA, GuideGames.sport("Live: WNBA Basketball", listOf("Sports", "WNBA")))
     }
 
     @Test fun slotNames() {

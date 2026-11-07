@@ -28,11 +28,13 @@ class SportsRepository(
     private val guideIo: CoroutineDispatcher,
     /** Goes up with every change to channels, so what's kept here knows it's stale. */
     private val channelsVersion: () -> Int,
+    /** ESPN's games, for leagues, team names and logos (live-sports.md → Round 2); null in tests that don't need them. */
+    private val scores: SportsScores? = null,
     private val log: ((String) -> Unit)? = null,
 ) {
     private class Row(val channel: EventChannel, val rawName: String, val tvgId: String?, val userChannelId: String?, val read: Boolean)
 
-    private class Listing(val program: Program, val sport: Sport, val teams: Teams?, val title: String, val detail: String?)
+    private class Listing(val program: Program, val categories: List<String>, val teams: Teams?, val title: String, val detail: String?)
 
     private val lock = Mutex()
     private var rows: List<Row>? = null
@@ -64,9 +66,11 @@ class SportsRepository(
         val map = guideMap(all)
         val found = ArrayList<Found>()
         guideGames(now, map, found)
+        val espn = scores?.index()
         withContext(guideIo) {
             nameGames(all, now, found)
-            SportsMerge.merge(found).filter { it.stop > now && s.shows(it.sport) }
+            val named = espn?.let { EspnMatch.apply(found, it) } ?: found
+            SportsMerge.merge(named).filter { it.stop > now && s.shows(it.sport) }
         }.also { log?.invoke("Live Sports: ${it.size} games from ${all.size} channels in ${started.elapsedNow().inWholeMilliseconds} ms") }
     }
 
@@ -145,7 +149,10 @@ class SportsRepository(
             }
             channels.forEach { (key, list) ->
                 val l = firsts.getValue(key)
-                into += Found(l.sport, l.title, l.detail, l.teams, l.program.start, l.program.stop, stopGuessed = false, dayGuessed = false, channels = list)
+                // Football on a channel from abroad is soccer.
+                val us = list.any { SportsGroups.country(it.group).let { c -> c == null || c == "US" } }
+                val c = Leagues.classify(l.title + " " + l.categories.filter { it != "Sports" }.joinToString(" "), teams = l.teams, us = us)
+                into += Found(c.sport, l.title, l.detail, l.teams, l.program.start, l.program.stop, stopGuessed = false, dayGuessed = false, channels = list, certainty = c.certainty)
             }
         }
     }
@@ -164,24 +171,50 @@ class SportsRepository(
                 id = r.id, epgSourceId = r.epg_source_id, guideChannelId = r.guide_channel_id, start = r.start + shift, stop = r.stop + shift,
                 title = r.title, description = r.description, categories = categories,
             )
-            Listing(program, GuideGames.sport(r.title, categories), matchup?.let { Teams(it.away, it.home) }, title, detail)
+            Listing(program, categories, matchup?.let { Teams(it.away, it.home) }, title, detail)
         }
     }
 
     private fun nameGames(all: List<Row>, now: Long, into: MutableList<Found>) {
         for (r in all) {
             if (!r.read) continue
-            val p = PpvNames.parse(r.channel.group, r.rawName, now) ?: continue
-            val stop = p.stop ?: (p.start + typicalLength(p.sport))
-            if (stop <= now || p.start > now + WEEK_MS) continue
-            into += Found(p.sport, p.title, null, p.teams, p.start, stop, stopGuessed = p.stop == null, dayGuessed = p.dayGuessed, channels = listOf(r.channel))
+            for (p in PpvNames.parseAll(r.channel.group, r.rawName, now)) {
+                val stop = p.stop ?: (p.start + typicalLength(p.sport))
+                if (stop <= now || p.start > now + WEEK_MS) continue
+                val channel = if (p.sharedWithOthers) r.channel.copy(sharedWithOthers = true) else r.channel
+                into += Found(p.sport, p.title, null, p.teams, p.start, stop, stopGuessed = p.stop == null, dayGuessed = p.dayGuessed, channels = listOf(channel), certainty = p.certainty)
+            }
         }
     }
 
-    private fun typicalLength(sport: Sport): Long = when (sport) {
-        Sport.NFL, Sport.COLLEGE_FOOTBALL, Sport.RACING, Sport.GOLF, Sport.FIGHTING -> 4 * HOUR_MS
-        Sport.MLB, Sport.NBA, Sport.COLLEGE_BASKETBALL, Sport.BASKETBALL, Sport.NHL -> 3 * HOUR_MS
+    private fun typicalLength(sport: Sport): Long = when (sport.family) {
+        SportFamily.FOOTBALL, SportFamily.RACING, SportFamily.GOLF, SportFamily.FIGHTING, SportFamily.CRICKET -> 4 * HOUR_MS
+        SportFamily.BASEBALL, SportFamily.BASKETBALL, SportFamily.HOCKEY -> 3 * HOUR_MS
         else -> 5 * HOUR_MS / 2
+    }
+
+    private var imagesRaw: String? = null
+    private var images: Map<String, String> = emptyMap()
+
+    /** The image for a league or sport, from the household setting sport_images; null draws a badge. Read during composition, so from memory. */
+    fun image(sport: Sport): String? {
+        val raw = settings.raw(Settings.Key.SPORT_IMAGES)
+        if (raw != imagesRaw) { images = SportImages.parse(raw); imagesRaw = raw }
+        return SportImages.url(sport, images)
+    }
+
+    /**
+     * The teams, with ESPN's logos, of the game on [streamId] now, for the info bar and zap banner:
+     * the page's own row for the channel, else ESPN found by the listing's teams. Null for anything
+     * that isn't a game ESPN knows.
+     */
+    suspend fun teamsOn(streamId: String, program: Program?, now: Long): Teams? {
+        lastEvents?.firstOrNull { e -> e.isOn(now) && e.teams?.hasLogos == true && e.channels.any { it.streamId == streamId } }?.let { return it.teams }
+        val p = program ?: return null
+        if (!GuideGames.isLiveGame(p.title, p.categories)) return null
+        val m = GameTitles.matchup(GuideGames.cleanTitle(p.title)) ?: return null
+        val index = scores?.index(waitMs = 3_000) ?: return null
+        return withContext(guideIo) { EspnMatch.find(index, m.away, m.home, p.start) }?.takeIf { it.hasLogos }
     }
 
     private companion object {

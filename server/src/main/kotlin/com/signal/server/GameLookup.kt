@@ -122,7 +122,7 @@ class GameLookup(private val http: HttpClient, private val base: String = "https
     }
 
     private suspend fun fetch(feed: Feed, date: String): List<Event> {
-        val url = "$base/${feed.path}/scoreboard?${feed.query}${if (feed.query.isEmpty()) "" else "&"}dates=$date&limit=1000"
+        val url = "$base/${feed.path}/scoreboard?${feed.query}${if (feed.query.isEmpty()) "" else "&"}dates=$date&limit=${com.signal.sports.EspnScoreboards.LIMIT}"
         val r = http.get(url) { timeout { requestTimeoutMillis = 30_000 } }
         if (r.status.value >= 400) error("HTTP ${r.status.value}")
         return parse(r.bodyAsText())

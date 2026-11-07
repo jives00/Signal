@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -45,6 +46,10 @@ import com.signal.sports.recordingsAtRisk
 import com.signal.ui.LocalApp
 import com.signal.ui.components.Focusable
 import com.signal.ui.components.ListRow
+import com.signal.ui.components.MatchupLine
+import com.signal.ui.components.SportBadge
+import com.signal.ui.components.TeamLogo
+import com.signal.ui.components.label
 import com.signal.ui.components.PageChrome
 import com.signal.ui.components.ProgressBar
 import com.signal.ui.components.SButton
@@ -109,6 +114,8 @@ internal fun sportLine(e: SportEvent): String {
     return listOfNotNull(
         e.sport.label,
         e.channels.firstOrNull()?.let { if (it.program != null) it.name else it.group.substringAfter('|').trim() },
+        // Its only channel shows other games too (live-sports.md → Round 2).
+        "multi-game channel".takeIf { e.channels.firstOrNull()?.sharedWithOthers == true },
         if (more > 0) "$more more" else null,
         e.detail?.takeIf { e.teams == null },
     ).joinToString(" · ")
@@ -137,6 +144,8 @@ fun LiveSportsPage() {
     val sportButton = remember { FocusRequester() }
     val regionButton = remember { FocusRequester() }
     val moreButton = remember { FocusRequester() }
+    // Left from a game goes back to the filter used last (live-sports.md → Round 2); When until one is.
+    var lastFilter by remember { mutableStateOf<FocusRequester?>(null) }
     val use24 = use24(app)
 
     suspend fun load() {
@@ -168,7 +177,10 @@ fun LiveSportsPage() {
         rowFocus.requestFocusWhenReady()
     }
 
-    fun pick(title: String, returnTo: FocusRequester, choices: List<PanelAction>) = app.panel.open(PanelPage.Actions(title, choices), returnTo)
+    fun pick(title: String, returnTo: FocusRequester, choices: List<PanelAction>) {
+        lastFilter = returnTo
+        app.panel.open(PanelPage.Actions(title, choices), returnTo)
+    }
 
     fun chooseWhen(returnTo: FocusRequester) = pick(
         "When", returnTo,
@@ -186,6 +198,7 @@ fun LiveSportsPage() {
         val page = PanelPage.Custom("Sports") {
             SportFilter(Sport.entries.filter { it in present }, filters) { setFilters(it) }
         }
+        lastFilter = returnTo
         app.panel.open(page, returnTo)
     }
 
@@ -217,14 +230,16 @@ fun LiveSportsPage() {
                     PanelAction("Other channels", detail = "${e.channels.size - 1}") {
                         PanelPage.Actions(
                             "Other channels",
-                            e.channels.drop(1).map { o -> PanelAction(o.name, detail = o.group) { scope.launch { play(app, o, returnTo) }; null } },
+                            e.channels.drop(1).map { o ->
+                                PanelAction(o.name, detail = if (o.sharedWithOthers) "${o.group} · other games too" else o.group) { scope.launch { play(app, o, returnTo) }; null }
+                            },
                         )
                     },
                 )
             }
             if (e.stop > nowMs()) add(PanelAction("Record or remind me") { details(e, first, returnTo); null })
         }
-        app.panel.open(PanelPage.Actions(e.heading, actions), returnTo)
+        app.panel.open(PanelPage.Actions(e.heading, actions, header = { GameHeader(e) }), returnTo)
     }
 
     LaunchedEffect(Unit) {
@@ -259,6 +274,7 @@ fun LiveSportsPage() {
                             e, now, use24, row,
                             // Up leaves the list at the first filter, not the one nearest the middle of the screen.
                             up = if (index == 0) chrome.contentFocus else null,
+                            left = lastFilter ?: chrome.contentFocus,
                             onFocused = { sports.lastEvent = e.key },
                             onSelect = { e.channels.firstOrNull()?.let { first -> scope.launch { play(app, first, row) } } },
                             onOptions = { menu(e, row) },
@@ -271,10 +287,16 @@ fun LiveSportsPage() {
 }
 
 @Composable
-private fun GameRow(e: SportEvent, now: Long, use24: Boolean, focus: FocusRequester, up: FocusRequester?, onFocused: () -> Unit, onSelect: () -> Unit, onOptions: () -> Unit) {
+private fun GameRow(
+    e: SportEvent, now: Long, use24: Boolean, focus: FocusRequester, up: FocusRequester?, left: FocusRequester,
+    onFocused: () -> Unit, onSelect: () -> Unit, onOptions: () -> Unit,
+) {
     val c = SignalTheme.colors
     Focusable(
-        Modifier.fillMaxWidth().let { m -> if (up != null) m.focusProperties { this.up = up } else m },
+        Modifier.fillMaxWidth().focusProperties {
+            if (up != null) this.up = up
+            this.left = left
+        },
         onSelect = onSelect, onOptions = onOptions, focusRequester = focus, onFocused = onFocused,
     ) { focused ->
         val on = e.isOn(now)
@@ -284,13 +306,40 @@ private fun GameRow(e: SportEvent, now: Long, use24: Boolean, focus: FocusReques
             Modifier.fillMaxWidth().background(if (focused) c.accent else Color.Transparent).padding(horizontal = 32.dp, vertical = 14.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Box(Modifier.width(220.dp)) {
+            Box(Modifier.width(200.dp)) {
                 SText(whenText(e, now, use24), 24, weight = if (on) FontWeight.ExtraBold else FontWeight.SemiBold, color = if (on) text else muted)
             }
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                SText(e.heading, 28, weight = FontWeight.SemiBold, color = text)
+            SportBadge(e.sport, 64, onAccent = focused)
+            Column(Modifier.weight(1f).padding(start = 28.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                val teams = e.teams
+                if (teams != null && teams.hasLogos) MatchupLine(teams, 28, 36, text) else SText(e.heading, 28, weight = FontWeight.SemiBold, color = text)
                 SText(sportLine(e), 22, color = muted)
                 if (on) ProgressBar(e.progress(now), Modifier.fillMaxWidth().padding(top = 6.dp), onAccent = focused)
+            }
+        }
+    }
+}
+
+/** The long press panel's top (live-sports.md → Round 2): both teams large, with ESPN's records, and the league. */
+@Composable
+private fun GameHeader(e: SportEvent) {
+    val c = SignalTheme.colors
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            SportBadge(e.sport, 40)
+            SText(e.sport.label, 22, Modifier.padding(start = 16.dp), color = c.muted)
+        }
+        val teams = e.teams
+        if (teams != null && teams.hasLogos) {
+            listOf(teams.firstTeam, teams.secondTeam).forEach { t ->
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    TeamLogo(t, 56)
+                    Spacer(Modifier.width(16.dp))
+                    Column {
+                        SText(t.label(), 26, weight = FontWeight.SemiBold)
+                        t.record?.let { SText(it, 20, color = c.muted) }
+                    }
+                }
             }
         }
     }

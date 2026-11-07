@@ -191,6 +191,11 @@ export const SportsView = z.object({
   groupsOff: z.array(z.string()),
   sports: z.array(z.object({ id: z.string(), label: z.string(), shown: z.boolean() })),
   groups: z.array(z.object({ name: z.string(), on: z.boolean(), us: z.boolean() })),
+  images: z.record(z.string(), z.string()).default({}),
+  imageRows: z.array(z.object({
+    id: z.string(), label: z.string(), family: z.string(), short: z.string(),
+    url: z.string().nullable(), defaultUrl: z.string().nullable(), chosen: z.string().nullable(),
+  })).default([]),
 });
 
 export const ListsView = z.object({

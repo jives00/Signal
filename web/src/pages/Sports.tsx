@@ -5,7 +5,8 @@ import type { SportsView } from "../schema";
 
 /**
  * Live Sports (live-sports.md): for the profile, which sports the TV's page offers and which groups'
- * channel names it reads for games. When, sport and region are filters on each TV, not here.
+ * channel names it reads for games. When, sport and region are filters on each TV, not here. The
+ * images are the household's: one per league, ESPN's logo unless changed (live-sports.md → Round 2).
  */
 export default function Sports() {
   const { profile, applyTo, profiles } = useProfiles();
@@ -36,6 +37,14 @@ export default function Sports() {
       groupsOff: on ? [...data.groupsOff, name] : data.groupsOff.filter((g) => g !== name),
     });
 
+  const storeImages = (next: Record<string, string>) =>
+    save("Saved · all profiles", () => putSetting("household", "sport_images", Object.keys(next).length ? JSON.stringify(next) : null, [profile]), load);
+  const setImage = (id: string, url: string | null) => {
+    const next = { ...data.images };
+    if (url === null) delete next[id]; else next[id] = url.trim();
+    storeImages(next);
+  };
+
   const needle = filter.trim().toLowerCase();
   const groups = data.groups.filter((g) => (world || g.us) && g.name.toLowerCase().includes(needle));
 
@@ -50,6 +59,14 @@ export default function Sports() {
           <label key={s.id} className="check"><input type="checkbox" checked={s.shown} onChange={() => toggleSport(s.id, s.shown)} /> {s.label}</label>
         ))}
       </div>
+      <h2>Images</h2>
+      <p className="muted">Shown beside each game on the TVs, for every profile. Leagues start with ESPN's logo; paste another image's URL, or clear it for the short name instead.</p>
+      <table>
+        <thead><tr><th>Image</th><th>League</th><th>Image URL</th><th></th></tr></thead>
+        <tbody>
+          {data.imageRows.map((r) => <ImageRow key={r.id} row={r} onSave={(url) => setImage(r.id, url)} />)}
+        </tbody>
+      </table>
       <h2>Groups</h2>
       <p className="muted">Channels in these groups have no guide, so their names are read for games. Guide listings are found on every channel either way.</p>
       <div className="toolbar">
@@ -68,5 +85,26 @@ export default function Sports() {
         </tbody>
       </table>
     </div>
+  );
+}
+
+/** One league's image: the URL edits in place, Save stores it, Default goes back to ESPN's, None shows the short name. */
+function ImageRow({ row, onSave }: { row: SportsView["imageRows"][number]; onSave: (url: string | null) => void }) {
+  const [url, setUrl] = useState(row.chosen ?? "");
+  useEffect(() => setUrl(row.chosen ?? ""), [row.chosen]);
+  const changed = url.trim() !== (row.chosen ?? "");
+  return (
+    <tr>
+      <td>{row.url ? <img className="logo" src={row.url} alt="" loading="lazy" /> : <span className="logo">{row.short}</span>}</td>
+      <td>{row.label}</td>
+      <td>
+        <input value={url} onChange={(e) => setUrl(e.target.value)} placeholder={row.defaultUrl ?? "None: the short name"} aria-label={`Image URL for ${row.label}`} style={{ width: "100%" }} />
+      </td>
+      <td className="actions">
+        <button disabled={!changed} onClick={() => onSave(url.trim() ? url.trim() : row.defaultUrl ? "" : null)}>Save</button>
+        {row.chosen !== null && <button onClick={() => onSave(null)}>Default</button>}
+        {row.defaultUrl && row.chosen !== "" && <button onClick={() => onSave("")}>None</button>}
+      </td>
+    </tr>
   );
 }

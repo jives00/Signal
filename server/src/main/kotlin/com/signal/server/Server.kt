@@ -106,6 +106,8 @@ class Companion(
     /** Who uses each source right now, for the dashboard (source-activity.md). */
     val activity = SourceActivity()
     val guide by lazy { GuideBuilds(File(config.dataDir, "guide"), http) }
+    /** ESPN's games for Live Sports on the TVs (live-sports.md → Round 2). */
+    val sportsSchedule by lazy { SportsSchedule(http, scope) }
     val guideJob = GuideJob(this, scope)
     val sync = SyncService(this)
     val settings = CompanionSettings(this)
@@ -253,6 +255,7 @@ fun Application.signalModule(companion: Companion) {
             recordingDeviceRoutes(companion)
             guideDeviceRoutes(companion)
             activityDeviceRoutes(companion)
+            sportsDeviceRoutes(companion)
             syncDeviceRoutes(companion)
             vodDeviceRoutes(companion)
             vodImageRoutes(companion)

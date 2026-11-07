@@ -309,6 +309,18 @@ class NasConnection(
         return withContext(kotlinx.coroutines.Dispatchers.Default) { runCatching { json.decodeFromString<NasRecordings>(body) }.getOrNull() }
     }
 
+    /**
+     * ESPN's games for the week, from the companion's copy (live-sports.md → Round 2). Null when it isn't
+     * paired, can't be reached or is older than the route: the TV then asks ESPN itself.
+     */
+    suspend fun sportsGames(): List<com.signal.sports.EspnGame>? {
+        if (!isPaired) return null
+        val response = call(SPORTS_TIMEOUT_MS) { base -> http.get(base + com.signal.sports.EspnPaths.GAMES) { asDevice() } } ?: return null
+        if (!response.status.isSuccess()) return null
+        val body = response.bodyAsText()
+        return withContext(kotlinx.coroutines.Dispatchers.Default) { runCatching { json.decodeFromString<com.signal.sports.EspnGames>(body).games }.getOrNull() }
+    }
+
     /** Where to play a recording from, and the device key to send: a header, never in the URL. Null when no address has answered. */
     fun recordingPlayback(id: String): Pair<String, Map<String, String>>? {
         val base = active?.second ?: return null
@@ -478,6 +490,8 @@ class NasConnection(
         const val DEFAULT_TAILSCALE = "synology:3013"
         const val PROBE_TIMEOUT_MS = 3_000L
         const val REQUEST_TIMEOUT_MS = 10_000L
+        /** The companion may be fetching ESPN's week when asked. */
+        const val SPORTS_TIMEOUT_MS = 20_000L
         /** Setting a recording can wait: giving up early leaves the user pressing again. */
         const val RECORD_TIMEOUT_MS = 30_000L
         const val POLL_MS = 2_000L

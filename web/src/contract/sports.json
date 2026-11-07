@@ -21,5 +21,29 @@
             "on": true,
             "us": true
         }
+    ],
+    "images": {
+        "NBA": "https://example.test/nba.png",
+        "OTHER": ""
+    },
+    "imageRows": [
+        {
+            "id": "NBA",
+            "label": "NBA",
+            "family": "BASKETBALL",
+            "short": "NBA",
+            "url": "https://example.test/nba.png",
+            "defaultUrl": "https://example.test/default.png",
+            "chosen": "https://example.test/nba.png"
+        },
+        {
+            "id": "OTHER",
+            "label": "Other",
+            "family": "OTHER",
+            "short": "•",
+            "url": null,
+            "defaultUrl": null,
+            "chosen": null
+        }
     ]
 }

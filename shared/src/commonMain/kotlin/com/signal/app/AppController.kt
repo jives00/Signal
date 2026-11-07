@@ -95,7 +95,11 @@ class AppController(val platform: Platform, val log: Log) {
     private val guideBuilder = GuideBuilder(http, { sources.byId(it) }, guideIo, log)
     val reminders = ReminderRepository(db, settings, channels, platform.io)
     val search = SearchRepository(db, settings, channels, guide, platform.io, scope) { log.info(it) }
-    val sports = com.signal.sports.SportsRepository(db, settings, guideStore, guide, platform.io, guideIo, { search.version }) { log.info(it) }
+    /** ESPN's games: the companion's copy, else straight from ESPN (live-sports.md → Round 2). */
+    private val sportsScores = com.signal.sports.SportsScores(
+        scope, { nas.sportsGames() }, com.signal.sports.EspnScoreboards(http, clock = { Clock.System.now().toEpochMilliseconds() }), { Clock.System.now().toEpochMilliseconds() },
+    ) { log.info(it) }
+    val sports = com.signal.sports.SportsRepository(db, settings, guideStore, guide, platform.io, guideIo, { search.version }, sportsScores) { log.info(it) }
     val reminderList: StateFlow<List<Reminder>> = reminders.reminders().stateIn(scope, SharingStarted.Eagerly, emptyList())
     val dispatcher = RemoteDispatcher()
     val navigator = Navigator(Route.Home)

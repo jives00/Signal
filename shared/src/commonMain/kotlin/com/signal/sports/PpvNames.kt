@@ -25,6 +25,10 @@ import kotlin.time.Instant
  *     US (ESPN+ 121) | Chicago State vs. Incarnate Word Nov 05 7:00PM ET (2026-11-05 19:00:00)
  *     UFC event: 1 name: Some Fight Night start:2026-10-31 21:55:00 stop:2026-11-01 02:00:00
  *     PPV EVENT 01: The Dirt Track at Charlotte (11.5 1:15 PM ET)
+ *     US (ESPN+ 392) | NCAA Men's Basketball: MORE vs. #11 LOU • UND vs. WIN (MORE vs. #11 LOU) (2026-11-07 12:01:55)
+ *
+ * The last is a channel carrying several games: each is read, and the one the brackets name is the
+ * one on it now (live-sports.md → Round 2).
  *
  * Anything that doesn't read as an event gives null: empty slots, "NO EVENT", finished ones, and
  * channel names like "US: NFL NETWORK ᴴᴰ".
@@ -38,6 +42,10 @@ object PpvNames {
         val stop: Long?,
         /** True when only a time of day was given, so [start]'s day is the best guess. */
         val dayGuessed: Boolean = false,
+        /** How sure [sport] is ([Classified]). */
+        val certainty: Int = Classified.NAMED,
+        /** One of several games the name lists, and not the one the brackets say is on. */
+        val sharedWithOthers: Boolean = false,
     )
 
     private val eastern = TimeZone.of("America/New_York")
@@ -91,11 +99,18 @@ object PpvNames {
     private val eventWord = Regex("""\b(?:Final|Finals|Semifinal|Championship|Championships|Tournament|Open|Cup|Grand Prix|Nationals|Race|Round)\b""", RegexOption.IGNORE_CASE)
     private val shortForms = setOf("fc", "cf", "afc", "sc", "ac", "fk", "kff", "usa", "lsu", "ucla", "usc")
 
-    private val teamSports = setOf(Sport.NFL, Sport.COLLEGE_FOOTBALL, Sport.NBA, Sport.COLLEGE_BASKETBALL, Sport.BASKETBALL, Sport.MLB, Sport.NHL, Sport.SOCCER)
+    private val soccerV = Regex("""\s+v\.?\s+""")
 
-    fun parse(group: String, raw: String, now: Long): Parsed? {
-        val name = raw.replace('`', '\'').replace('•', ' ').replace(spaces, " ").trim()
-        if (name.length < 6 || empty.containsMatchIn(name)) return null
+    /** Between the games of a channel carrying several. */
+    private val gameSeparator = Regex("""\s*•\s*""")
+
+    /** The game the channel shows, or the first it lists. */
+    fun parse(group: String, raw: String, now: Long): Parsed? = parseAll(group, raw, now).let { all -> all.firstOrNull { !it.sharedWithOthers } ?: all.firstOrNull() }
+
+    /** Every game the name lists: one, or several for a channel that shows them in turn. */
+    fun parseAll(group: String, raw: String, now: Long): List<Parsed> {
+        val name = raw.replace('`', '\'').replace(spaces, " ").trim()
+        if (name.length < 6 || empty.containsMatchIn(name)) return emptyList()
         val zone = zoneFor(group, name)
         return fromPipes(group, name, now)
             ?: fromStartStop(group, name)
@@ -103,6 +118,7 @@ object PpvNames {
             ?: fromAtDate(group, name, now)
             ?: fromDotDate(group, name, now)
             ?: fromClock(group, name, now, zone)
+            ?: emptyList()
     }
 
     /** UEFA and rugby slots are written in UK time, and AU channels in Sydney's. */
@@ -112,7 +128,7 @@ object PpvNames {
         else -> eastern
     }
 
-    private fun fromPipes(group: String, name: String, now: Long): Parsed? {
+    private fun fromPipes(group: String, name: String, now: Long): List<Parsed>? {
         val m = pipes.find(name) ?: return null
         val status = m.groupValues[1].uppercase()
         if (status == "END") return null
@@ -128,7 +144,7 @@ object PpvNames {
         return build(group, m.groupValues[2], start, null, false)
     }
 
-    private fun fromStartStop(group: String, name: String): Parsed? {
+    private fun fromStartStop(group: String, name: String): List<Parsed>? {
         val m = startStop.find(name) ?: return null
         val v = m.groupValues
         val start = at(v[1].toInt(), v[2].toInt(), v[3].toInt(), v[4].toInt(), v[5].toInt(), eastern)
@@ -138,27 +154,27 @@ object PpvNames {
         return build(group, text, start, stop, false)
     }
 
-    private fun fromParenDate(group: String, name: String, zone: TimeZone): Parsed? {
+    private fun fromParenDate(group: String, name: String, zone: TimeZone): List<Parsed>? {
         val v = (parenDate.find(name) ?: return null).groupValues
         val start = at(v[3].toInt(), v[4].toInt(), v[5].toInt(), v[6].toInt(), v[7].toInt(), zone)
         return build(group, v[2].replace(trailingWhen, ""), start, null, false)
     }
 
-    private fun fromAtDate(group: String, name: String, now: Long): Parsed? {
+    private fun fromAtDate(group: String, name: String, now: Long): List<Parsed>? {
         val v = (atDate.find(name) ?: return null).groupValues
         val month = months.indexOf(v[2].lowercase())
         if (month < 0) return null
         return build(group, v[1], closest(now, month + 1, v[3].toInt(), hour24(v[4].toInt(), v[6]), v[5].toInt(), eastern), null, false)
     }
 
-    private fun fromDotDate(group: String, name: String, now: Long): Parsed? {
+    private fun fromDotDate(group: String, name: String, now: Long): List<Parsed>? {
         val v = (dotDate.find(name) ?: return null).groupValues
         val text = slotLabel.replace(v[1].trim(), "")
         return build(group, text, closest(now, v[2].toInt(), v[3].toInt(), hour24(v[4].toInt(), v[6]), v[5].toInt(), eastern), null, false)
     }
 
     /** "NFL | 03 - 1pm Cowboys at Colts": a slot number and a time of day, and usually no date. */
-    private fun fromClock(group: String, name: String, now: Long, zone: TimeZone): Parsed? {
+    private fun fromClock(group: String, name: String, now: Long, zone: TimeZone): List<Parsed>? {
         if (!slotLabel.containsMatchIn(name)) return null
         val body = slotLabel.replace(name, "")
         val time = clock.find(body) ?: return null
@@ -171,39 +187,56 @@ object PpvNames {
             "TNF" -> DayOfWeek.THURSDAY
             "MNF" -> DayOfWeek.MONDAY
             "SNF" -> DayOfWeek.SUNDAY
-            else -> dayWord.find(body)?.value?.let { weekdays[it] } ?: DayOfWeek.SUNDAY.takeIf { sportFor(group, text) == Sport.NFL }
+            else -> dayWord.find(body)?.value?.let { weekdays[it] } ?: DayOfWeek.SUNDAY.takeIf { sportFor(group, text, null).sport == Sport.NFL }
         }
         return build(group, text, nearest(now, day, hour, minute, zone), null, true, name)
     }
 
-    private fun build(group: String, text: String, start: Long, stop: Long?, dayGuessed: Boolean, label: String = ""): Parsed? {
+    private fun build(group: String, text: String, start: Long, stop: Long?, dayGuessed: Boolean, label: String = ""): List<Parsed>? {
         var body = text.trim().trimEnd(':', '-', ' ')
-        // A slot's label can name the sport ("Boxing 3 | Canelo vs Mbilli").
-        val sport = sportFor(group, "$body $label")
+        // A slot's label can name the sport ("Boxing 3 | Canelo vs Mbilli"), and so can a tag.
+        val whole = "$body $label"
+        val named = sportFor(group, whole, null)
         // A tag isn't part of the game, though it can name the sport. One word left isn't a name
         // ("SÃO PAULO: RACE"), so then the tag stays.
         tag.find(body)?.let { m -> body.substring(m.range.last + 1).takeIf { ' ' in it.trim() }?.let { body = it } }
         // The last brackets repeat the name or give a language; " _ " starts a note ("_ Women's").
-        body = body.substringBefore(" _ ").replace(lastBrackets, "").trim()
+        body = body.substringBefore(" _ ")
+        val bracket = lastBrackets.find(body)?.value?.trim()?.removeSurrounding("(", ")")?.trim()
+        body = body.replace(lastBrackets, "").trim()
+        val games = body.split(gameSeparator).map { it.trim() }.filter { it.isNotEmpty() }
+        if (games.size > 1) {
+            // Several games on one channel: the brackets name the one on now.
+            val on = games.indexOfFirst { it.equals(bracket, ignoreCase = true) }.coerceAtLeast(0)
+            return games.mapIndexedNotNull { i, g -> game(group, g, whole, named, start, stop, dayGuessed)?.copy(sharedWithOthers = i != on) }.ifEmpty { null }
+        }
+        return game(group, body, whole, named, start, stop, dayGuessed)?.let { listOf(it) }
+    }
+
+    private fun game(group: String, body: String, whole: String, named: Classified, start: Long, stop: Long?, dayGuessed: Boolean): Parsed? {
         if (body.length < 4 || show.containsMatchIn(body)) return null
         val shouting = body.none { it.isLowerCase() }
         fun cased(s: String) = if (shouting) titleCase(s) else s
-        val teams = teams(body, sport, group)?.let { Teams(cased(it.first), cased(it.second)) }
-        if (teams != null) return Parsed("${teams.first} vs. ${teams.second}", teams, sport, start, stop, dayGuessed)
+        val teams = teams(body, named.sport, group)?.let { Teams(cased(it.first), cased(it.second)) }
+        // Named outright beats the teams; otherwise the teams can say (both one pro league's).
+        var sport = if (teams != null && named.certainty < Classified.NAMED) sportFor(group, whole, teams) else named
+        // US writers put "v." only between soccer teams ("Arsenal v. Hull City" on Peacock); event groups' fights use it too.
+        if (teams != null && sport.sport == Sport.OTHER && "EVENT" !in group && soccerV.containsMatchIn(body)) sport = Classified(Sport.SOCCER, Classified.GUESSED)
+        if (teams != null) return Parsed("${teams.first} vs. ${teams.second}", teams, sport.sport, start, stop, dayGuessed, sport.certainty)
         // No teams: a race, a fight or a tournament, but not a team game with no name for it, or a show.
-        if (sport in teamSports || (sport == Sport.OTHER && "EVENT" !in group && !eventWord.containsMatchIn(body))) return null
-        return Parsed(cased(body), null, sport, start, stop, dayGuessed)
+        val event = eventWord.containsMatchIn(body)
+        if ((sport.sport.teamSport && !event) || (sport.sport == Sport.OTHER && "EVENT" !in group && !event)) return null
+        return Parsed(cased(body), null, sport.sport, start, stop, dayGuessed, sport.certainty)
     }
 
-    private fun sportFor(group: String, text: String): Sport {
-        val fromGroup = sportOf(group.substringAfter('|'))
-        return if (fromGroup != Sport.OTHER) fromGroup else sportOf(text)
-    }
+    /** The name's league; US channels' unless the group or the name says another country. */
+    private fun sportFor(group: String, text: String, teams: Teams?): Classified =
+        Leagues.classify(text, group, teams, us = SportsGroups.country(group).let { it == null || it == "US" } && !text.trimStart().startsWith("AU "))
 
     private fun teams(text: String, sport: Sport, group: String): Teams? {
         val parts = text.split(teamSplit, limit = 2).takeIf { it.size == 2 }
             // "at" also ends place names ("The Dirt Track at Charlotte"), which event groups have.
-            ?: text.split(atSplit, limit = 2).takeIf { it.size == 2 && (sport in teamSports || "EVENT" !in group) }
+            ?: text.split(atSplit, limit = 2).takeIf { it.size == 2 && (sport.teamSport || "EVENT" !in group) }
             ?: return null
         val a = parts[0].replace(cityCode, "").trim()
         val b = parts[1].replace(cityCode, "").trim()

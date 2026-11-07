@@ -197,10 +197,12 @@ private fun ZapBanner(channel: Channel, tick: Int, onOpenInfo: () -> Unit) {
                 val numbers = showNumbers()
                 if (numbers) SText(channel.number.toString(), 48, weight = FontWeight.ExtraBold)
                 LogoTile(channel.displayName, channel.logoUrl, 96, 56, if (numbers) Modifier.padding(start = 32.dp) else Modifier)
+                val now = rememberNow()
+                val on = rememberNowAndNext(channel, now).first
+                // A game ESPN knows shows both teams' logos (live-sports.md → Round 2).
+                com.signal.ui.components.GameLogos(channel, on, 56, Modifier.padding(start = 32.dp))
                 Column(Modifier.padding(start = 32.dp)) {
                     val app = LocalApp.current
-                    val now = rememberNow()
-                    val on = rememberNowAndNext(channel, now).first
                     SText(channel.displayName, 32, weight = FontWeight.ExtraBold)
                     SText(on?.let { "${it.title} · ${programTime(app, it, now)}" } ?: "No guide information", 24, color = c.muted)
                 }
@@ -264,7 +266,10 @@ private fun InfoBar(
                         val now = rememberNow()
                         val (on, next) = rememberNowAndNext(channel, now)
                         SText(on?.let { "Now · ${programTime(app, it, now)}" } ?: "Now", 24, weight = FontWeight.SemiBold, color = c.accentText)
-                        SText(on?.title ?: channel.displayName, 56, weight = FontWeight.ExtraBold)
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            com.signal.ui.components.GameLogos(channel, on, 64, Modifier.padding(end = 24.dp))
+                            SText(on?.title ?: channel.displayName, 56, weight = FontWeight.ExtraBold)
+                        }
                         if (on == null) {
                             SText("No information", 26, Modifier.padding(top = 8.dp), color = c.muted)
                         } else {
