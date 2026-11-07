@@ -48,6 +48,7 @@ import kotlinx.coroutines.launch
  * full, and only the actions that apply.
  */
 private const val RECORDING_LOOK_MS = 15_000L
+private const val RECORD_SETTLE_MS = 1_500L
 
 internal fun programDetails(app: AppController, ch: Channel, p: Program, now: Long, watching: Boolean = false): PanelPage =
     PanelPage.Custom(p.title) { ProgramDetailsContent(app, ch, p, now, watching) }
@@ -84,6 +85,8 @@ private fun ProgramDetailsContent(app: AppController, ch: Channel, p: Program, n
         app.scope.launch {
             try {
                 recordNote = action()
+                // The button under the finger has just changed: a press meant for Record mustn't land on Cancel.
+                delay(RECORD_SETTLE_MS)
             } finally {
                 recordBusy = false
             }
