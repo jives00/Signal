@@ -61,7 +61,7 @@ class GuideTest {
     private val epg = EpgRepository(db, settings, platform.io)
     private val store = GuideStore(platform, Dispatchers.IO, scope, log)
     private val guide = GuideRepository(store, epg, settings, Dispatchers.IO, scope)
-    private val builder = GuideBuilder(http, { sources.byId(it) }, Dispatchers.IO, log)
+    private val builder = GuideBuilder(http, { sources.byId(it) }, Dispatchers.IO, log, platform.demoGuideChannels)
 
     @AfterTest fun tearDown() = scope.cancel()
 

@@ -92,7 +92,7 @@ class AppController(val platform: Platform, val log: Log) {
     val guideStore = GuideStore(platform, guideIo, scope, log)
     val epg = EpgRepository(db, settings, platform.io)
     val guide = GuideRepository(guideStore, epg, settings, guideIo, scope) { log.info(it) }
-    private val guideBuilder = GuideBuilder(http, { sources.byId(it) }, guideIo, log)
+    private val guideBuilder = GuideBuilder(http, { sources.byId(it) }, guideIo, log, platform.demoGuideChannels)
     val reminders = ReminderRepository(db, settings, channels, platform.io)
     val search = SearchRepository(db, settings, channels, guide, platform.io, scope) { log.info(it) }
     /** ESPN's games: the companion's copy, else straight from ESPN (live-sports.md → Round 2). */

@@ -29,6 +29,8 @@ class GuideBuilder(
     private val sourceById: suspend (String) -> Source?,
     private val io: CoroutineDispatcher,
     private val log: Log,
+    // Tests: a smaller Demo guide. The full one (2,000 channels × 8 days, ~130k programs) is ~15 s a build.
+    private val demoChannels: Int = DemoData.CHANNEL_COUNT,
 ) {
     /** What one EPG source contributed: counts on success, or the error. */
     data class Outcome(val channels: Int, val programs: Int, val error: String? = null, val carriedOver: Boolean = false)
@@ -86,7 +88,7 @@ class GuideBuilder(
 
     /** The Demo source's synthetic guide (PLAN §7.4): every Demo channel, 7 days. */
     private fun demo(writer: Writer, now: Long) {
-        DemoData.channels().forEachIndexed { i, ch ->
+        DemoData.channels(demoChannels).forEachIndexed { i, ch ->
             writer.channel(XmltvChannel(ch.tvgId, listOf(ch.baseName), null))
             for (p in DemoData.programs(i, now)) {
                 writer.program(

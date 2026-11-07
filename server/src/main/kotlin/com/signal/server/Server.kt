@@ -57,6 +57,8 @@ class Companion(
     private val tmdbStoreOverride: TmdbStore? = null,
     private val vodItemsOverride: (suspend () -> List<com.signal.model.VodItem>)? = null,
     private val recordingStoreOverride: RecordingStore? = null,
+    /** Tests: a 50-channel Demo guide and no ESPN game lookups, so a build takes about a second, not 15+ s. */
+    private val lightGuide: Boolean = false,
 ) {
     /** Set once the database connects; it may not be there yet at start-up (see Main). */
     @Volatile var database: Database? = database
@@ -105,7 +107,10 @@ class Companion(
     }
     /** Who uses each source right now, for the dashboard (source-activity.md). */
     val activity = SourceActivity()
-    val guide by lazy { GuideBuilds(File(config.dataDir, "guide"), http) }
+    val guide by lazy {
+        val dir = File(config.dataDir, "guide")
+        if (lightGuide) GuideBuilds(dir, http, games = null, demoChannels = 50) else GuideBuilds(dir, http)
+    }
     /** ESPN's games for Live Sports on the TVs (live-sports.md → Round 2). */
     val sportsSchedule by lazy { SportsSchedule(http, scope) }
     val guideJob = GuideJob(this, scope)

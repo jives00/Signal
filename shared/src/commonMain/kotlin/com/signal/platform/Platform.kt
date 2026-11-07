@@ -21,6 +21,8 @@ interface Platform {
     val settingsFiles: SettingsFiles? get() = null
     /** Voice commands, when Signal can be the device's assistant (PLAN §4.3.14), or null (the dev harness). */
     val voice: VoiceSetup? get() = null
+    /** How many Demo channels get a guide: tests use fewer, since the full Demo guide is ~130k programs. */
+    val demoGuideChannels: Int get() = com.signal.demo.DemoData.CHANNEL_COUNT
 
     fun createUserDatabaseDriver(): SqlDriver
 

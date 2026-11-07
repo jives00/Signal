@@ -57,14 +57,15 @@ object DemoData {
     /** [name] is decorated like a provider's; [baseName] is the clean name, which the Demo guide uses. */
     data class DemoChannel(val name: String, val group: String, val number: Int, val tvgId: String, val url: String, val baseName: String)
 
-    fun channels(): List<DemoChannel> {
+    /** [count]: fewer than the full list, for tests that need a guide built but not its size. */
+    fun channels(count: Int = CHANNEL_COUNT): List<DemoChannel> {
         val rnd = Random(SEED)
-        val out = ArrayList<DemoChannel>(CHANNEL_COUNT)
+        val out = ArrayList<DemoChannel>(count)
         var n = 0
-        while (out.size < CHANNEL_COUNT) {
+        while (out.size < count) {
             for ((group, names) in groups) {
                 for (base in names) {
-                    if (out.size >= CHANNEL_COUNT) break
+                    if (out.size >= count) break
                     val round = n / groups.sumOf { it.second.size }
                     // Later rounds add numbered siblings (Sports Net 2, 3...) to reach the target size.
                     val name = if (round == 0) base else "$base ${round + 1}"

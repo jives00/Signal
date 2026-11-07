@@ -2,6 +2,7 @@ package com.signal.server
 
 import app.cash.sqldelight.driver.jdbc.sqlite.JdbcSqliteDriver
 import com.signal.data.Log
+import com.signal.demo.DemoData
 import com.signal.db.guide.GuideDatabase
 import com.signal.guide.GuideBuilder
 import com.signal.guide.GuideStore
@@ -31,6 +32,8 @@ class GuideBuilds(
     private val http: HttpClient,
     // Team names for games (PLAN §6 → Game titles); null turns the lookup off.
     private val games: GameLookup? = GameLookup(http),
+    // Tests: a smaller Demo guide (GuideBuilder).
+    private val demoChannels: Int = DemoData.CHANNEL_COUNT,
 ) {
     private val log = LoggerFactory.getLogger("Guide")
     private val json = Json { ignoreUnknownKeys = true }
@@ -81,7 +84,7 @@ class GuideBuilds(
         val part = File(dir, "guide-$now.db.part")
         part.delete()
         val sharedLog = Log { level, message -> if (level == "I") log.info(message) else log.warn(message) }
-        val builder = GuideBuilder(http, { id -> inputs.sources.firstOrNull { it.id == id } }, Dispatchers.IO, sharedLog)
+        val builder = GuideBuilder(http, { id -> inputs.sources.firstOrNull { it.id == id } }, Dispatchers.IO, sharedLog, demoChannels)
         val previousFile = meta?.let { dbFor(it.builtAt) }?.takeIf { it.isFile }
         val previous = previousFile?.let { JdbcSqliteDriver("jdbc:sqlite:${it.path}", Properties(), GuideDatabase.Schema) }
         val before = meta?.outcomes.orEmpty()

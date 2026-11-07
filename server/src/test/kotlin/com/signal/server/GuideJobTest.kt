@@ -111,6 +111,7 @@ class GuideJobTest {
         companionStore = MemoryCompanionStore(),
         syncStoreOverride = MemorySyncStore(),
         guideRetryDelayMs = retryDelayMs,
+        lightGuide = true,
     )
 
     private suspend fun HttpClient.pair(): String {

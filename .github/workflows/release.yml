@@ -8,11 +8,12 @@ on:
 
 permissions:
   contents: write
+  actions: read # to find CI's run on the tagged commit
 
 jobs:
   release:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v6
         with:
@@ -51,7 +52,41 @@ jobs:
           SIGNAL_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           SIGNAL_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           SIGNAL_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
-        run: ./gradlew check :androidTvApp:assembleRelease -Psignal.buildTag="${GITHUB_REF_NAME}"
+        run: ./gradlew :androidTvApp:assembleRelease :androidTvApp:checkLicenses -Psignal.buildTag="${GITHUB_REF_NAME}"
+
+      # The tests and lint aren't run again here: CI runs them on the branch push of the same commit
+      # (it ignores apk-* tags), usually alongside this build, so this waits for its result. Only when
+      # CI has no usable run for the commit (none, or cancelled by a newer push) does it run `check`
+      # itself, which is what every release used to do (~10 min more).
+      - name: Wait for CI on this commit
+        id: ci
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          for i in $(seq 1 80); do
+            runs=$(gh run list --workflow ci.yml --commit "$GITHUB_SHA" --json status,conclusion,url)
+            if echo "$runs" | jq -e 'any(.[]; .conclusion == "success")' > /dev/null; then
+              echo "CI passed: $(echo "$runs" | jq -r 'first(.[] | select(.conclusion == "success")) | .url')"
+              exit 0
+            fi
+            if echo "$runs" | jq -e 'any(.[]; .status != "completed")' > /dev/null; then
+              sleep 30
+              continue
+            fi
+            if echo "$runs" | jq -e 'any(.[]; .conclusion == "failure")' > /dev/null; then
+              echo "::error::CI failed on this commit: $(echo "$runs" | jq -r 'first(.[] | select(.conclusion == "failure")) | .url')"
+              exit 1
+            fi
+            echo "No finished CI run for this commit; running the tests here."
+            echo "run_check=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          done
+          echo "::error::CI didn't finish within 40 minutes"
+          exit 1
+
+      - name: Test and lint (CI didn't)
+        if: steps.ci.outputs.run_check == 'true'
+        run: ./gradlew check
 
       - name: Verify the signature
         run: |

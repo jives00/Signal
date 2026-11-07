@@ -98,6 +98,8 @@ class TestPlatform : Platform {
     /** Voice commands set up, for Settings' voice sections; null hides them, as in the dev harness. */
     var voiceSetup: com.signal.platform.VoiceSetup? = null
     override val voice: com.signal.platform.VoiceSetup? get() = voiceSetup
+    // A guide for the first 200 of the 2,000 Demo channels: about a second to build, not 6+.
+    override val demoGuideChannels = 200
     override val appInfo = AppInfo(versionName = "test", buildTag = "dev", isDebug = true, deviceModel = "Test")
     override val secretBox = object : SecretBox {
         override fun encrypt(plain: String) = plain

@@ -6,6 +6,9 @@ name: FFmpeg (LGPL)
 on:
   workflow_dispatch:
   push:
+    # Branches only: a `paths` filter is ignored on tag pushes, so without this every apk-* tag
+    # rebuilt FFmpeg (4-5 min each).
+    branches: ["**"]
     paths: ["ffmpeg/config.env", ".github/workflows/ffmpeg.yml"]
 
 permissions:
