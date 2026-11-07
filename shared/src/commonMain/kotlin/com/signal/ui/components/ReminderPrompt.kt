@@ -43,12 +43,8 @@ fun ReminderPrompt() {
             }
             SText(active.reminder.title, 32, Modifier.padding(top = 8.dp), weight = FontWeight.ExtraBold, maxLines = 2)
             SText("on ${labelOf(active.channel)}", 24, color = c.secondaryText)
-            Row(Modifier.padding(top = 20.dp)) {
-                SText("OK", 22, Modifier.background(c.accent).padding(horizontal = 12.dp, vertical = 4.dp), weight = FontWeight.SemiBold, color = c.onAccent)
-                SText("Watch", 22, Modifier.padding(start = 12.dp, end = 32.dp, top = 4.dp), weight = FontWeight.SemiBold)
-                SText("Back", 22, Modifier.background(c.neutral300).padding(horizontal = 12.dp, vertical = 4.dp), weight = FontWeight.SemiBold)
-                SText("Dismiss", 22, Modifier.padding(start = 12.dp, top = 4.dp), weight = FontWeight.SemiBold)
-            }
+            // Words, not buttons: the prompt never holds focus, so nothing here can be selected.
+            SText("Press OK to watch · Back to dismiss", 22, Modifier.padding(top = 20.dp), color = c.secondaryText)
         }
     }
 }

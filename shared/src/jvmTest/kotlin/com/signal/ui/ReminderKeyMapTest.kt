@@ -69,6 +69,7 @@ class ReminderKeyMapTest {
         press(RemoteAction.Down)
         eventually("focus moved under the prompt") { focusedText() != "" }
         assertTrue(shows("Starting now"))
+        assertTrue(shows("Press OK to watch · Back to dismiss"), "it says what the keys do")
         press(RemoteAction.Select)
         eventually("watching full screen") { app.navigator.current is Route.FullScreen && app.activeReminder == null }
         assertEquals(firstChannel().stream.id, current?.stream?.id)
