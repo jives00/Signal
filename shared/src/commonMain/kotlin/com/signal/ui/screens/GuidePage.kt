@@ -96,6 +96,36 @@ private object GuideGeometry {
 private const val MINUTE = 60_000L
 private const val HALF_HOUR = 30 * MINUTE
 private const val DAY = 24 * 60 * MINUTE
+/** The guide keeps a week ahead, so there's nothing past this in any row. */
+private const val GUIDE_DAYS = 7
+
+internal sealed interface GuideStep {
+    data class ToProgram(val program: Program) : GuideStep
+    data class ToTime(val time: Long) : GuideStep
+    data object Channels : GuideStep
+}
+
+/**
+ * Where Left or Right goes from [focusTime]. A row's listings can end long before another's, and a
+ * row with nothing further must not stop the whole guide scrolling: past the end, time moves on by
+ * itself (2026-11-06, Fox 32 stopped everything at 4 AM). [programs] are what hasn't ended yet.
+ */
+internal fun guideStep(programs: List<Program>, focusTime: Long, now: Long, delta: Int): GuideStep? {
+    val at = programs.indexOfFirst { focusTime in it.start until it.stop }
+    if (delta > 0) {
+        programs.firstOrNull { it.start > focusTime }?.let { return GuideStep.ToProgram(it) }
+        val time = programs.lastOrNull()?.stop?.takeIf { it > focusTime } ?: (focusTime + HALF_HOUR)
+        return if (time < now + GUIDE_DAYS * DAY) GuideStep.ToTime(time) else null
+    }
+    val current = programs.getOrNull(at)
+    if (current != null) {
+        if (current.start <= now) return GuideStep.Channels
+        return programs.getOrNull(at - 1)?.let { GuideStep.ToProgram(it) } ?: GuideStep.Channels
+    }
+    programs.lastOrNull { it.stop <= focusTime }?.takeIf { focusTime - it.stop < HALF_HOUR }?.let { return GuideStep.ToProgram(it) }
+    val time = focusTime - HALF_HOUR
+    return if (time <= now) GuideStep.Channels else GuideStep.ToTime(time)
+}
 
 /** The half hour at or before [ms] in local time: where the grid starts (4:56pm → 4:30pm). */
 internal fun halfHourBefore(ms: Long, zone: TimeZone = TimeZone.currentSystemDefault()): Long {
@@ -280,15 +310,20 @@ fun LiveTvPage() {
             }
             return
         }
-        val i = progs.indexOfFirst { focusTime in it.start until it.stop }
-        if (delta < 0 && (i <= 0 || progs[i].start <= now)) {
-            // Left on a live program (or no data) moves to the channel column.
-            onChannelColumn = true
-            return
+        when (val step = guideStep(progs, focusTime, now, delta)) {
+            GuideStep.Channels -> onChannelColumn = true // Left on a live program moves to the channel column.
+            is GuideStep.ToProgram -> {
+                focusTime = maxOf(step.program.start, now)
+                showInWindow(step.program)
+            }
+            // Past this row's listings. The window moves with it, so the row shows "No information" as the
+            // focused cell, and other rows can carry on from here.
+            is GuideStep.ToTime -> {
+                focusTime = step.time
+                windowStart = maxOf(earliest(), step.time)
+            }
+            null -> {}
         }
-        val next = progs.getOrNull(if (i < 0) 0 else i + delta) ?: return
-        focusTime = maxOf(next.start, now)
-        showInWindow(next)
     }
 
     fun jumpTime(to: Long) {
