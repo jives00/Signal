@@ -205,14 +205,13 @@ fun Route.recordingRoutes(companion: Companion) {
 
     post("/recordings/schedule") {
         val body = call.receive<ScheduleRecording>()
-        val now = System.currentTimeMillis()
-        val row = channels.channel(body.profile, body.streamId, now) ?: return@post call.respondText("No such channel", status = HttpStatusCode.NotFound)
+        val name = channels.channelName(body.profile, body.streamId) ?: return@post call.respondText("No such channel", status = HttpStatusCode.NotFound)
         val program = channels.programs(body.profile, body.streamId, body.start, body.start + 1)
             .firstOrNull { it.start == body.start && (body.title == null || it.title == body.title) }
             ?: return@post call.respondText("The guide doesn't have that program.", status = HttpStatusCode.NotFound)
         val settings = companion.settings
         runCatching {
-            recorder.schedule(body.profile, body.streamId, program.title, row.name, program.start, program.stop, settings.recordBeforeMinutes * 60_000L, settings.recordAfterMinutes * 60_000L)
+            recorder.schedule(body.profile, body.streamId, program.title, name, program.start, program.stop, settings.recordBeforeMinutes * 60_000L, settings.recordAfterMinutes * 60_000L)
         }
             .onSuccess { call.respond(it) }
             .onFailure { call.respondText(it.message ?: "Couldn't schedule that.", status = HttpStatusCode.Conflict) }

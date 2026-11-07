@@ -1,7 +1,8 @@
 import { StrictMode, useEffect, useMemo, useState, type FormEvent } from "react";
 import { createRoot } from "react-dom/client";
 import WatchScreen from "../watch/WatchScreen";
-import { pairingStatus, savedKey, saveKey, startPairing, viewerApi, type Pairing } from "./api";
+import { pairingStatus, recordingsApi, savedKey, saveKey, startPairing, viewerApi, type Pairing } from "./api";
+import Recordings from "./Recordings";
 import "../theme.css";
 
 function guessName(): string {
@@ -60,8 +61,19 @@ function Pair({ onPaired }: { onPaired: (key: string) => void }) {
 
 function Viewer() {
   const [key, setKey] = useState(savedKey);
+  const [tab, setTab] = useState<"live" | "recordings">("live");
   const api = useMemo(() => key ? viewerApi(key, () => setKey(null)) : null, [key]);
-  return api ? <WatchScreen api={api} /> : <Pair onPaired={setKey} />;
+  const recordings = useMemo(() => key ? recordingsApi(key, () => setKey(null)) : null, [key]);
+  if (!api || !recordings) return <Pair onPaired={setKey} />;
+  return (
+    <>
+      <div className="filters viewer-tabs">
+        <button className={tab === "live" ? "selected" : ""} onClick={() => setTab("live")}>Live TV</button>
+        <button className={tab === "recordings" ? "selected" : ""} onClick={() => setTab("recordings")}>Recordings</button>
+      </div>
+      {tab === "live" ? <WatchScreen api={api} /> : <Recordings api={recordings} />}
+    </>
+  );
 }
 
 createRoot(document.getElementById("root")!).render(<StrictMode><Viewer /></StrictMode>);

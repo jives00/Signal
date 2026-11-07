@@ -114,6 +114,7 @@ fun HomePage() {
             HDivider()
             FavoritesRow(favorites, favoritesFirst)
             ContinueRow(onEmptied = { favoritesFirst.requestFocusWhenReady() })
+            RecordingsRow()
             RemindersRow()
         }
     }
@@ -224,6 +225,47 @@ private fun FavoritesRow(favorites: List<Channel>?, firstTile: FocusRequester) {
                         Box(Modifier.fillMaxWidth().height(124.dp).background(if (focused) c.accent else c.surface).padding(16.dp), contentAlignment = Alignment.CenterStart) {
                             SText("All favorites →", 22, weight = FontWeight.SemiBold, color = if (focused) c.onAccent else c.text)
                         }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Recordings, when there are any to show (dvr.md → TV). OK plays what has video and opens the
+ * Recordings page on the rest; a long press opens the page too, where the menu is.
+ */
+@Composable
+private fun RecordingsRow() {
+    val app = LocalApp.current
+    val c = SignalTheme.colors
+    val all by app.recordings.list.collectAsState()
+    val now = rememberNow()
+    val shown = remember(all) { homeRecordings(all) }
+    LaunchedEffect(Unit) { runCatching { app.recordings.refresh() } }
+    if (shown.isEmpty()) return
+    Column(Modifier.fillMaxWidth()) {
+        SText("Recordings", 28, Modifier.padding(start = SignalSizes.EDGE_MARGIN.dp, top = 32.dp, bottom = 16.dp), weight = FontWeight.ExtraBold)
+        val first = remember { FocusRequester() }
+        LazyRow(
+            Modifier.fillMaxWidth().focusRestorer(first),
+            horizontalArrangement = Arrangement.spacedBy(24.dp),
+            contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = SignalSizes.EDGE_MARGIN.dp),
+        ) {
+            itemsIndexed(shown, key = { _, r -> r.id }) { i, r ->
+                val own = remember { FocusRequester() }
+                Focusable(
+                    Modifier.width(420.dp),
+                    focusRequester = if (i == 0) first else own,
+                    onSelect = { if (!r.playable || !playRecording(app, r)) app.navigator.go(Route.Recordings) },
+                    onOptions = { app.navigator.go(Route.Recordings) },
+                ) { focused ->
+                    val muted = if (focused) c.onAccent else c.muted
+                    Column(Modifier.fillMaxWidth().background(if (focused) c.accent else c.surface).padding(16.dp)) {
+                        SText(r.title, 24, weight = FontWeight.SemiBold, color = if (focused) c.onAccent else c.text)
+                        SText(r.channelName, 20, Modifier.padding(top = 4.dp), color = muted)
+                        SText(com.signal.app.RecordingText.status(r, now), 20, Modifier.padding(top = 8.dp), color = muted)
                     }
                 }
             }

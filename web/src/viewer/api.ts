@@ -2,6 +2,7 @@
 // its key is what says which profile it shows.
 import type { z } from "zod";
 import * as S from "../schema";
+import type { RecordingsView } from "../schema";
 import type { WatchApi } from "../watch/WatchScreen";
 import { WEB_VIEWER } from "./model";
 
@@ -39,6 +40,40 @@ export const startPairing = (name: string) => plain<Pairing>("/device/pair", {
   body: JSON.stringify({ deviceId: deviceId(), name, model: WEB_VIEWER, appVersion: "web" }),
 });
 export const pairingStatus = (id: string) => plain<PairStatus>(`/device/pair/${encodeURIComponent(id)}`);
+
+/** A viewer's recordings: the same device routes a TV uses, with the key as a header (dvr.md). */
+export interface RecordingsApi {
+  list(): Promise<RecordingsView>;
+  playlist(id: string): string;
+  headers: Record<string, string>;
+  progress(id: string, positionMs: number): void;
+}
+
+export function recordingsApi(key: string, onForgotten: () => void): RecordingsApi {
+  const headers = { Authorization: `Bearer ${key}` };
+  const enc = encodeURIComponent;
+  return {
+    headers,
+    playlist: (id) => `/device/recordings/${enc(id)}/files/index.m3u8`,
+    list: async () => {
+      const response = await fetch("/device/recordings", { headers });
+      if (response.status === 401) {
+        localStorage.removeItem(KEY);
+        onForgotten();
+      }
+      if (!response.ok) throw new Error((await response.text()) || `HTTP ${response.status}`);
+      return S.RecordingsView.parse(await response.json());
+    },
+    progress: (id, positionMs) => {
+      void fetch(`/device/recordings/${enc(id)}/progress`, {
+        method: "POST",
+        keepalive: true,
+        headers: { ...headers, "Content-Type": "application/json" },
+        body: JSON.stringify({ positionMs }),
+      }).catch(() => undefined);
+    },
+  };
+}
 
 /** The calls a paired viewer makes. A 401 means it was forgotten in the web admin: [onForgotten]. */
 export function viewerApi(key: string, onForgotten: () => void): WatchApi {

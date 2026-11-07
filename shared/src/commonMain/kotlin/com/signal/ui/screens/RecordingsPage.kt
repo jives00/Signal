@@ -43,6 +43,7 @@ import kotlin.time.Clock
 
 /** How often the page looks again, for what's recording now. */
 private const val REFRESH_MS = 15_000L
+private const val HOME_ROW = 12
 
 /** Recordings, in the order they matter: what's on now, what's coming, then what's saved, newest first. */
 internal fun recordingSections(all: List<NasRecording>): List<Pair<String, List<NasRecording>>> = listOfNotNull(
@@ -50,6 +51,21 @@ internal fun recordingSections(all: List<NasRecording>): List<Pair<String, List<
     all.filter { it.upcoming }.sortedBy { it.at }.takeIf { it.isNotEmpty() }?.let { "Scheduled" to it },
     all.filter { !it.running && !it.upcoming }.sortedByDescending { it.at }.takeIf { it.isNotEmpty() }?.let { "Recorded" to it },
 )
+
+/** Home's row: what's on, what's coming, then what's still to watch, newest first. Watched ones stay on the page. */
+internal fun homeRecordings(all: List<NasRecording>): List<NasRecording> = (
+    all.filter { it.running }.sortedBy { it.at } +
+        all.filter { it.upcoming }.sortedBy { it.at } +
+        all.filter { it.playable && !it.running && it.watchedAt == null }.sortedByDescending { it.at }
+    ).take(HOME_ROW)
+
+/** Plays a recording, from where it left off unless [fromStart]. False when no address has answered. */
+internal fun playRecording(app: AppController, r: NasRecording, fromStart: Boolean = false): Boolean {
+    val target = app.nas.recordingPlayback(r.id) ?: return false
+    app.vodPlayback.playRecording(r.id, r.title, r.channelName, target.first, target.second, if (fromStart) 0 else r.resumeMs)
+    app.navigator.go(Route.VodPlayer)
+    return true
+}
 
 /** Where [id] sits in the list, counting each section's title; the top if it's gone. */
 internal fun recordingListIndex(sections: List<Pair<String, List<NasRecording>>>, id: String?): Int {
@@ -107,15 +123,9 @@ fun RecordingsPage() {
         first.requestFocusWhenReady()
     }
 
-    fun play(r: NasRecording, fromStart: Boolean) {
-        val target = app.nas.recordingPlayback(r.id) ?: return
-        app.vodPlayback.playRecording(r.id, r.title, r.channelName, target.first, target.second, if (fromStart) 0 else r.resumeMs)
-        app.navigator.go(Route.VodPlayer)
-    }
-
     fun menu(r: NasRecording, returnTo: FocusRequester) {
         val actions = buildList {
-            if (r.playable && r.resumeMs > 0) add(PanelAction("Play from the start") { play(r, fromStart = true); null })
+            if (r.playable && r.resumeMs > 0) add(PanelAction("Play from the start") { playRecording(app, r, fromStart = true); null })
             if (r.expiresAt != null) add(PanelAction("Keep 30 more days") { scope.launch { app.nas.keepRecording(r.id); load() }; null })
             if (r.running || r.upcoming) add(PanelAction(RecordingText.KEEP_LONGER) { scope.launch { app.recordings.keepLonger(r); load() }; null })
             if (r.running) {
@@ -175,7 +185,7 @@ fun RecordingsPage() {
                                     r.title,
                                     detail = "${r.channelName} · ${r.at.ago(now, app)} · ${RecordingText.status(r, now, r.id in current?.conflicts.orEmpty())}",
                                     focusRequester = row,
-                                    onSelect = { if (r.playable) play(r, fromStart = false) else menu(r, row) },
+                                    onSelect = { if (r.playable) playRecording(app, r) else menu(r, row) },
                                     onOptions = { menu(r, row) },
                                 )
                             }

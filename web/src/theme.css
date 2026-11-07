@@ -308,3 +308,8 @@ label.button.file input { position: absolute; inset: 0; opacity: 0; cursor: poin
   .watch-player { order: -1; top: 0; z-index: 4; background: var(--bg); }
   .watch-rows { max-height: none; }
 }
+
+/* The viewer's switch between live TV and recordings, and the web admin's recording player. */
+.viewer-tabs { padding: 8px 16px; display: flex; gap: 8px; }
+.viewer-tabs button.selected { font-weight: 700; }
+.recording-player { max-width: 960px; margin: 16px 0; }

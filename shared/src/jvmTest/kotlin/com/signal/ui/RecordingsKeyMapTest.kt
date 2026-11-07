@@ -9,6 +9,7 @@ import com.signal.nas.NasRecording
 import com.signal.nas.NasRecordingPaths
 import com.signal.ui.screens.recordingListIndex
 import com.signal.ui.screens.recordingSections
+import kotlinx.coroutines.launch
 import kotlin.test.Test
 import kotlin.test.assertEquals
 
@@ -82,6 +83,20 @@ class RecordingsKeyMapTest {
             eventually("the row gone") { deleted && !shows("Newest") }
             focusedStartsWith("Oldest")
         }
+    }
+
+    @Test fun homesRowPlaysARecording() = keyMapTest(nas = nas) {
+        app.settings.put(Settings.Key.NAS_HOME_ADDRESS, "nas.test:3013")
+        app.settings.put(Settings.Key.NAS_API_KEY, "key")
+        heroFocused()
+        ui.runOnIdle { app.scope.launch { app.recordings.refresh() } }
+        eventually("the row") { shows("Recordings") && shows("Newest") }
+        press(RemoteAction.Down)
+        focusedStartsWith("Add favorites")
+        press(RemoteAction.Down)
+        focusedStartsWith("Newest")
+        press(RemoteAction.Select)
+        eventually("the player") { app.navigator.current == Route.VodPlayer }
     }
 
     @Test fun outOfReachSaysSoAndOffersTryAgain() = keyMapTest {

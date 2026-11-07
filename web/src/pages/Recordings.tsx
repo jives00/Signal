@@ -3,6 +3,7 @@ import { clock, deleteRecording, getChannels, getPrograms, getRecordings, keepRe
 import { useProfiles, useToast } from "../context";
 import type { ChannelRow, ProgramBrief, Recording, RecordingsView } from "../schema";
 import { useSorted } from "../sort";
+import RecordingPlayer, { canPlay, resumeMs } from "../watch/RecordingPlayer";
 
 const LENGTHS = [15, 30, 60, 90, 120, 180, 240];
 
@@ -32,6 +33,7 @@ export default function Recordings() {
   const [channel, setChannel] = useState<ChannelRow | null>(null);
   const [length, setLength] = useState(60);
   const [programs, setPrograms] = useState<ProgramBrief[]>([]);
+  const [playing, setPlaying] = useState<Recording | null>(null);
 
   const load = useCallback(() => {
     getRecordings(profile).then((v) => { setView(v); setError(null); }).catch((e: Error) => setError(e.message));
@@ -76,7 +78,7 @@ export default function Recordings() {
   return (
     <div className="page">
       <h1>Recordings</h1>
-      <p className="detail">Records on any free source, and never over a TV that's watching. {view && !view.problem && `${gigabytes(view.freeBytes)} free.`}</p>
+      <p className="detail">Records on any free source, and never over a TV that's watching. {view && !view.problem && `${gigabytes(view.recordings.reduce((sum, r) => sum + r.bytes, 0))} recorded, ${gigabytes(view.freeBytes)} free.`} How long they're kept is in Settings → Companion.</p>
       {error && <p className="error-text">{error}</p>}
       {view?.problem && <p className="error-text">{view.problem}</p>}
 
@@ -124,6 +126,13 @@ export default function Recordings() {
         </table>
       )}
 
+      {playing && (
+        <div className="recording-player">
+          <div className="row"><span className="section-title grow">{playing.title}</span><button onClick={() => setPlaying(null)}>Close</button></div>
+          <RecordingPlayer key={playing.id} url={`/api/recordings/${encodeURIComponent(playing.id)}/files/index.m3u8`} startMs={resumeMs(playing)} />
+        </div>
+      )}
+
       {view && view.recordings.length === 0 && <p className="detail">No recordings.</p>}
       {view && view.recordings.length > 0 && (
         <table className="table">
@@ -143,6 +152,7 @@ export default function Recordings() {
                   <td>{r.bytes > 0 ? gigabytes(r.bytes) : ""}</td>
                   <td>{r.expiresAt ? new Date(r.expiresAt).toLocaleDateString([], { month: "short", day: "numeric" }) : ""}</td>
                   <td className="actions">
+                    {canPlay(r) && <button onClick={() => setPlaying(r)}>Play</button>}
                     {(running || upcoming) && r.programStart !== null && <button onClick={() => void save("Keeping it 30 more minutes", () => keepRecording(r.id, 30), load)}>Keep 30 min</button>}
                     {running && <button onClick={() => void save("Stopped", () => stopRecording(r.id), load)}>Stop</button>}
                     {upcoming && <button onClick={() => void save("Canceled", () => deleteRecording(r.id), load)}>Cancel</button>}
