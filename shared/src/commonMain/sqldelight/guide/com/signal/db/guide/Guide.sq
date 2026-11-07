@@ -102,6 +102,16 @@ WITH RECURSIVE c(id) AS (
 )
 SELECT id AS guide_channel_id FROM c WHERE id IS NOT NULL;
 
+-- The same scan, with how far each channel's listings go: one more seek per channel.
+channelsFurthest:
+WITH RECURSIVE c(id) AS (
+    SELECT min(guide_channel_id) FROM program WHERE epg_source_id = :epgSourceId
+    UNION ALL
+    SELECT (SELECT min(guide_channel_id) FROM program WHERE epg_source_id = :epgSourceId AND guide_channel_id > c.id) FROM c WHERE c.id IS NOT NULL
+)
+SELECT id AS guide_channel_id, (SELECT max(start) FROM program WHERE epg_source_id = :epgSourceId AND guide_channel_id = c.id) AS last_start
+FROM c WHERE id IS NOT NULL;
+
 countsBySource:
 SELECT epg_source_id, count(DISTINCT guide_channel_id) AS channels, count(*) AS programs FROM program GROUP BY epg_source_id;
 

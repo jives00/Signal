@@ -14,6 +14,51 @@ object GuideNames {
     private val bracketed = Regex("""[(\[][^)\]]*[)\]]""")
     private val nonWord = Regex("""[^\p{L}\p{N}]+""")
 
+    /**
+     * What a big US channel goes by in the XMLTV guides, when that isn't just its name with a word
+     * added. Keys and values are normalized, so "MTV - Music Television" is "music television": its
+     * "MTV -" looks like a country prefix.
+     */
+    private val aliases = mapOf(
+        "fox sports 1" to "fs1 fox sports 1",
+        "fox sports 2" to "fs2 fox sports 2",
+        "mtv" to "music television",
+        "showtime" to "paramount with showtime",
+        "adult swim" to "cartoon network",
+        "e entertainment" to "e entertainment television",
+        "disney jr" to "disney junior",
+    )
+    private val inParens = Regex("""\(([KW][A-Z]{2,3})\)""")
+    private val stationId = Regex("""^([KW][A-Z]{2,3})(?:\.|$)""")
+    private val regional = Regex("""\b(?:pacific|west)\b""")
+    private val wordBreak = Regex("""(?<=[a-z0-9])(?=[A-Z])|(?<=[A-Za-z])(?=[0-9])""")
+
+    /** A US station's call sign, from "(WLS)" in its name or a "WLS.us" guide ID, lowercase. */
+    fun callSign(rawName: String?, id: String?): String? =
+        (rawName?.let { inParens.find(it)?.groupValues?.get(1) } ?: id?.let { stationId.find(it)?.groupValues?.get(1) })?.lowercase()
+
+    /** The words in a tvg-id: "DiscoveryChannel.us" → "discovery channel", "FoxSports1.us" → "fox sports 1". */
+    fun tvgWords(tvgId: String): String = tvgId.substringBefore('.').replace(wordBreak, " ").lowercase()
+
+    /** Other ways guides write [name] ("discovery" → "discovery channel"), nearest first. Never shorter: "NBC Sports Network" isn't "NBC Sports". */
+    fun variants(name: String): List<String> {
+        val base = name.removeSuffix(" channel").removeSuffix(" network")
+        return listOfNotNull(aliases[name], aliases[base], "$base channel", "$base network", "the $name", "the $base channel", "$base tv")
+            .filter { it != name }.distinct()
+    }
+
+    /**
+     * Other names to try for a US channel. None for a West or Pacific feed, whose times differ from the
+     * East listing these lead to. A tvg-id's words count only if they agree with the name: providers
+     * tag every regional "FOX SPORTS DETROIT" as FOXSports.us, and no listing beats the wrong one.
+     */
+    fun otherNames(name: String, tvgId: String?): List<String> {
+        if (regional.containsMatchIn(name)) return emptyList()
+        val own = name.removeSuffix(" east")
+        val words = tvgId?.let { tvgWords(it) }?.takeIf { it.replace(" ", "").contains(own.replace(" ", "")) }
+        return (listOfNotNull(own) + variants(own) + listOfNotNull(words) + words?.let { variants(it) }.orEmpty()).filter { it != name }.distinct()
+    }
+
     /** The country a channel name starts with ("US: HBO" → "us"), or null when it has no such prefix. */
     fun country(name: String): String? {
         val m = countryPrefix.find(CharacterCleanup.clean(name, removeEmoji = true)) ?: return null

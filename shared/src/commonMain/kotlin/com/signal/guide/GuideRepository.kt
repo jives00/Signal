@@ -148,6 +148,7 @@ class GuideRepository(
 
     /** What the resolutions depend on besides the guide build: the EPG sources in order, the default, the mappings. */
     private fun config(s: State): String = listOf(
+        GuideResolver.RULES.toString(),
         s.sources.joinToString(",") { "${it.id}:${it.enabled}:${it.timeShiftMs}" },
         s.defaultId.orEmpty(),
         s.mappings.entries.sortedBy { it.key }.joinToString(",") { "${it.key}=${it.value.epgSourceId}/${it.value.guideChannelId}" }.hashCode().toString(),

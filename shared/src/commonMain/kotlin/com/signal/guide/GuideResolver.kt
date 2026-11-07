@@ -16,7 +16,15 @@ object GuideResolver {
         val byId: Map<String, String>,
         /** Normalized name → every guide channel going by it, best-known name first. */
         val byName: Map<String, List<String>>,
+        /** Guide channel → when its last program starts: how far its listings go. */
+        val lastStart: Map<String, Long> = emptyMap(),
     ) {
+        /** Local stations by call sign: "WLS-DT.us_locals1". Their names are no use, since "WLS-DT" normalizes to "dt". */
+        val byCallSign: Map<String, String> by lazy {
+            val m = HashMap<String, String>()
+            for ((id, original) in byId) stationSuffix.find(id)?.let { m.putIfAbsent(it.groupValues[1], original) }
+            m
+        }
         /** The same names with the spaces taken out: guides write "HBO2" where providers write "HBO 2". */
         val byCompact: Map<String, List<String>> by lazy {
             val m = HashMap<String, MutableList<String>>()
@@ -30,8 +38,21 @@ object GuideResolver {
 
     data class Mapping(val epgSourceId: String, val guideChannelId: String?)
 
+    /** Goes in anything cached from [resolve], so a change to the rules doesn't leave old answers behind. */
+    const val RULES = 2
+
+    /** A later guide must go this much further to win, so channels don't swap over a few hours' difference. */
+    private const val FURTHER_MS = 12 * 60 * 60_000L
+    private val stationSuffix = Regex("""^([kw][a-z]{2,3})-(?:dt|tv)\.""")
+
     fun buildIndex(db: GuideDatabase, epgSourceId: String): SourceIndex {
-        val withPrograms = db.guideQueries.channelsWithPrograms(epgSourceId).executeAsList().toHashSet()
+        val furthest = db.guideQueries.channelsFurthest(epgSourceId).executeAsList()
+        val withPrograms = furthest.mapNotNullTo(HashSet()) { it.guide_channel_id }
+        val lastStart = HashMap<String, Long>()
+        for (row in furthest) {
+            val id = row.guide_channel_id ?: continue
+            lastStart[id] = row.last_start ?: 0
+        }
         val byId = HashMap<String, String>()
         for (id in withPrograms) byId.putIfAbsent(id.lowercase(), id)
         val byName = HashMap<String, MutableList<String>>()
@@ -46,7 +67,7 @@ object GuideResolver {
         for (n in db.guideQueries.channelNamesForSource(epgSourceId).executeAsList()) {
             if (n.guide_channel_id in withPrograms) add(n.normalized_name, n.guide_channel_id)
         }
-        return SourceIndex(byId, byName)
+        return SourceIndex(byId, byName, lastStart)
     }
 
     /**
@@ -58,6 +79,10 @@ object GuideResolver {
      * channel's own country first ("US: …" → `….us`, `….us2`), then not a Pacific or West feed; a
      * Pacific or West best match also tries the name + " east". A clean name match in a later source
      * beats a flawed one in an earlier source, which is used only when nothing better exists.
+     *
+     * With no mapping, every source gets a say, and the one whose listings go well past the others
+     * wins: a provider's guide may stop hours from now where another has days (2026-11-06, Fox 32's
+     * ended at 4 AM). A mapping's source is the user's choice, so it's taken as soon as it matches.
      */
     fun resolve(
         mapping: Mapping?,
@@ -77,6 +102,11 @@ object GuideResolver {
         val country = GuideNames.country(rawName)
         // The best flawed name match so far (wrong country, or a Pacific or West feed), used only if nothing clean turns up.
         var flawed: Pair<GuideRef, Int>? = null
+        var best: GuideRef? = null
+        var bestLast = Long.MIN_VALUE
+        val callSign = GuideNames.callSign(rawName, tvgId)
+        val us = country == "us" || tvgId?.substringAfterLast('.', "")?.lowercase()?.startsWith("us") == true
+        val alternatives = if (us) GuideNames.otherNames(name, tvgId) else emptyList()
         for ((i, src) in order.withIndex()) {
             // 1. A manual mapping names both the EPG source and the guide channel: the strongest override.
             // Checked before the source's index is built: a mapped channel never needs it, and building
@@ -85,15 +115,30 @@ object GuideResolver {
                 return GuideRef(src.id, mapping.guideChannelId, src.timeShiftMs, isFallback = false)
             }
             val idx = index(src.id)
+            fun ref(guideChannel: String) = GuideRef(src.id, guideChannel, src.timeShiftMs, isFallback = i > 0)
             // 2. tvg-id in this EPG source.
-            if (tvgId != null) idx.byId[tvgId.lowercase()]?.let { return GuideRef(src.id, it, src.timeShiftMs, isFallback = i > 0) }
+            var clean = tvgId?.let { idx.byId[it.lowercase()] }
             // 3. The normalized name in this EPG source, ranked.
-            val (guideChannel, penalty) = bestByName(idx, name, country) ?: continue
-            val ref = GuideRef(src.id, guideChannel, src.timeShiftMs, isFallback = i > 0)
-            if (penalty == 0) return ref
-            if (flawed == null || penalty < flawed.second) flawed = ref to penalty
+            if (clean == null) bestByName(idx, name, country)?.let { (guideChannel, penalty) ->
+                if (penalty == 0) clean = guideChannel
+                else if (flawed == null || penalty < flawed!!.second) flawed = ref(guideChannel) to penalty
+            }
+            // 4. A US channel by other names: its call sign, then how else guides write it.
+            if (clean == null && us) clean = callSign?.let { idx.byCallSign[it] } ?: otherName(idx, alternatives, country)
+            val found = clean ?: continue
+            if (mapping != null) return ref(found)
+            val last = idx.lastStart[found] ?: 0
+            if (best == null || last > bestLast + FURTHER_MS) {
+                best = ref(found)
+                bestLast = last
+            }
         }
-        return flawed?.first
+        return best ?: flawed?.first
+    }
+
+    private fun otherName(idx: SourceIndex, names: List<String>, country: String?): String? {
+        for (name in names) bestByName(idx, name, country)?.takeIf { it.second == 0 }?.let { return it.first }
+        return null
     }
 
     private fun bestByName(idx: SourceIndex, name: String, country: String?): Pair<String, Int>? {
