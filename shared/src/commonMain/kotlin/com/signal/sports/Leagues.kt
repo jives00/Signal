@@ -1,7 +1,12 @@
 package com.signal.sports
 
 /** A game's league, and how sure the reading is: the surer one wins when feeds are made one row. */
-data class Classified(val sport: Sport, val certainty: Int) {
+data class Classified(
+    val sport: Sport,
+    val certainty: Int,
+    /** For [Sport.OTHER], the sport the text named ("Swimming and Diving"), so a row can say it. */
+    val label: String? = null,
+) {
     companion object {
         /** Nothing to go on. */
         const val NONE = 0
@@ -23,10 +28,19 @@ data class Classified(val sport: Sport, val certainty: Int) {
 internal object Leagues {
     private fun r(pattern: String) = Regex(pattern, RegexOption.IGNORE_CASE)
 
+    /** Sports with no filter of their own: the game is Other, and the row says which. */
+    private val other = r("""\b(?:Field Hockey|Water Polo|Swimming and Diving|Swimming & Diving|Swimming|Diving|Gymnastics|Pickleball|Bull Riding|PBR|Rodeo|Darts|Snooker|Cycling|Track and Field|Cross Country|Softball|Rowing|Fencing|Skiing|Figure Skating|Equestrian|Horse Racing|Thoroughbred|Badminton|Table Tennis|Handball|Squash)\b""")
+
+    /** "Swimming and Diving", "Bull Riding": the named sport as a row shows it. */
+    private fun otherLabel(text: String): String? = other.find(text)?.value?.let { v ->
+        if (v.equals("PBR", ignoreCase = true)) "Bull Riding"
+        else v.split(' ').joinToString(" ") { w -> if (w == "and" || w == "&") w else w.lowercase().replaceFirstChar { it.uppercase() } }
+    }
+
     /** Most specific first: the first that matches is the league. */
     private val named: List<Pair<Regex, Sport>> = listOf(
         // Sports with no filter of their own, before any word they share ("Field Hockey", "Premier League Darts").
-        r("""\b(?:Field Hockey|Water Polo|Swimming|Diving|Gymnastics|Pickleball|Bull Riding|PBR|Rodeo|Darts|Snooker|Cycling|Track and Field|Cross Country|Softball|Rowing|Fencing|Skiing|Figure Skating|Equestrian|Horse Racing|Thoroughbred|Badminton|Table Tennis|Handball)\b""") to Sport.OTHER,
+        other to Sport.OTHER,
         r("""\b(?:Australian Rules|Aussie Rules|AFL)\b""") to Sport.AUSSIE_RULES,
         r("""\b(?:NFL|Red ?Zone|TNF|SNF|MNF|(?:Sunday|Monday|Thursday) Night Football)\b""") to Sport.NFL,
         r("""\b(?:CFL|Canadian Football)\b""") to Sport.CFL,
@@ -95,7 +109,8 @@ internal object Leagues {
         val namedSport = named(text) ?: named(groupText)
         if (namedSport != null) {
             // "Basketball:" isn't a league, but a group can be ("US| NBA PPV" with "Basketball: Suns vs Magic").
-            return Classified(namedSport, Classified.NAMED)
+            val label = if (namedSport == Sport.OTHER) otherLabel(text) ?: otherLabel(groupText) else null
+            return Classified(namedSport, Classified.NAMED, label)
         }
         if (teams != null) {
             val within = fam?.takeUnless { it == SportFamily.FOOTBALL && !us }

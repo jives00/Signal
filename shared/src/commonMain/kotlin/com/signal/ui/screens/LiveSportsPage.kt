@@ -112,7 +112,7 @@ private fun whenText(e: SportEvent, now: Long, use24: Boolean): String = when {
 internal fun sportLine(e: SportEvent): String {
     val more = e.channels.size - 1
     return listOfNotNull(
-        e.sport.label,
+        e.sportLabel,
         e.channels.firstOrNull()?.let { if (it.program != null) it.name else it.group.substringAfter('|').trim() },
         // Its only channel shows other games too (live-sports.md → Round 2).
         "multi-game channel".takeIf { e.channels.firstOrNull()?.sharedWithOthers == true },
@@ -327,7 +327,7 @@ private fun GameHeader(e: SportEvent) {
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             SportBadge(e.sport, 40)
-            SText(e.sport.label, 22, Modifier.padding(start = 16.dp), color = c.muted)
+            SText(e.sportLabel, 22, Modifier.padding(start = 16.dp), color = c.muted)
         }
         val teams = e.teams
         if (teams != null && teams.hasLogos) {

@@ -122,11 +122,16 @@ data class SportEvent(
     /** True when the stop time is a guess, because only a channel's name gave the start. */
     val stopGuessed: Boolean,
     val channels: List<EventChannel>,
+    /** For [Sport.OTHER], the sport the names gave ("Swimming and Diving"); the row says it instead of "Other". */
+    val sportName: String? = null,
 ) {
     fun isOn(now: Long) = now in start until stop
 
     /** What a row says: the teams, since the row names the sport, or else the title. */
     val heading: String get() = teams?.let { "${it.first} vs. ${it.second}" } ?: title
+
+    /** The league or sport as a row names it. */
+    val sportLabel: String get() = sportName ?: sport.label
 
     /** How far through it is now, 0 to 1. */
     fun progress(now: Long): Float =

@@ -17,6 +17,8 @@ internal data class Found(
     val channels: List<EventChannel>,
     /** How sure [sport] is ([Classified]): the surest feed's league wins on the row. */
     val certainty: Int = Classified.NAMED,
+    /** For [Sport.OTHER], the sport a feed named ("Field Hockey"). */
+    val sportName: String? = null,
 )
 
 /**
@@ -39,6 +41,7 @@ internal object SportsMerge {
         var dayGuessed = first.dayGuessed
         var sport = first.sport
         var certainty = first.certainty
+        var sportName = first.sportName
         var teams = first.teams
     }
 
@@ -65,7 +68,8 @@ internal object SportsMerge {
                 if (row.stopGuessed && !f.stopGuessed) { row.stop = f.stop; row.stopGuessed = false }
                 if (row.dayGuessed && !f.dayGuessed) { row.start = f.start; row.dayGuessed = false }
                 // The surest league, and ESPN's teams with their logos (live-sports.md → Round 2).
-                if (f.certainty > row.certainty) { row.sport = f.sport; row.certainty = f.certainty }
+                if (f.certainty > row.certainty) { row.sport = f.sport; row.certainty = f.certainty; row.sportName = f.sportName ?: row.sportName }
+                if (row.sportName == null) row.sportName = f.sportName
                 if (f.teams?.hasLogos == true && row.teams?.hasLogos != true) row.teams = f.teams
             } else {
                 val added = Row(f, first, second)
@@ -78,7 +82,7 @@ internal object SportsMerge {
             val f = r.first
             SportEvent(
                 key = "${SearchText.fold(f.title)}|${f.detail.orEmpty().take(24)}|${r.start}",
-                sport = r.sport, title = f.title, detail = f.detail, teams = r.teams,
+                sport = r.sport, sportName = r.sportName.takeIf { r.sport == Sport.OTHER }, title = f.title, detail = f.detail, teams = r.teams,
                 start = r.start, stop = r.stop, stopGuessed = r.stopGuessed,
                 channels = r.channels.values.sortedWith(best).take(maxChannels),
             )

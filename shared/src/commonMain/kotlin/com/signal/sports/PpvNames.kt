@@ -46,6 +46,8 @@ object PpvNames {
         val certainty: Int = Classified.NAMED,
         /** One of several games the name lists, and not the one the brackets say is on. */
         val sharedWithOthers: Boolean = false,
+        /** For [Sport.OTHER], the sport the name gave ("Swimming and Diving"). */
+        val sportName: String? = null,
     )
 
     private val eastern = TimeZone.of("America/New_York")
@@ -222,11 +224,11 @@ object PpvNames {
         var sport = if (teams != null && named.certainty < Classified.NAMED) sportFor(group, whole, teams) else named
         // US writers put "v." only between soccer teams ("Arsenal v. Hull City" on Peacock); event groups' fights use it too.
         if (teams != null && sport.sport == Sport.OTHER && "EVENT" !in group && soccerV.containsMatchIn(body)) sport = Classified(Sport.SOCCER, Classified.GUESSED)
-        if (teams != null) return Parsed("${teams.first} vs. ${teams.second}", teams, sport.sport, start, stop, dayGuessed, sport.certainty)
+        if (teams != null) return Parsed("${teams.first} vs. ${teams.second}", teams, sport.sport, start, stop, dayGuessed, sport.certainty, sportName = sport.label)
         // No teams: a race, a fight or a tournament, but not a team game with no name for it, or a show.
         val event = eventWord.containsMatchIn(body)
         if ((sport.sport.teamSport && !event) || (sport.sport == Sport.OTHER && "EVENT" !in group && !event)) return null
-        return Parsed(cased(body), null, sport.sport, start, stop, dayGuessed, sport.certainty)
+        return Parsed(cased(body), null, sport.sport, start, stop, dayGuessed, sport.certainty, sportName = sport.label)
     }
 
     /** The name's league; US channels' unless the group or the name says another country. */

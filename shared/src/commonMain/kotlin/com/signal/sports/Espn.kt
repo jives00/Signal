@@ -52,6 +52,8 @@ data class EspnGame(
     val home: EspnTeam,
     val venue: String? = null,
     val networks: List<String> = emptyList(),
+    /** For a feed with no filter of its own ([Sport.OTHER]), its sport: "Field Hockey". */
+    val label: String? = null,
 ) {
     val sport: Sport get() = Sport.entries.firstOrNull { it.name == league } ?: Sport.OTHER
 }
@@ -77,7 +79,7 @@ class EspnScoreboards(
     private val parallel: Int = 3,
 ) {
     /** One scoreboard: a sport/league path and its query (college divisions). */
-    data class Feed(val sport: Sport, val path: String, val query: String = "")
+    data class Feed(val sport: Sport, val path: String, val query: String = "", val label: String? = null)
 
     private class Kept(val until: Long, val games: List<EspnGame>)
 
@@ -113,7 +115,7 @@ class EspnScoreboards(
                 val r = http.get("$base/${feed.path}/scoreboard?$query")
                 if (!r.status.isSuccess()) return@withTimeoutOrNull null
                 val body = r.bodyAsText()
-                withContext(Dispatchers.Default) { parse(feed.sport, body) }
+                withContext(Dispatchers.Default) { parse(feed.sport, body).map { if (feed.label != null) it.copy(label = feed.label) else it } }
             }
         }.getOrNull()
     }
@@ -177,7 +179,7 @@ class EspnScoreboards(
             Feed(Sport.SOCCER, "soccer/usa.ncaa.m.1"),
             Feed(Sport.SOCCER, "soccer/usa.ncaa.w.1"),
             // Field hockey has no filter of its own, but ESPN+ names its games with nothing else to go on.
-            Feed(Sport.OTHER, "field-hockey/womens-college-field-hockey"),
+            Feed(Sport.OTHER, "field-hockey/womens-college-field-hockey", label = "Field Hockey"),
         )
 
         /** ESPN's day [offset] days from [now]'s, as yyyyMMdd. Its days are US Eastern. */
@@ -274,7 +276,7 @@ internal object EspnMatch {
             .firstOrNull() ?: return null
         val (g, _, swapped) = best
         val t = if (swapped) Teams.of(side(g.home), side(g.away)) else Teams.of(side(g.away), side(g.home))
-        return f.copy(sport = g.sport, certainty = Classified.ESPN, teams = t, start = if (f.dayGuessed) g.start else f.start, dayGuessed = false)
+        return f.copy(sport = g.sport, sportName = g.label ?: f.sportName, certainty = Classified.ESPN, teams = t, start = if (f.dayGuessed) g.start else f.start, dayGuessed = false)
     }
 
     private fun byDescription(f: Found, index: Index): Found? {
@@ -293,7 +295,7 @@ internal object EspnMatch {
             .filter { it.second > 0 }.sortedByDescending { it.second }.toList()
         if (scored.isEmpty() || (scored.size > 1 && scored[0].second == scored[1].second)) return null
         val g = scored[0].first
-        return f.copy(sport = g.sport, certainty = Classified.ESPN, teams = Teams.of(side(g.away), side(g.home)))
+        return f.copy(sport = g.sport, sportName = g.label ?: f.sportName, certainty = Classified.ESPN, teams = Teams.of(side(g.away), side(g.home)))
     }
 
     /** The game for a listing's teams, for the info bar: none unless both teams and the time agree. */

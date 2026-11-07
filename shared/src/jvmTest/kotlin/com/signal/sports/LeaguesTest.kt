@@ -39,6 +39,18 @@ class LeaguesTest {
         assertEquals(Sport.OTHER, sport("US| BTN+ PPV", "(US) (BTN+ 066) | Field Hockey: Penn State at Michigan State (2026-11-07 14:50:00)"))
     }
 
+    @Test fun otherSaysWhichSport() {
+        val swim = assertNotNull(PpvNames.parse("US| ESPN+ PPV", "US (ESPN+ 367) | Swimming and Diving: Northwestern vs. Duke (Northwestern vs. Duke) (2026-11-07 11:00:05)", now))
+        assertEquals(Sport.OTHER, swim.sport)
+        assertEquals("Swimming and Diving", swim.sportName)
+        assertEquals("Field Hockey", PpvNames.parse("US| BTN+ PPV", "(US) (BTN+ 066) | Field Hockey: Penn State at Michigan State (2026-11-07 14:50:00)", now)!!.sportName)
+        assertEquals("Bull Riding", GuideGames.classify("Live: PBR Team Series", listOf("Sports", "Bull riding")).label)
+        val start = et(2026, 11, 7, 11)
+        val row = SportsMerge.merge(listOf(Found(Sport.OTHER, swim.title, null, swim.teams, start, start + 3_600_000, true, false, listOf(ch("s")), swim.certainty, swim.sportName))).single()
+        assertEquals("Swimming and Diving", row.sportLabel)
+        assertNull(SportsMerge.merge(listOf(Found(Sport.NFL, "a vs. b", null, Teams("Aaa", "Bbb"), start, start, true, false, listOf(ch("n")), sportName = "x"))).single().sportName, "only Other says it")
+    }
+
     @Test fun proTeamsAndCollegeByDefault() {
         assertEquals(Sport.NFL, sport("US| PEACOCK PPV VIP", "US (Peacock 087) | Vikings vs. 49ers (2026-11-08 19:00:00)"))
         assertEquals(Sport.NBA, sport("US| PEACOCK PPV VIP", "US (Peacock 044) | Performance View: OKC vs. POR (2026-11-07 23:00:00)"))

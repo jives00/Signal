@@ -152,7 +152,7 @@ class SportsRepository(
                 // Football on a channel from abroad is soccer.
                 val us = list.any { SportsGroups.country(it.group).let { c -> c == null || c == "US" } }
                 val c = Leagues.classify(l.title + " " + l.categories.filter { it != "Sports" }.joinToString(" "), teams = l.teams, us = us)
-                into += Found(c.sport, l.title, l.detail, l.teams, l.program.start, l.program.stop, stopGuessed = false, dayGuessed = false, channels = list, certainty = c.certainty)
+                into += Found(c.sport, l.title, l.detail, l.teams, l.program.start, l.program.stop, stopGuessed = false, dayGuessed = false, channels = list, certainty = c.certainty, sportName = c.label)
             }
         }
     }
@@ -182,7 +182,7 @@ class SportsRepository(
                 val stop = p.stop ?: (p.start + typicalLength(p.sport))
                 if (stop <= now || p.start > now + WEEK_MS) continue
                 val channel = if (p.sharedWithOthers) r.channel.copy(sharedWithOthers = true) else r.channel
-                into += Found(p.sport, p.title, null, p.teams, p.start, stop, stopGuessed = p.stop == null, dayGuessed = p.dayGuessed, channels = listOf(channel), certainty = p.certainty)
+                into += Found(p.sport, p.title, null, p.teams, p.start, stop, stopGuessed = p.stop == null, dayGuessed = p.dayGuessed, channels = listOf(channel), certainty = p.certainty, sportName = p.sportName)
             }
         }
     }
