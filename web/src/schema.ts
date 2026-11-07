@@ -160,6 +160,13 @@ export const GroupView = z.object({
   customName: z.string().nullable(),
 });
 export const GroupsView = z.object({ groupSort: z.string(), channelSort: z.string(), groups: z.array(GroupView) });
+export const SportsView = z.object({
+  hiddenSports: z.array(z.string()),
+  groupsOn: z.array(z.string()),
+  groupsOff: z.array(z.string()),
+  sports: z.array(z.object({ id: z.string(), label: z.string(), shown: z.boolean() })),
+  groups: z.array(z.object({ name: z.string(), on: z.boolean(), us: z.boolean() })),
+});
 
 export const ListsView = z.object({
   favorites: z.array(ChannelRow),
@@ -264,6 +271,7 @@ export type EpgSourceView = z.infer<typeof EpgSourceView>;
 export type SourcesView = z.infer<typeof SourcesView>;
 export type GroupView = z.infer<typeof GroupView>;
 export type GroupsView = z.infer<typeof GroupsView>;
+export type SportsView = z.infer<typeof SportsView>;
 export type ListsView = z.infer<typeof ListsView>;
 export type GuideChannelInfo = z.infer<typeof GuideChannelInfo>;
 export type QueueView = z.infer<typeof QueueView>;

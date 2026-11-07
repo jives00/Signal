@@ -1,0 +1,13 @@
+-- Live Sports (live-sports.md): one group's channels, hidden or not, for the page to look through.
+-- A group at a time, through stream_group: a real list is 57k channels.
+sportsChannels:
+SELECT s.id, s.source_id, s.raw_name, s.display_name, s.tvg_id, cl.user_channel_id, cp.custom_name,
+       coalesce(cp.hidden, 0) AS hidden, coalesce(go.hidden, 0) AS group_hidden,
+       (f.user_channel_id IS NOT NULL) AS is_favorite
+FROM stream s
+LEFT JOIN channel_link cl ON cl.stream_id = s.id
+LEFT JOIN channel_profile cp ON cp.user_channel_id = cl.user_channel_id AND cp.profile_id = :profileId
+LEFT JOIN favorite f ON f.user_channel_id = cl.user_channel_id AND f.profile_id = :profileId
+LEFT JOIN group_override go ON go.profile_id = :profileId AND go.source_id = s.source_id AND go.group_name = s.group_name
+WHERE s.source_id = :sourceId AND s.group_name = :groupName
+ORDER BY s.position;

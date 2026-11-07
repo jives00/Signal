@@ -85,6 +85,7 @@ fun FullScreenPlayback(route: Route.FullScreen) {
     }
 
     fun backToGuide() {
+        route.backTo?.let { app.navigator.go(it); return }
         // Back goes to Live TV on the current group, focused on the playing channel (PLAN §4.3.3).
         app.liveTvGroup = app.playback.currentGroup
         app.liveTvFocusKey = current?.key

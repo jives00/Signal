@@ -10,6 +10,7 @@ import lists from "./contract/lists.json";
 import overview from "./contract/overview.json";
 import queue from "./contract/queue.json";
 import settings from "./contract/settings.json";
+import sports from "./contract/sports.json";
 import cleanupPreview from "./contract/cleanup-preview.json";
 import settingsFile from "./contract/settings-file.json";
 import sources from "./contract/sources.json";
@@ -31,6 +32,7 @@ const cases: [string, ZodTypeAny, unknown][] = [
   ["channel-page", S.ChannelPage, channelPage],
   ["sources", S.SourcesView, sources],
   ["groups", S.GroupsView, groups],
+  ["sports", S.SportsView, sports],
   ["lists", S.ListsView, lists],
   ["queue", S.QueueView, queue],
   ["settings", S.SettingsView, settings],

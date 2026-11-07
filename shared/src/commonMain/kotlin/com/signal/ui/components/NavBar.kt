@@ -142,6 +142,7 @@ private fun NavBar(current: Route, chrome: PageChrome) {
     val items = buildList {
         add("Home" to Route.Home)
         add("Live TV" to Route.LiveTv)
+        add("Live Sports" to Route.LiveSports)
         if (movies > 0) add("Movies" to Route.Movies)
         if (series > 0) add("Series" to Route.Series)
         // Recordings are on the NAS, so a TV never paired has none (dvr.md). One paired but out of reach still gets the page, which says so.

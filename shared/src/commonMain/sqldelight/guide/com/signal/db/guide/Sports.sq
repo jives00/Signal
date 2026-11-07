@@ -1,0 +1,10 @@
+-- Live Sports (live-sports.md): listings with "Live: " in the title that could be games, airing in
+-- [from, to), guide time. Through the search index: `program` has no index on time, and reading all
+-- of it took seconds on the Shield. Every "Live: " title has the word "live" (program_fts is folded).
+liveListings:
+SELECT p.id, p.epg_source_id, p.guide_channel_id, p.start, p.stop, p.title, p.description, p.categories
+FROM program_fts f
+JOIN program p ON p.id = f.docid
+WHERE program_fts MATCH 'live' AND p.stop > ? AND p.start < ?
+  AND p.title LIKE 'Live: %'
+  AND (p.categories LIKE '%Sports%' OR p.title LIKE '%Red%Zone%' OR p.title LIKE '% vs. %');

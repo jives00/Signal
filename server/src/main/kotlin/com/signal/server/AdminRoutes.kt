@@ -331,6 +331,7 @@ fun Route.adminPageRoutes(companion: Companion) {
 
     // ---- Groups ----
     get("/groups") { call.answer { groupsView(companion, channels.view(call.profile())) } }
+    get("/sports") { call.answer { sportsView(companion, channels.view(call.profile())) } }
     post("/groups/edit") {
         val g = call.receive<GroupEdit>()
         call.edit {

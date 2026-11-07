@@ -49,6 +49,10 @@ class Settings(private val db: UserDatabase, private val io: CoroutineDispatcher
         REMOVE_EMOJI(Scope.PROFILE, "remove_emoji"),
         // Name cleanup rules as JSON (NameCleanup); unset is none.
         NAME_CLEANUP(Scope.PROFILE, "name_cleanup"),
+        // Live Sports: region, sports and groups (SportsSettings).
+        SPORTS(Scope.PROFILE, "sports"),
+        // The Live Sports page's filters on this TV (SportsFilters).
+        SPORTS_FILTERS(Scope.DEVICE, "sports_filters"),
         // The same for movie and series titles; kept apart from channels (PLAN §4.3.6 → Categories).
         VOD_NAME_CLEANUP(Scope.PROFILE, "vod_name_cleanup"),
         // Which provider movie and series categories to keep, as JSON (VodCategoryFilter); unset is all.

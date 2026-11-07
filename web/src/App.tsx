@@ -18,6 +18,7 @@ import Switch from "./pages/Switch";
 import VoiceCommands from "./pages/VoiceCommands";
 // Watch brings hls.js (about 500 kB), so it loads only when opened.
 const Watch = lazy(() => import("./pages/Watch"));
+import Sports from "./pages/Sports";
 import { VodCatalog, VodCategories, VodLibrary } from "./pages/Vod";
 
 type Page = { path: string; title: string };
@@ -32,6 +33,7 @@ const nav: { header?: string; pages: Page[] }[] = [
       { path: "/channels", title: "Channels" },
       { path: "/favorites", title: "Favorites & Playlists" },
       { path: "/groups", title: "Groups" },
+      { path: "/sports", title: "Live Sports" },
       { path: "/mapping", title: "EPG Mapping" },
       { path: "/reminders", title: "Reminders" },
       { path: "/recordings", title: "Recordings" },
@@ -140,6 +142,7 @@ function Shell() {
           <Route path="/channels" element={<Channels />} />
           <Route path="/favorites" element={<Lists />} />
           <Route path="/groups" element={<Groups />} />
+          <Route path="/sports" element={<Sports />} />
           <Route path="/mapping" element={<Mapping />} />
           <Route path="/switch" element={<Switch />} />
           <Route path="/vod" element={<Navigate to="/vod/catalog" replace />} />

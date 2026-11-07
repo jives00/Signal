@@ -113,6 +113,7 @@ fun SignalApp(app: AppController) {
                             is Route.SeriesDetail -> com.signal.ui.screens.SeriesPage(route)
                             Route.VodPlayer -> com.signal.ui.screens.VodPlayerScreen()
                             Route.Recordings -> com.signal.ui.screens.RecordingsPage()
+                            Route.LiveSports -> com.signal.ui.screens.LiveSportsPage()
                             Route.Settings -> SettingsPage()
                             is Route.FullScreen -> FullScreenPlayback(route)
                         }

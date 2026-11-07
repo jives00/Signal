@@ -84,6 +84,7 @@ export const movePlaylistItem = (id: string, uc: string, profile: string, toInde
 
 // ---- Groups ----
 export const getGroups = (profile: string) => read(S.GroupsView, `/api/groups?${q(profile)}`);
+export const getSports = (profile: string) => read(S.SportsView, `/api/sports?${q(profile)}`);
 export const editGroup = (body: { sourceId: string; group: string; profiles: string[]; hidden?: boolean; name?: string; clearName?: boolean; sort?: string }) =>
   post("/api/groups/edit", body);
 export const moveGroup = (sourceId: string, group: string, profile: string, toIndex: number) => post("/api/groups/move", { sourceId, group, profile, toIndex });

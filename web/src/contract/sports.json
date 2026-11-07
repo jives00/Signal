@@ -1,0 +1,25 @@
+{
+    "hiddenSports": [
+        "GOLF"
+    ],
+    "groupsOn": [
+        "US| FLO PPV"
+    ],
+    "groupsOff": [
+        "US| MAX PPV"
+    ],
+    "sports": [
+        {
+            "id": "NFL",
+            "label": "NFL",
+            "shown": true
+        }
+    ],
+    "groups": [
+        {
+            "name": "US| NFL PPV",
+            "on": true,
+            "us": true
+        }
+    ]
+}

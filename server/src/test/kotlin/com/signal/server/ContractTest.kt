@@ -86,6 +86,7 @@ class ContractTest {
             SourcesView(listOf(source), listOf(EpgSourceView("epg:src", "Provider guide", "XTREAM", "", "src", true, 0, true, 8343, 118_000, null, 1_760_000_000_000)), guideBuilding = false),
         )
         check("groups", GroupsView.serializer(), GroupsView("PROVIDER", "PROVIDER", listOf(GroupView("src", "Provider", "US Sports", "Sports", 120, false, null, "Sports"))))
+        check("sports", SportsView.serializer(), SportsView(setOf("GOLF"), setOf("US| FLO PPV"), setOf("US| MAX PPV"), listOf(SportRow("NFL", "NFL", true)), listOf(SportsGroupRow("US| NFL PPV", true, true))))
         check("lists", ListsView.serializer(), ListsView(listOf(row), listOf(PlaylistView("pl-1", "Sports", listOf(row)))))
         check(
             "queue", QueueView.serializer(),
