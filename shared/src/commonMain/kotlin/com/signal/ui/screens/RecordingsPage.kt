@@ -16,7 +16,9 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -31,6 +33,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.semantics.contentDescription
@@ -497,7 +500,12 @@ private fun DetailPane(
         is RecordingsEntry.Show -> e.next
         else -> null
     }
-    Column(modifier.clipToBounds(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    // Scrolls when the pane is taller than the screen: a focused button scrolls itself into view
+    // (focusable's bring-into-view), and the last one scrolls to the end, so the description below shows.
+    val scroll = rememberScrollState()
+    val scope = rememberCoroutineScope()
+    LaunchedEffect(e?.key) { scroll.scrollTo(0) }
+    Column(modifier.clipToBounds().verticalScroll(scroll), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         if (r == null) {
             if (e is RecordingsEntry.Failed) {
                 SText("Failed recordings", 34, weight = FontWeight.Bold)
@@ -542,13 +550,16 @@ private fun DetailPane(
                 buttons.forEachIndexed { i, (label, action) ->
                     SButton(
                         label, action,
-                        Modifier.fillMaxWidth().focusProperties { left = back },
+                        Modifier.fillMaxWidth().focusProperties { left = back }.let { m ->
+                            if (i != buttons.lastIndex) m
+                            else m.onFocusChanged { if (it.isFocused) scope.launch { scroll.animateScrollTo(scroll.maxValue) } }
+                        },
                         focusRequester = if (i == 0) first else null, fillWidth = true,
                     )
                 }
             }
         }
-        d?.description?.let { SText(it, 24, Modifier.padding(top = 12.dp), color = c.secondaryText, maxLines = 6) }
+        d?.description?.let { SText(it, 24, Modifier.padding(top = 12.dp, bottom = 24.dp), color = c.secondaryText, maxLines = 6) }
     }
 }
 
