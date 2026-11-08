@@ -27,6 +27,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -148,6 +149,9 @@ fun LiveSportsPage() {
     val moreButton = remember { FocusRequester() }
     // Left from a game goes back to the filter used last (live-sports.md → Round 2); When until one is.
     var lastFilter by remember { mutableStateOf<FocusRequester?>(null) }
+    // Whether a filter button holds focus, and whether one other than When has: the load's focus move skips them.
+    var filtersFocused by remember { mutableStateOf(false) }
+    var filtersMoved by remember { mutableStateOf(false) }
     val use24 = use24(app)
 
     suspend fun load() {
@@ -165,7 +169,8 @@ fun LiveSportsPage() {
     /** Back to the row played last, else the top one, unless the user has gone to the filters or the bar. */
     suspend fun focusList() {
         repeat(2) { withFrameNanos { } }
-        if (chrome.navHasFocus) return
+        // The games can take seconds to load: a filter opened meanwhile keeps the remote.
+        if (chrome.navHasFocus || app.panel.isOpen) return
         val shown = rows()
         if (shown.isEmpty()) {
             chrome.contentFocus.requestFocusWhenReady()
@@ -248,9 +253,11 @@ fun LiveSportsPage() {
 
     LaunchedEffect(Unit) {
         // On the filters until there are rows, so a key does something while it looks.
-        if (all != null) focusList() else chrome.contentFocus.requestFocusWhenReady()
+        val onRows = all != null
+        if (onRows) focusList() else chrome.contentFocus.requestFocusWhenReady()
         load()
-        focusList()
+        // Only if the user is still where focus was put: not on a filter they moved to while it loaded.
+        if (if (onRows) !filtersFocused else !filtersMoved) focusList()
         while (true) {
             delay(REFRESH_MS)
             load()
@@ -259,12 +266,16 @@ fun LiveSportsPage() {
 
     TopLevelPage(Route.LiveSports, chrome) {
         Column(Modifier.fillMaxSize().padding(horizontal = SignalSizes.EDGE_MARGIN.dp)) {
-            Row(Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 24.dp), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+            Row(
+                Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 24.dp).onFocusChanged { filtersFocused = it.hasFocus },
+                horizontalArrangement = Arrangement.spacedBy(16.dp),
+            ) {
                 val top = chrome.contentFocus
-                SButton(filters.whenOn.label, { chooseWhen(top) }, focusRequester = top)
-                SButton(filters.sportLabel, { chooseSport(sportButton) }, focusRequester = sportButton)
-                SButton(filters.region.label, { chooseRegion(regionButton) }, focusRequester = regionButton)
-                SButton("Sports and groups", { app.panel.open(sportsChoices(app) { scope.launch { load() } }, moreButton) }, focusRequester = moreButton)
+                val moved = Modifier.onFocusChanged { if (it.isFocused) filtersMoved = true }
+                SButton(filters.whenOn.label, { filtersMoved = true; chooseWhen(top) }, focusRequester = top)
+                SButton(filters.sportLabel, { chooseSport(sportButton) }, moved, focusRequester = sportButton)
+                SButton(filters.region.label, { chooseRegion(regionButton) }, moved, focusRequester = regionButton)
+                SButton("Sports and groups", { app.panel.open(sportsChoices(app) { scope.launch { load() } }, moreButton) }, moved, focusRequester = moreButton)
             }
             val shown = rows()
             when {
