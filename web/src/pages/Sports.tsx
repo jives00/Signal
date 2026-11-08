@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { getSports, putSetting } from "../admin";
 import { ApplyTo, profileNames, useProfiles, useToast } from "../context";
 import type { SportsView } from "../schema";
@@ -18,44 +18,69 @@ export default function Sports() {
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState("");
   const [world, setWorld] = useState(false);
+  /** Saves not yet answered: only the last one's reload is applied, so a quick second click isn't undone by the first's. */
+  const pending = useRef(0);
 
   const load = useCallback(() => {
-    getSports(profile).then((d) => { setData(d); setError(null); }).catch((e: Error) => setError(e.message));
+    getSports(profile).then((d) => {
+      // A newer click is still saving: its own reload brings the answer, and this one would undo it on screen.
+      if (pending.current > 0) return;
+      setData(d);
+      setError(null);
+    }).catch((e: Error) => setError(e.message));
   }, [profile]);
   useEffect(load, [load]);
 
   if (error) return <div className="page"><p className="error">{error}</p></div>;
   if (!data) return <div className="page">Loading…</div>;
 
-  const store = (changes: Partial<Stored>) => {
+  /**
+   * Saves [changes], showing [shown] at once: waiting for the save and the reload left about a second
+   * between a click and anything moving (user, 2026-11-07). The reload after the last save in a burst
+   * puts the companion's answer back; a failed save reloads too, undoing what was shown.
+   */
+  const store = (changes: Partial<Stored>, shown: SportsView) => {
     const next: Stored = {
       hiddenSports: data.hiddenSports, groupsOn: data.groupsOn, groupsOff: data.groupsOff,
       order: data.order, asOther: data.asOther, ownEntry: data.ownEntry, ...changes,
     };
     const empty = Object.values(next).every((v) => !v.length);
-    save(`Saved · applied to ${profileNames(applyTo, profiles)}`, () => putSetting("profile", "sports", empty ? null : JSON.stringify(next), applyTo), load);
+    setData({ ...shown, ...changes });
+    pending.current++;
+    save(`Saved · applied to ${profileNames(applyTo, profiles)}`, () => putSetting("profile", "sports", empty ? null : JSON.stringify(next), applyTo), () => {
+      if (pending.current <= 1) load();
+    }).then((ok) => {
+      pending.current--;
+      if (!ok) load();
+    });
   };
+  const withSport = (id: string, patch: Partial<SportsView["sports"][number]>): SportsView =>
+    ({ ...data, sports: data.sports.map((s) => (s.id === id ? { ...s, ...patch } : s)) });
   /** Moves an entry in the filter: the whole shown order is stored, so it holds as new sports appear. */
   const move = (from: number, to: number) => {
-    const ids = data.sports.map((s) => s.id);
-    const [id] = ids.splice(from, 1);
-    ids.splice(to, 0, id);
-    store({ order: ids });
+    const rows = [...data.sports];
+    const [row] = rows.splice(from, 1);
+    rows.splice(to, 0, row);
+    store({ order: rows.map((s) => s.id) }, { ...data, sports: rows });
   };
   const toggleOther = (row: SportsView["sports"][number]) => {
-    if (row.kind === "league") store({ asOther: row.inOther ? data.asOther.filter((s) => s !== row.id) : [...data.asOther, row.id] });
+    const shown = withSport(row.id, { inOther: !row.inOther });
+    if (row.kind === "league") store({ asOther: row.inOther ? data.asOther.filter((s) => s !== row.id) : [...data.asOther, row.id] }, shown);
     else if (row.kind === "named") {
       const name = row.label;
-      store({ ownEntry: row.inOther ? [...data.ownEntry, name] : data.ownEntry.filter((s) => s.toLowerCase() !== name.toLowerCase()) });
+      store({ ownEntry: row.inOther ? [...data.ownEntry, name] : data.ownEntry.filter((s) => s.toLowerCase() !== name.toLowerCase()) }, shown);
     }
   };
   const toggleSport = (id: string, shown: boolean) =>
-    store({ hiddenSports: shown ? [...data.hiddenSports, id] : data.hiddenSports.filter((s) => s !== id) });
+    store({ hiddenSports: shown ? [...data.hiddenSports, id] : data.hiddenSports.filter((s) => s !== id) }, withSport(id, { shown: !shown }));
   const toggleGroup = (name: string, on: boolean) =>
-    store({
-      groupsOn: on ? data.groupsOn.filter((g) => g !== name) : [...data.groupsOn, name],
-      groupsOff: on ? [...data.groupsOff, name] : data.groupsOff.filter((g) => g !== name),
-    });
+    store(
+      {
+        groupsOn: on ? data.groupsOn.filter((g) => g !== name) : [...data.groupsOn, name],
+        groupsOff: on ? [...data.groupsOff, name] : data.groupsOff.filter((g) => g !== name),
+      },
+      { ...data, groups: data.groups.map((g) => (g.name === name ? { ...g, on: !on } : g)) },
+    );
 
   const storeImages = (next: Record<string, string>) =>
     save("Saved · all profiles", () => putSetting("household", "sport_images", Object.keys(next).length ? JSON.stringify(next) : null, [profile]), load);
