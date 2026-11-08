@@ -251,10 +251,25 @@ internal object EspnMatch {
     private val abbr = Regex("""^[A-Z&]{2,5}$""")
     private val filler = setOf("fc", "cf", "afc", "sc", "the", "of", "university", "univ", "club", "st", "state")
 
-    class Index(val games: List<EspnGame>) {
+    /**
+     * [memo]: what [apply] worked out, passed on to the next index when a status refresh brings no new
+     * games. Live Sports matches the same games on every visit, and folding ESPN's names for each
+     * pair took 2.5 s a visit on the emulator (2026-11-07). It holds game keys, never games, so a
+     * newer score is always read from this index. Only [apply] uses it, which runs under
+     * SportsRepository's lock, so it's never used from two threads at once.
+     */
+    class Index(val games: List<EspnGame>, internal val memo: Memo = Memo()) {
         val byWord: Map<String, List<EspnGame>> = HashMap<String, MutableList<EspnGame>>().also { map ->
             for (g in games) for (t in listOf(g.away, g.home)) for (w in names(t).flatten().toSet() + listOfNotNull(t.abbr?.lowercase())) map.getOrPut(w) { ArrayList(2) } += g
         }
+        internal val byKey: Map<String, EspnGame> = games.associateBy { it.key }
+    }
+
+    internal class Memo {
+        val names = HashMap<List<String?>, List<Set<String>>>()
+        val folded = HashMap<String, String>()
+        val byTeams = HashMap<Any, Pair<String, Boolean>?>()
+        val byDescription = HashMap<Any, String?>()
     }
 
     private fun words(text: String): Set<String> = SearchText.words(text.replace(rank, "").replace("'", "")).toSet()
@@ -262,13 +277,16 @@ internal object EspnMatch {
     private fun names(t: EspnTeam): List<Set<String>> =
         listOfNotNull(t.name, t.short, t.location, t.location?.let { l -> t.nickname?.let { "$l $it" } }).map(::words).filter { it.isNotEmpty() }
 
+    private fun names(t: EspnTeam, memo: Memo?): List<Set<String>> =
+        memo?.names?.getOrPut(listOf(t.name, t.short, t.location, t.nickname)) { names(t) } ?: names(t)
+
     /** 2 for a side that is the team's name, 1 for one that only shares its words, 0 for neither. */
-    private fun score(side: String, t: EspnTeam): Int {
+    private fun score(side: String, t: EspnTeam, memo: Memo?): Int {
         val text = side.replace(rank, "").trim()
         if (abbr.matches(text)) return if (t.abbr.equals(text, ignoreCase = true)) 2 else 0
         val w = words(text)
         if (w.isEmpty()) return 0
-        val ns = names(t)
+        val ns = names(t, memo)
         if (ns.any { it == w }) return 2
         val core = w - filler
         if (core.isEmpty()) return 0
@@ -299,14 +317,14 @@ internal object EspnMatch {
     }
 
     /** The game ESPN has for [teams] near [start], and whether its home team is the one written first. */
-    fun game(index: Index, teams: Teams, sport: Sport, certainty: Int, start: Long, dayGuessed: Boolean): Pair<EspnGame, Boolean>? {
+    fun game(index: Index, teams: Teams, sport: Sport, certainty: Int, start: Long, dayGuessed: Boolean, memo: Memo? = null): Pair<EspnGame, Boolean>? {
         val first = words(teams.first) + listOfNotNull(teams.first.replace(rank, "").trim().takeIf { abbr.matches(it) }?.lowercase())
         val within = if (dayGuessed) GUESSED_DAY_MS else WINDOW_MS
         return first.flatMap { index.byWord[it].orEmpty() }.distinct()
             .filter { abs(it.start - start) <= within && fits(sport, certainty, it) }
             .mapNotNull { g ->
-                val straight = score(teams.first, g.away).let { a -> if (a == 0) 0 else score(teams.second, g.home).let { b -> if (b == 0) 0 else a + b } }
-                val swapped = score(teams.first, g.home).let { a -> if (a == 0) 0 else score(teams.second, g.away).let { b -> if (b == 0) 0 else a + b } }
+                val straight = score(teams.first, g.away, memo).let { a -> if (a == 0) 0 else score(teams.second, g.home, memo).let { b -> if (b == 0) 0 else a + b } }
+                val swapped = score(teams.first, g.home, memo).let { a -> if (a == 0) 0 else score(teams.second, g.away, memo).let { b -> if (b == 0) 0 else a + b } }
                 when {
                     straight == 0 && swapped == 0 -> null
                     straight >= swapped -> Triple(g, straight, false)
@@ -322,7 +340,12 @@ internal object EspnMatch {
         if (swapped) Teams.of(side(g.home), side(g.away), status(g)) else Teams.of(side(g.away), side(g.home), status(g))
 
     private fun byTeams(f: Found, teams: Teams, index: Index, now: Long): Found? {
-        val (g, swapped) = game(index, teams, f.sport, f.certainty, f.start, f.dayGuessed) ?: return null
+        val memo = index.memo
+        val key = listOf(teams.first, teams.second, f.sport, f.certainty, f.start, f.dayGuessed)
+        val found = if (key in memo.byTeams) memo.byTeams[key]
+        else (game(index, teams, f.sport, f.certainty, f.start, f.dayGuessed, memo)?.let { (g, swapped) -> g.key to swapped }).also { memo.byTeams[key] = it }
+        val (gameKey, swapped) = found ?: return null
+        val g = index.byKey[gameKey] ?: return null
         val start = if (f.dayGuessed) g.start else f.start
         val stop = stopFor(g, if (f.dayGuessed) g.start + (f.stop - f.start) else f.stop, now)
         return f.copy(sport = g.sport, sportName = g.label ?: f.sportName, certainty = Classified.ESPN, teams = teamsOf(g, swapped), start = start, stop = stop, dayGuessed = false)
@@ -331,8 +354,17 @@ internal object EspnMatch {
     private fun byDescription(f: Found, index: Index, now: Long): Found? {
         if (!f.sport.teamSport) return null
         val text = f.channels.firstNotNullOfOrNull { it.program?.description } ?: f.detail ?: return null
+        val memo = index.memo
+        val key = listOf(text, f.start, f.sport.family)
+        val gameKey = (if (key in memo.byDescription) memo.byDescription[key] else (describedGame(text, f, index, memo)?.key).also { memo.byDescription[key] = it }) ?: return null
+        val g = index.byKey[gameKey] ?: return null
+        return f.copy(sport = g.sport, sportName = g.label ?: f.sportName, certainty = Classified.ESPN, teams = teamsOf(g, false), stop = stopFor(g, f.stop, now))
+    }
+
+    /** The one game [text] (a listing's description) names by its teams or venue, else null. */
+    private fun describedGame(text: String, f: Found, index: Index, memo: Memo): EspnGame? {
         val d = " " + SearchText.fold(text) + " "
-        fun mentions(phrase: String?) = phrase != null && phrase.length >= 4 && d.contains(" ${SearchText.fold(phrase)} ")
+        fun mentions(phrase: String?) = phrase != null && phrase.length >= 4 && d.contains(" ${memo.folded.getOrPut(phrase) { SearchText.fold(phrase) }} ")
         val scored = index.games.asSequence()
             .filter { it.start in (f.start - LATE_MS)..(f.start + EARLY_MS) && it.sport.family == f.sport.family }
             .map { g ->
@@ -343,8 +375,7 @@ internal object EspnMatch {
             }
             .filter { it.second > 0 }.sortedByDescending { it.second }.toList()
         if (scored.isEmpty() || (scored.size > 1 && scored[0].second == scored[1].second)) return null
-        val g = scored[0].first
-        return f.copy(sport = g.sport, sportName = g.label ?: f.sportName, certainty = Classified.ESPN, teams = teamsOf(g, false), stop = stopFor(g, f.stop, now))
+        return scored[0].first
     }
 
     /** The game for a listing's teams, for the info bar: none unless both teams and the time agree. */

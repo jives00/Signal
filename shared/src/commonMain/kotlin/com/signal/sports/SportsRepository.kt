@@ -61,17 +61,26 @@ class SportsRepository(
     /** Every game for this TV's region from now on. Slow the first time; quick after that until something changes. */
     suspend fun events(now: Long): List<SportEvent> = lock.withLock {
         val started = kotlin.time.TimeSource.Monotonic.markNow()
+        var mark = started
+        val steps = ArrayList<String>()
+        fun step(name: String) { val at = kotlin.time.TimeSource.Monotonic.markNow(); steps += "$name ${(at - mark).inWholeMilliseconds}"; mark = at }
         val s = settings()
         val all = rows(s, filters().region)
+        step("channels")
         val map = guideMap(all)
+        step("guide map")
         val found = ArrayList<Found>()
         guideGames(now, map, found)
+        step("listings")
         val espn = scores?.index()
+        step("ESPN")
         withContext(guideIo) {
             nameGames(all, now, found)
+            step("names")
             val named = espn?.let { EspnMatch.apply(found, it, now) } ?: found
-            SportsMerge.merge(named).filter { it.stop > now && s.shows(it) }
-        }.also { log?.invoke("Live Sports: ${it.size} games from ${all.size} channels in ${started.elapsedNow().inWholeMilliseconds} ms") }
+            step("match")
+            SportsMerge.merge(named).filter { it.stop > now && s.shows(it) }.also { step("merge") }
+        }.also { log?.invoke("Live Sports: ${it.size} games from ${all.size} channels in ${started.elapsedNow().inWholeMilliseconds} ms (${steps.joinToString()})") }
     }
 
     /** The groups Live Sports can read in this TV's region, with whether the profile does. For Settings. */

@@ -64,8 +64,10 @@ class SportsScores(
             val byKey = fresh.associateBy { it.key }
             val kept = games.map { byKey[it.key] ?: it }
             val known = kept.mapTo(HashSet()) { it.key }
-            games = kept + fresh.filter { it.key !in known }
-            index = EspnMatch.Index(games)
+            val added = fresh.filter { it.key !in known }
+            games = kept + added
+            // Only scores and status changed: what Live Sports matched still holds.
+            index = if (added.isEmpty()) EspnMatch.Index(games, index.memo) else EspnMatch.Index(games)
             statusAt = now
         }
         EventChannels.update(games)

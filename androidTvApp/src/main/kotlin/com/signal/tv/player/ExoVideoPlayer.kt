@@ -260,6 +260,30 @@ class ExoVideoPlayer(private val context: Context) : VideoPlayer {
         override fun onTransferStart(source: androidx.media3.datasource.DataSource, dataSpec: androidx.media3.datasource.DataSpec, isNetwork: Boolean) {
             bytesSeen = false
             mark("response")
+            checkForFiller(source)
+        }
+
+        /**
+         * A live TS stream never ends, so the provider sends it without a length. A length means a
+         * file: the provider's black, silent clip for an event channel it isn't carrying (ESPN+ PPV VIP,
+         * 2026-11-07). ExoPlayer then opened it three times to read its duration, which is how those
+         * tunes showed in the zap timing; channels that played opened once. Called on the loader thread.
+         */
+        private fun checkForFiller(source: androidx.media3.datasource.DataSource) {
+            val started = playStartedAt
+            val req = request ?: return
+            if (started == 0L || !req.isLive || req.url.contains(".m3u8")) return
+            val headers = (source as? HttpDataSource)?.responseHeaders ?: return
+            val length = headers.entries.firstOrNull { it.key.equals("Content-Length", ignoreCase = true) }?.value?.firstOrNull()?.toLongOrNull() ?: return
+            // Some providers send a huge made-up length for a live stream; the filler is a few megabytes.
+            if (length <= 0 || length > FILLER_MAX_BYTES) return
+            main.post {
+                if (playStartedAt != started || played) return@post
+                log("Player: the provider answered with a ${length / 1024} KB clip, not a live stream; it isn't carrying this event")
+                playStartedAt = 0L
+                exo.stop()
+                _state.update { it.copy(status = PlaybackState.Status.ERROR, error = PlaybackError(PlaybackError.Kind.NO_EVENT)) }
+            }
         }
         override fun onBytesTransferred(source: androidx.media3.datasource.DataSource, dataSpec: androidx.media3.datasource.DataSpec, isNetwork: Boolean, bytesTransferred: Int) {
             if (isNetwork) stalls.bytesIn.addAndGet(bytesTransferred.toLong())
@@ -687,6 +711,8 @@ class ExoVideoPlayer(private val context: Context) : VideoPlayer {
 
     companion object {
         const val DEFAULT_USER_AGENT = "Signal/1.0 (Android TV)"
+        /** A live answer with a length under this is the provider's filler clip ([checkForFiller]). */
+        private const val FILLER_MAX_BYTES = 100L * 1024 * 1024
 
         /** The Large on-demand buffer's cap in bytes: about two minutes of 1080p within the Shield's 192 MB heap. */
         private const val LARGE_VOD_BYTES = 64 * 1024 * 1024

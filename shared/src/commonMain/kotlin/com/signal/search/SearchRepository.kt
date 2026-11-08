@@ -70,8 +70,16 @@ class SearchRepository(
         // Any change to channels, favorites or hidden flags: rebuild. Straight away once something
         // has searched (after a pause, for bursts like a sync), so the next search or voice command
         // doesn't wait seconds for it on a large list.
+        // Only when the list really changed: a write to any table the query reads notifies it, and a
+        // tune or a sync touches those even when nothing here differs. Each false alarm threw away
+        // this index and Live Sports' channels (which key on [version]), ~7 s on the Shield (2026-11-07).
         scope.launch {
-            db.streamQueries.searchIndex(settings.profileId).asFlow().collect {
+            var last: List<Any>? = null
+            @OptIn(kotlinx.coroutines.FlowPreview::class)
+            db.streamQueries.searchIndex(settings.profileId).asFlow().debounce(300).collect { query ->
+                val rows = withContext(io) { query.executeAsList() }
+                if (rows == last) return@collect
+                last = rows
                 val wasBuilt = lock.withLock { (entries != null).also { entries = null; byGuideChannel = null; _versions.value++ } }
                 if (wasBuilt) rebuild.tryEmit(Unit)
             }

@@ -44,13 +44,34 @@ data class SportsView(
     val ownEntry: Set<String> = emptySet(),
 )
 
+/**
+ * The catalog's sports streams, each with the sports its name gives that land in Other. Scanning every
+ * stream and parsing every PPV name on each request made the Live Sports page take ~3 s a click on the
+ * NAS (2026-11-07), so it's kept per catalog version, and redone hourly since names are read against the day.
+ */
+private object SportsScan {
+    class Scan(val catalog: Catalog, val key: Pair<Int, Long>, val streams: List<Pair<CatalogStream, List<String>>>)
+
+    @Volatile private var last: Scan? = null
+
+    fun of(catalog: Catalog, now: Long): Scan {
+        val key = catalog.version to now / 3_600_000L
+        last?.takeIf { it.catalog === catalog && it.key == key }?.let { return it }
+        val streams = catalog.streams.filter { SportsGroups.isSports(it.groupName) }.map { st ->
+            st to PpvNames.parseAll(st.groupName, st.rawName, now).filter { it.sport == Sport.OTHER }.mapNotNull { it.sportName }
+        }
+        return Scan(catalog, key, streams).also { last = it }
+    }
+}
+
 internal fun sportsView(companion: Companion, view: AdminView): SportsView {
     val s = SportsSettings.parse(view.profileSettings[Settings.Key.SPORTS.id])
     val images = SportImages.parse(view.householdSettings[Settings.Key.SPORT_IMAGES.id])
-    val names = companion.catalog.streams.asSequence().filter { view.sourceShown(it.sourceId) }.map { it.groupName }.distinct().filter(SportsGroups::isSports)
+    val scan = SportsScan.of(companion.catalog, System.currentTimeMillis())
+    val names = scan.streams.asSequence().map { it.first }.filter { view.sourceShown(it.sourceId) }.map { it.groupName }.distinct()
     return SportsView(
         s.hiddenSports, s.groupsOn, s.groupsOff,
-        sportRows(companion, view, s),
+        sportRows(companion, view, s, scan),
         names.map { SportsGroupRow(it, s.reads(it), SportsGroups.country(it) == "US") }.sortedWith(compareBy({ !it.us }, { it.name })).toList(),
         images,
         Sport.entries.map { SportImageRow(it.name, it.label, it.family.name, it.short, SportImages.url(it, images), SportImages.defaults[it], images[it.name]) },
@@ -63,16 +84,13 @@ internal fun sportsView(companion: Companion, view: AdminView): SportsView {
  * reads give ("Swimming and Diving"), ESPN's feeds of their own ("Field Hockey"), and any already given
  * an entry. In the profile's order, the way the TV lists them.
  */
-private fun sportRows(companion: Companion, view: AdminView, s: SportsSettings): List<SportRow> {
-    val now = System.currentTimeMillis()
+private fun sportRows(companion: Companion, view: AdminView, s: SportsSettings, scan: SportsScan.Scan): List<SportRow> {
     val named = sortedMapOf<String, String>(String.CASE_INSENSITIVE_ORDER)
     fun add(name: String?) { if (!name.isNullOrBlank()) named.putIfAbsent(name.trim(), name.trim()) }
     s.ownEntry.forEach(::add)
-    companion.catalog.streams.asSequence()
-        .filter { view.sourceShown(it.sourceId) && SportsGroups.isSports(it.groupName) && s.reads(it.groupName) }
-        .flatMap { PpvNames.parseAll(it.groupName, it.rawName, now) }
-        .filter { it.sport == Sport.OTHER }
-        .forEach { add(it.sportName) }
+    scan.streams.asSequence()
+        .filter { (st, _) -> view.sourceShown(st.sourceId) && s.reads(st.groupName) }
+        .forEach { (_, others) -> others.forEach(::add) }
     runCatching { companion.sportsSchedule.aroundNow() }.getOrDefault(emptyList()).forEach { if (it.sport == Sport.OTHER) add(it.label) }
     val leagues = Sport.entries.map { sport ->
         when (sport) {

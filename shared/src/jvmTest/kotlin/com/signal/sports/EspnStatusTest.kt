@@ -82,4 +82,18 @@ class EspnStatusTest {
         val over = EspnMatch.apply(listOf(f), EspnMatch.Index(games("post", "Final", away = "31", home = "10")), et(2026, 11, 8, 16)).single()
         assertTrue(over.stop <= et(2026, 11, 8, 16), "over once it's final")
     }
+
+    // The match is kept across a status refresh (2026-11-07), but the score always comes from the newest index.
+    @Test fun aKeptMatchReadsTheNewestScore() {
+        val at = et(2026, 11, 8, 17, 30)
+        val f = Found(Sport.NFL, "Cowboys vs. Colts", null, Teams("Cowboys", "Colts"), et(2026, 11, 8, 13), et(2026, 11, 8, 17), true, true, emptyList())
+        val first = EspnMatch.Index(games("in", "Halftime", away = "14", home = "7"))
+        assertEquals("14–7", EspnMatch.apply(listOf(f), first, at).single().teams!!.score)
+        assertEquals(1, first.memo.byTeams.size)
+        val refreshed = EspnMatch.Index(games("in", "Q3 5:12", away = "21", home = "7"), first.memo)
+        val again = EspnMatch.apply(listOf(f), refreshed, at).single()
+        assertEquals("21–7", again.teams!!.score)
+        assertEquals("Q3 5:12", again.teams!!.status!!.detail)
+        assertEquals(1, refreshed.memo.byTeams.size, "matched from the kept memo")
+    }
 }
