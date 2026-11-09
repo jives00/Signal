@@ -158,6 +158,26 @@ class SportsRulesTest {
         assertFalse(game.stopGuessed)
     }
 
+    /** Sunday night on NBC: 40 affiliates with the listing mustn't push the event channels off the row, and they come first (2026-11-08). */
+    @Test fun eventChannelsKeepAPlaceBesideManyAffiliates() {
+        val sunday = et(2026, 11, 8, 11)
+        val start = et(2026, 11, 8, 20, 20)
+        val affiliates = (0 until 40).map { i ->
+            val ch = channel("nbc$i", order = i).copy(program = com.signal.model.Program(id = i.toLong(), epgSourceId = "e", guideChannelId = "g$i", start = start - 1_200_000, stop = start + 3 * 3_600_000L, title = "Live: NFL Football"))
+            found("NFL Football - Tampa Bay Buccaneers vs. Chicago Bears", Teams("Tampa Bay Buccaneers", "Chicago Bears"), start - 1_200_000, ch)
+        }
+        val ppv = listOf("NFL   | 4k - SNF 8:20pm Buccaneers at Bears", "NFL  | 14 - SNF 8:20pm Buccaneers at Bears").mapIndexed { i, raw ->
+            val p = PpvNames.parseAll("US| NFL PPV", raw, sunday).single()
+            assertEquals(start, p.start, raw)
+            Found(p.sport, p.title, null, p.teams, p.start, p.start + 3 * 3_600_000L, true, p.dayGuessed, listOf(channel("ppv$i", order = 100 + i)))
+        }
+        val row = SportsMerge.merge(affiliates + ppv).single()
+        assertEquals(40, row.channels.size)
+        assertEquals(listOf("ppv0", "ppv1", "nbc0"), row.channels.take(3).map { it.streamId })
+        val favorite = SportsMerge.merge(affiliates.take(1).map { it.copy(channels = it.channels.map { c -> c.copy(favorite = true) }) } + ppv).single()
+        assertEquals("nbc0", favorite.channels.first().streamId, "a favorite still leads")
+    }
+
     @Test fun titlesWithoutTeamsStayApart() {
         val start = et(2026, 11, 7, 15)
         val rows = SportsMerge.merge(

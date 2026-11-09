@@ -84,16 +84,31 @@ internal object SportsMerge {
                 key = "${SearchText.fold(f.title)}|${f.detail.orEmpty().take(24)}|${r.start}",
                 sport = r.sport, sportName = r.sportName.takeIf { r.sport == Sport.OTHER }, title = f.title, detail = f.detail, teams = r.teams,
                 start = r.start, stop = r.stop, stopGuessed = r.stopGuessed,
-                channels = r.channels.values.sortedWith(best).take(maxChannels),
+                channels = trim(r.channels.values.sortedWith(best), maxChannels),
             )
         }
     }
 
     /**
-     * A favorite first, then a channel showing only this game, then a visible one, then one with a
-     * guide, then the provider's order.
+     * The best [max] channels, keeping event channels: a national game is on every affiliate, and 40
+     * NBC stations with the listing pushed both NFL PPV channels off Sunday Night Football (2026-11-08).
+     * Up to half the places go to channels whose name says they carry this game; the rest keep [best]'s order.
      */
-    private val best = compareBy<EventChannel>({ !it.favorite }, { it.sharedWithOthers }, { it.hidden }, { it.program == null }, { it.order })
+    private fun trim(sorted: List<EventChannel>, max: Int): List<EventChannel> {
+        if (sorted.size <= max) return sorted
+        val named = sorted.filter { it.isEvent }.take(max / 2).toSet()
+        val rest = sorted.filter { it !in named }.take(max - named.size).toSet()
+        return sorted.filter { it in named || it in rest }
+    }
+
+    /**
+     * A favorite first, then an event channel for this game (named for it, so made for it, where a
+     * national game is also on every affiliate), then a channel showing only this game, then a visible
+     * one, then one with a guide, then the provider's order.
+     */
+    private val best = compareBy<EventChannel>({ !it.favorite }, { !it.isEvent }, { it.sharedWithOthers }, { it.hidden }, { it.program == null }, { it.order })
+
+    private val EventChannel.isEvent get() = program == null && !sharedWithOthers
 
     private fun foreign(title: String) = title.startsWith("Fútbol") || title.startsWith("Futbol") || title.startsWith("Boxeo")
 
