@@ -68,7 +68,7 @@ data class ActivityView(val sources: List<SourceActivityView>)
 data class SourceActivityView(
     val id: String,
     val name: String,
-    /** Streams it may play at once (`Source.connections`), if known. */
+    /** Streams it may play at once (`Source.connections`), if known; null for a source with more than one login. */
     val limit: Int?,
     val logins: List<LoginActivityView>,
 )
@@ -123,7 +123,8 @@ class ActivityViews(
         ActivityView(
             logins.map { (s, ls) ->
                 SourceActivityView(
-                    s.id, s.name, s.connections,
+                    // The source's limit is its own login's; with more logins the card adds up theirs.
+                    s.id, s.name, s.connections.takeIf { s.logins.size == 1 },
                     ls.map { l ->
                         val k = key(s, l.id)
                         LoginActivityView(l.id, l.name, info[k]?.activeConnections, info[k]?.maxConnections, placed.filter { it.first == k }.map { it.second }.sortedBy { it.since })
