@@ -2,12 +2,14 @@ package com.signal.sports
 
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Deferred
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 
 /**
@@ -60,32 +62,43 @@ class SportsScores(
         val fresh = runCatching { nowFromCompanion() }.getOrNull()
             ?: runCatching { direct.games(EspnScoreboards.days(now, ahead = 0)) }.getOrNull()
             ?: return
-        lock.withLock {
+        val (merged, built) = lock.withLock {
             val byKey = fresh.associateBy { it.key }
             val kept = games.map { byKey[it.key] ?: it }
             val known = kept.mapTo(HashSet()) { it.key }
             val added = fresh.filter { it.key !in known }
-            games = kept + added
+            val merged = kept + added
             // Only scores and status changed: what Live Sports matched still holds.
-            index = if (added.isEmpty()) EspnMatch.Index(games, index.memo) else EspnMatch.Index(games)
+            val built = build(merged, if (added.isEmpty()) index.memo else null)
+            games = merged
+            index = built
             statusAt = now
+            merged to built
         }
-        EventChannels.update(games)
+        EventChannels.update(merged, built)
     }
+
+    /**
+     * Folding every team's names takes seconds on a Chromecast, and [scope] is the main thread: built
+     * there, it froze the remote every status refresh (Parents Basement, 1.1.19, 2026-11-10).
+     */
+    private suspend fun build(games: List<EspnGame>, memo: EspnMatch.Memo?): EspnMatch.Index =
+        withContext(Dispatchers.Default) { if (memo != null) EspnMatch.Index(games, memo) else EspnMatch.Index(games) }
 
     private suspend fun load() {
         val now = clock()
         val viaCompanion = runCatching { fromCompanion() }.getOrNull()
         val found = viaCompanion ?: runCatching { direct.games(EspnScoreboards.days(now, ahead = 1)) }.getOrDefault(emptyList())
         log?.invoke("Live Sports: ${found.size} ESPN games from ${if (viaCompanion != null) "the companion" else "ESPN"}")
+        val built = build(found, null)
         lock.withLock {
             games = found
-            index = EspnMatch.Index(found)
+            index = built
             // Nothing at all is likely a failure: try again sooner.
             loadedAt = if (found.isEmpty()) now - FRESH_MS + RETRY_MS else now
             statusAt = now
         }
-        EventChannels.update(found)
+        EventChannels.update(found, built)
     }
 
     private companion object {

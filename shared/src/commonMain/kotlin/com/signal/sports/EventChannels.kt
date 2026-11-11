@@ -35,9 +35,11 @@ object EventChannels {
     val changes: StateFlow<Int> = changed.asStateFlow()
 
     /** ESPN's latest games: the TV's [SportsScores] and the companion's schedule keep this current. */
-    fun update(games: List<EspnGame>) {
+    fun update(games: List<EspnGame>) = update(games, EspnMatch.Index(games))
+
+    /** [index]: one already built for [games], which the TV's [SportsScores] passes so it isn't built twice. */
+    internal fun update(games: List<EspnGame>, index: EspnMatch.Index) {
         val next = games.associate { it.key to it.state }
-        val index = EspnMatch.Index(games)
         val moved = synchronized(lock) {
             espn = index
             (next != states).also { if (it) states = next }
