@@ -144,7 +144,14 @@ export default function Sources() {
                     {s.username || "—"}
                     {s.hasPassword && <> · <span className="mono">{revealed[s.id] ?? "••••••"}</span> <button className="link" onClick={() => reveal(s)}>{revealed[s.id] ? "Hide" : "Reveal"}</button></>}
                     {s.kind === "XTREAM" && <div className="detail small">
-                      {s.accounts.length > 0 ? `+ ${s.accounts.map((a) => a.name).join(", ")}` : "One login"}{" "}
+                      {s.accounts.length === 0 && "One login "}
+                      {s.accounts.map((a) => (
+                        <div key={a.id}>
+                          + {a.name}
+                          {a.expiresAt ? ` · expires ${new Date(a.expiresAt * 1000).toLocaleDateString()}` : ""}
+                          {a.status && a.status !== "Active" && <span className="tag">{a.status}</span>}
+                        </div>
+                      ))}
                       <button className="link" onClick={() => setLogins({ source: s, accounts: s.accounts.map((a) => ({ id: a.id, name: a.name, username: a.username, password: "" })) })}>Logins</button>
                     </div>}
                   </td>

@@ -103,7 +103,11 @@ data class SourceView(
     val accounts: List<AccountView> = emptyList(),
 )
 
-@Serializable data class AccountView(val id: String, val name: String, val username: String)
+/** One extra login; [expiresAt] (epoch seconds), [providerConnections] and [status] are its own account's, from the companion's last check. */
+@Serializable data class AccountView(
+    val id: String, val name: String, val username: String,
+    val providerConnections: Int? = null, val expiresAt: Long? = null, val status: String? = null,
+)
 
 @Serializable
 data class EpgSourceView(
@@ -655,7 +659,9 @@ private suspend fun sourceViews(companion: Companion, view: AdminView): List<Sou
             s.id, s.name, s.kind.name, s.url, s.username, s.password.isNotEmpty(), s.userAgent, s.referrer, s.enabled, s.liveFormat.name, s.connectionLimit,
             st?.lastRefreshedAt ?: 0, st?.lastError, st?.streams ?: 0, companion.catalog.refreshing == s.id,
             st?.providerConnections, st?.expiresAt, view.hiddenSourcesByProfile.filterValues { s.id in it }.keys.sorted(),
-            s.accounts.map { AccountView(it.id, it.name, it.username) },
+            companion.catalog.accounts(s.id).let { checked ->
+                s.accounts.map { a -> checked[a.id].let { c -> AccountView(a.id, a.name, a.username, c?.providerConnections, c?.expiresAt, c?.status) } }
+            },
         )
     }
 }

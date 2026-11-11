@@ -29,19 +29,25 @@ const shortDate = (ms: number) => new Date(ms).toLocaleDateString([], { month: "
  * seconds. A recording on such a channel can still find another source, so it says may.
  */
 export function expiryWarnings(
-  sources: { name: string; id: string; enabled: boolean; expiresAt: number | null }[],
+  sources: { name: string; id: string; enabled: boolean; expiresAt: number | null; accounts?: { name: string; expiresAt: number | null }[] }[],
   recordings: Pick<Recording, "state" | "title" | "streamId" | "startMs" | "programStart">[],
   now: number,
 ): string[] {
+  const notice = (name: string, at: number) => {
+    if (at <= now) return [`${name} expired ${shortDate(at)}`];
+    if (at - now > EXPIRY_NOTICE_DAYS * DAY_MS) return [];
+    const days = Math.ceil((at - now) / DAY_MS);
+    return [`${name} expires in ${days === 1 ? "1 day" : `${days} days`} (${shortDate(at)})`];
+  };
   return sources.flatMap((s) => {
-    if (!s.enabled || !s.expiresAt) return [];
+    if (!s.enabled) return [];
+    // Extra logins are separate subscriptions: one running out leaves the others, so only the source's own warns about recordings.
+    const logins = (s.accounts ?? []).flatMap((a) => (a.expiresAt ? notice(`${s.name} login ${a.name}`, a.expiresAt * 1000) : []));
+    if (!s.expiresAt) return logins;
     const at = s.expiresAt * 1000;
     const after = recordings.filter((r) => r.state === "SCHEDULED" && r.streamId.startsWith(`${s.id}:`) && (r.programStart ?? r.startMs) >= at);
     const missing = after.map((r) => `${s.name} expires ${shortDate(at)}, before ${r.title} on ${shortDate(r.programStart ?? r.startMs)}: it may not record`);
-    if (at <= now) return [`${s.name} expired ${shortDate(at)}`, ...missing];
-    if (at - now > EXPIRY_NOTICE_DAYS * DAY_MS) return missing;
-    const days = Math.ceil((at - now) / DAY_MS);
-    return [`${s.name} expires in ${days === 1 ? "1 day" : `${days} days`} (${shortDate(at)})`, ...missing];
+    return [...notice(s.name, at), ...missing, ...logins];
   });
 }
 

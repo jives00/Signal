@@ -169,7 +169,13 @@ export const SourceView = z.object({
   /** Sources per profile (PLAN §9.1): the profiles that leave this source out. */
   hiddenFor: z.array(z.string()).default([]),
   /** Provider accounts (PLAN §9.1): the extra logins to the same server, without their passwords. */
-  accounts: z.array(z.object({ id: z.string(), name: z.string(), username: z.string() })).default([]),
+  accounts: z.array(z.object({
+    id: z.string(), name: z.string(), username: z.string(),
+    /** Each login is its own subscription: its limit, expiry (epoch seconds) and status, from the companion's last check. */
+    providerConnections: z.number().nullable().default(null),
+    expiresAt: z.number().nullable().default(null),
+    status: z.string().nullable().default(null),
+  })).default([]),
 });
 export const EpgSourceView = z.object({
   id: z.string(),

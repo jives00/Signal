@@ -40,4 +40,12 @@ describe("expiry warnings", () => {
     expect(expiryWarnings([source(60)], [recording(70, { state: "DONE" })], NOW)).toEqual([]);
     expect(expiryWarnings([source(60, { id: "s" })], [recording(70)], NOW)).toEqual([]);
   });
+
+  it("warns about each extra login on its own date, even when the source's own login doesn't expire", () => {
+    const secs = (inDays: number) => Math.floor((NOW + inDays * DAY) / 1000);
+    const accounts = [{ name: "Den", expiresAt: secs(3) }, { name: "Loft", expiresAt: secs(90) }, { name: "Spare", expiresAt: null }];
+    expect(expiryWarnings([source(null, { accounts })], [recording(70)], NOW)).toEqual([`Main login Den expires in 3 days (${date(NOW + 3 * DAY)})`]);
+    expect(expiryWarnings([source(-1, { accounts: [{ name: "Den", expiresAt: secs(-1) }] })], [], NOW))
+      .toEqual([`Main expired ${date(NOW - DAY)}`, `Main login Den expired ${date(NOW - DAY)}`]);
+  });
 });

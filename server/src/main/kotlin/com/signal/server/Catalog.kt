@@ -39,6 +39,12 @@ data class CatalogSource(
 )
 
 /**
+ * One extra login's own account (PLAN §9.1 → Provider accounts): each is a separate subscription
+ * with its own expiry. From the last check, in memory only; null fields mean the provider didn't say.
+ */
+data class CatalogAccount(val providerConnections: Int? = null, val expiresAt: Long? = null, val status: String? = null)
+
+/**
  * The companion's own copy of every source's channel list (PLAN §5.2 → Jobs → Source refresh), for
  * the web admin. It's a user.db file whose `source` rows mirror the synced sources and whose
  * `stream` rows come from the app's own SourceRepository, so stream IDs and cleaned names match
@@ -115,15 +121,38 @@ class Catalog(dir: File, http: HttpClient, cipher: SecretCipher?) {
 
     fun sources(): List<CatalogSource> = states
 
+    /** Each source's extra logins, by account ID: checked when the source refreshes or its logins change. */
+    private val accountStates = java.util.concurrent.ConcurrentHashMap<String, Map<String, CatalogAccount>>()
+
+    fun accounts(sourceId: String): Map<String, CatalogAccount> = accountStates[sourceId].orEmpty()
+
+    /** Asks the provider about each extra login. A login that doesn't answer keeps what it last said. */
+    private suspend fun checkAccounts(id: String) {
+        val source = repo.byId(id)
+        if (source == null || source.kind != com.signal.model.SourceKind.XTREAM || !source.enabled || source.accounts.isEmpty()) {
+            accountStates.remove(id)
+            return
+        }
+        val old = accountStates[id].orEmpty()
+        accountStates[id] = source.accounts.associate { a ->
+            val was = old[a.id]
+            val info = accountInfo(source.withLogin(a))
+            a.id to (info?.let { CatalogAccount(it.maxConnections ?: was?.providerConnections, it.expiresAt ?: was?.expiresAt, it.status) } ?: was ?: CatalogAccount())
+        }
+    }
+
     /**
      * Makes the catalog's sources match [wanted] (the synced household sources): new ones and ones
      * whose login or URL changed are refreshed, removed ones dropped with their streams.
      */
     suspend fun match(wanted: List<Source>) = lock.withLock {
+        var toCheck = emptyList<String>()
         val toRefresh = withContext(io) {
             val have = repo.all().associateBy { it.id }
             val ids = wanted.map { it.id }.toSet()
-            have.keys.filter { it !in ids }.forEach { repo.delete(it) }
+            have.keys.filter { it !in ids }.forEach { repo.delete(it); accountStates.remove(it) }
+            // Logins added or changed, or never checked since the companion started.
+            toCheck = wanted.filter { w -> have[w.id]?.accounts != w.accounts || !accountStates.containsKey(w.id) }.map { it.id }
             wanted.filter { w ->
                 val h = have[w.id]
                 val changed = h == null || h.kind != w.kind || h.url != w.url || h.username != w.username || h.password != w.password ||
@@ -133,6 +162,7 @@ class Catalog(dir: File, http: HttpClient, cipher: SecretCipher?) {
             }.map { it.id }.also { if (have.keys.any { it !in ids }) reloadStreams() else reloadStates() }
         }
         toRefresh.forEach { refreshLocked(it) }
+        (toCheck - toRefresh.toSet()).forEach { checkAccounts(it) }
     }
 
     suspend fun refresh(id: String): Result<Int> = lock.withLock { refreshLocked(id) }
@@ -146,7 +176,10 @@ class Catalog(dir: File, http: HttpClient, cipher: SecretCipher?) {
     private suspend fun refreshLocked(id: String): Result<Int> {
         refreshing = id
         return try {
-            repo.refresh(id).also { withContext(io) { reloadStreams() } }
+            repo.refresh(id).also {
+                withContext(io) { reloadStreams() }
+                checkAccounts(id)
+            }
         } finally {
             refreshing = null
         }
