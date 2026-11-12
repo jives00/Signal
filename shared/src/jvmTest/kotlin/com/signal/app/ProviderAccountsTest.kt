@@ -103,6 +103,40 @@ class ProviderAccountsTest {
         assertNull(accounts.another(source, setOf("main", "a2")))
     }
 
+    @Test fun aDropMovesToAFreeLoginAndHoldsIt(): Unit = runBlocking {
+        inUse += mapOf("main" to 0, "second" to 0, "third" to 0)
+        assertEquals("main", accounts.pick(source).username)
+        setStatus(PlaybackState.Status.PLAYING)
+        // Another player joined "main" and the provider cut this one off.
+        inUse["main"] = 1
+        inUse["second"] = 1
+        assertEquals("a3", accounts.afterDrop(source, source.logins[0])?.id)
+        checked.clear()
+        assertEquals("third", accounts.pick(source).username)
+        assertTrue(checked.isEmpty())
+    }
+
+    @Test fun aDropStaysPutWhenNoOtherLoginIsFree(): Unit = runBlocking {
+        val lines = ArrayList<String>()
+        val logged = ProviderAccounts(settings, Log { _, m -> lines += m }, state, scope, check = { s ->
+            inUse[s.username]?.let { XtreamParser.AccountInfo(true, "Active", 1, it, null) }
+        }, now = { clock })
+        inUse += mapOf("main" to 1, "second" to 1)
+        assertNull(logged.afterDrop(source, source.logins[0]))
+        assertTrue(lines.any { "Strong 1/1, Bedroom 1/1, Den no answer" in it && "staying" in it }, lines.toString())
+        assertNull(accounts.afterDrop(source.copy(accounts = emptyList()), source.logins[0]))
+    }
+
+    @Test fun aPickLogsWhatTheProviderSaid(): Unit = runBlocking {
+        val lines = ArrayList<String>()
+        val logged = ProviderAccounts(settings, Log { _, m -> lines += m }, state, scope, check = { s ->
+            inUse[s.username]?.let { XtreamParser.AccountInfo(true, "Active", 1, it, null) }
+        }, now = { clock })
+        inUse += mapOf("main" to 0)
+        logged.pick(source)
+        assertEquals(listOf("Account: playing from Strong (Strong 0/1)"), lines)
+    }
+
     @Test fun aSourceWithOneLoginIsNeverChecked(): Unit = runBlocking {
         val single = source.copy(accounts = emptyList())
         assertEquals("main", accounts.pick(single).username)

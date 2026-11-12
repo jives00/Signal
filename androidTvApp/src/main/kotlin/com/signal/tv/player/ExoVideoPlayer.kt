@@ -79,6 +79,8 @@ class ExoVideoPlayer(private val context: Context) : VideoPlayer {
     private val main = Handler(Looper.getMainLooper())
     private val _state = MutableStateFlow(PlaybackState())
     override val state: StateFlow<PlaybackState> = _state.asStateFlow()
+    private val _providerEnded = kotlinx.coroutines.flow.MutableSharedFlow<PlayRequest>(extraBufferCapacity = 4)
+    override val providerEnded: kotlinx.coroutines.flow.Flow<PlayRequest> = _providerEnded
     private var request: PlayRequest? = null
     /** Automatic retries left for the current request (Settings → Playback → Stream retries). */
     private var retriesLeft = 0
@@ -616,7 +618,11 @@ class ExoVideoPlayer(private val context: Context) : VideoPlayer {
                         log("Player: the stream ended before playing; the provider isn't sending this channel")
                         _state.update { it.copy(status = PlaybackState.Status.ERROR, error = PlaybackError(PlaybackError.Kind.NOT_SENDING)) }
                     }
-                    else -> retry()
+                    else -> {
+                        val ended = request
+                        retry()
+                        ended?.let { _providerEnded.tryEmit(it) }
+                    }
                 }
                 return
             }

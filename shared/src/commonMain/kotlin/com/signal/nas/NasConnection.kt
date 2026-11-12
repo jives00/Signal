@@ -455,7 +455,10 @@ class NasConnection(
             // Refused (an incompatible version, no secret key on the NAS): say why in Settings.
             error(bodyAsText().take(200).ifBlank { "The NAS refused: $status" })
         }
-        return json.decodeFromString(serializer, bodyAsText())
+        // Off the main thread: a pull carrying a few thousand items took 3.3 s to decode on the
+        // Chromecast, mid-tune (1.2.0, Parents Living Room).
+        val text = bodyAsText()
+        return kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) { json.decodeFromString(serializer, text) }
     }
 
     /**

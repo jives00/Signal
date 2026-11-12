@@ -35,6 +35,13 @@ interface VideoPlayer {
     fun setPaused(paused: Boolean) {}
 
     /**
+     * Live only: the request whose stream the provider ended after it played, each time it happens. The
+     * player reconnects by itself; a source with several logins also re-checks which one to use (PLAN §9.1
+     * → Provider accounts), since a provider cutting a stream about once a minute is two players on one login.
+     */
+    val providerEnded: kotlinx.coroutines.flow.Flow<PlayRequest> get() = kotlinx.coroutines.flow.emptyFlow()
+
+    /**
      * Settings → Playback (PLAN §4.3.15 → 5). Languages, subtitles, tunneling and retries apply at once;
      * the decoder, passthrough and buffers from the next [play].
      */

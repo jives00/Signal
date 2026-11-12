@@ -81,6 +81,24 @@ class PlaybackController(
                 failover(playing)
             }
         }
+        // The provider ended the stream after it played (PLAN §9.1 → Provider accounts): another player
+        // likely joined this login, and the two would cut each other off about once a minute for as long
+        // as both play. The player is already reconnecting on the same login; move to a free one if
+        // there is one. If there isn't, it stays and keeps reconnecting: buffering beats stopping.
+        accounts?.let { accounts ->
+            scope.launch {
+                player.providerEnded.collect { ended ->
+                    if (ended.url != startedUrl || !ended.isLive) return@collect
+                    val playing = _current.value ?: return@collect
+                    val on = login ?: return@collect
+                    val source = sources.byId(playing.stream.sourceId)?.takeIf { it.logins.size > 1 } ?: return@collect
+                    val next = accounts.afterDrop(source, on) ?: return@collect
+                    // A zap or a new tune while the provider answered wins.
+                    if (_current.value?.key != playing.key || startedUrl != ended.url || starting?.isActive == true) return@collect
+                    starting = scope.launch { start(playing, next) }
+                }
+            }
+        }
         // Disabling, removing or hiding (on this profile) a source stops its channel wherever it's playing; otherwise a page
         // re-entering its preview would tune it again.
         scope.launch {
@@ -165,7 +183,7 @@ class PlaybackController(
         val remembered = channels.remembered(channel)
         _aspect.value = remembered?.aspect?.let { runCatching { AspectMode.valueOf(it) }.getOrNull() } ?: AspectMode.FIT
         startedUrl = url
-        log.info("Tune ${channel.displayName} (${CredentialMasking.forLog(url, source)})" + if (chosen.id != SourceAccount.MAIN) " through ${chosen.name}" else "")
+        log.info("Tune ${channel.displayName} (${CredentialMasking.forLog(url, source)})" + if (own.logins.size > 1) " through ${chosen.name}" else "")
         // The channel's remembered audio and subtitles beat the Playback settings (PLAN §4.3.3 → Remembered choices).
         player.play(
             PlayRequest(

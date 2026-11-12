@@ -79,16 +79,47 @@ class ProviderAccounts(
         if (logins.size < 2) return logins.first()
         held?.takeIf { it.first == source.id && stillHeld() }?.let { (_, id) -> logins.firstOrNull { it.id == id }?.let { return it } }
         val home = chosen(source)
-        val use = when (free(source, home)) {
-            false -> borrow(source, logins.filter { it.id != home.id }) ?: home.also {
-                log.info("Account: every login of ${source.name} is in use; playing from ${home.name}")
+        val homeInfo = check(source.withLogin(home))
+        val use = when (isFree(homeInfo)) {
+            false -> {
+                val others = ask(source, logins.filter { it.id != home.id })
+                val found = others.firstOrNull { isFree(it.second) == true }?.first
+                val counts = describe(listOf(home to homeInfo) + others)
+                if (found == null) log.info("Account: every login of ${source.name} is in use ($counts); playing from ${home.name}")
+                else log.info("Account: ${home.name} is in use; borrowing ${found.name} ($counts)")
+                found ?: home
             }
-            else -> home
+            // Logged so a later "provider ended the stream" can be traced to what the provider said here.
+            else -> home.also { log.info("Account: playing from ${home.name} (${describe(listOf(home to homeInfo))})") }
         }
-        if (use.id != home.id) log.info("Account: ${home.name} is in use; borrowing ${use.name}")
         held = source.id to use.id
         usedAt = now()
         return use
+    }
+
+    /**
+     * The provider ended the stream playing through [current] after it had played: usually another player
+     * joined the same login. A login with a free stream to move to, or null to stay on [current] (the
+     * player reconnects there by itself, and buffering beats stopping). Every login is asked, and logged.
+     */
+    suspend fun afterDrop(source: Source, current: SourceAccount): SourceAccount? {
+        if (source.logins.size < 2) return null
+        val answers = ask(source, source.logins)
+        val counts = describe(answers)
+        val found = answers.firstOrNull { it.first.id != current.id && isFree(it.second) == true }?.first
+        if (found == null) {
+            log.info("Account: the provider ended the stream on ${current.name}; no other login is free ($counts), staying")
+            return null
+        }
+        log.info("Account: the provider ended the stream on ${current.name}; moving to ${found.name} ($counts)")
+        held = source.id to found.id
+        usedAt = now()
+        return found
+    }
+
+    /** Each of [logins] with the provider's answer for it, asked all at once. */
+    private suspend fun ask(source: Source, logins: List<SourceAccount>): List<Pair<SourceAccount, XtreamParser.AccountInfo?>> = coroutineScope {
+        logins.map { async { it to check(source.withLogin(it)) } }.awaitAll()
     }
 
     /**
@@ -120,6 +151,16 @@ class ProviderAccounts(
             Json.parseToJsonElement(raw ?: return emptyMap()).jsonObject
                 .mapNotNull { (k, v) -> (v as? JsonPrimitive)?.contentOrNull?.let { k to it } }.toMap()
         }.getOrDefault(emptyMap())
+
+        /** For the log: "Parents 1/1, Parents 2 0/1", with "no answer" or "not signed in" where it couldn't say. */
+        fun describe(answers: List<Pair<SourceAccount, XtreamParser.AccountInfo?>>): String = answers.joinToString { (login, info) ->
+            val counts = when {
+                info == null -> "no answer"
+                !info.authenticated -> "not signed in"
+                else -> "${info.activeConnections ?: "?"}/${info.maxConnections ?: "?"}"
+            }
+            "${login.name} $counts"
+        }
 
         /** True or false when the provider says; null when it can't tell (no answer, no counts). */
         fun isFree(info: XtreamParser.AccountInfo?): Boolean? {
