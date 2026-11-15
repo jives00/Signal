@@ -8,6 +8,18 @@ import Detail from "../Detail";
 import GuideCard from "./GuideCard";
 import SourceCards from "./SourceCards";
 
+/**
+ * The "channels without guide data" count dismissed on the dashboard, per profile, in this browser only.
+ * Storage can be missing or blocked, so a failure just means nothing is dismissed.
+ */
+const dismissedKey = (profile: string | null | undefined) => `signal.dashboard.unmappedDismissed.${profile ?? ""}`;
+function readDismissed(profile: string | null | undefined): number {
+  try { return Number(localStorage.getItem(dismissedKey(profile))) || 0; } catch { return 0; }
+}
+function writeDismissed(profile: string | null | undefined, count: number) {
+  try { localStorage.setItem(dismissedKey(profile), String(count)); } catch { /* not remembered */ }
+}
+
 /** "0.3.1" vs "0.3.0": a device on an older app version than the companion's (PLAN §4.3.18 → Devices). */
 export function older(version: string, than: string): boolean {
   const parse = (v: string) => v.split(/[.-]/).map((n) => Number.parseInt(n, 10) || 0);
@@ -73,14 +85,21 @@ export default function Dashboard({ status, failed }: { status: Status | null; f
     return () => clearInterval(timer);
   }, [profile]);
 
-  const attention: { text: string; to: string }[] = [];
+  const [dismissedUnmapped, setDismissedUnmapped] = useState(() => readDismissed(profile));
+  useEffect(() => setDismissedUnmapped(readDismissed(profile)), [profile]);
+
+  const attention: { text: string; to: string; dismiss?: () => void }[] = [];
   if (overview) {
     const unmapped = overview.coverage.total - overview.coverage.mapped;
+    const dismissUnmapped = () => { writeDismissed(profile, unmapped); setDismissedUnmapped(unmapped); };
     for (const text of expiryWarnings(overview.sources, recordings, Date.now())) attention.push({ text, to: "/sources" });
     if (overview.switchReview) attention.push({ text: `${overview.switchReview} channels to review in the provider switch`, to: "/switch" });
     if (overview.unmappedFavorites) attention.push({ text: `${overview.unmappedFavorites} favorites without guide data`, to: "/mapping" });
     if (overview.unavailableFavorites) attention.push({ text: `${overview.unavailableFavorites} favorites unavailable: their streams are gone`, to: "/favorites" });
-    if (unmapped && !overview.unmappedFavorites) attention.push({ text: `${unmapped.toLocaleString()} visible channels without guide data`, to: "/mapping" });
+    // Dismissible: it comes back only when more channels are without guide data than when it was dismissed.
+    if (unmapped && !overview.unmappedFavorites && unmapped > dismissedUnmapped) {
+      attention.push({ text: `${unmapped.toLocaleString()} visible channels without guide data`, to: "/mapping", dismiss: dismissUnmapped });
+    }
     for (const s of overview.sources) if (s.lastError) attention.push({ text: `${s.name}: ${s.lastError}`, to: "/sources" });
     for (const j of overview.failedJobs.slice(0, 3)) attention.push({ text: `${j.job === "guide_build" ? "Guide build" : j.job === "source_refresh" ? "Source refresh" : j.job} failed ${ago(j.startedAt)}`, to: "/jobs" });
   }
@@ -133,7 +152,12 @@ export default function Dashboard({ status, failed }: { status: Status | null; f
         <section className="section">
           <h2 className="section-title">Needs attention</h2>
           {attention.length === 0 ? <p className="detail">Nothing. Everything's working.</p> : (
-            <ul className="attention">{attention.map((a) => <li key={a.text}><Link to={a.to}>{a.text}</Link></li>)}</ul>
+            <ul className="attention">{attention.map((a) => (
+              <li key={a.text}>
+                <Link to={a.to}>{a.text}</Link>
+                {a.dismiss && <button className="link" onClick={a.dismiss}>Dismiss</button>}
+              </li>
+            ))}</ul>
           )}
         </section>
       )}

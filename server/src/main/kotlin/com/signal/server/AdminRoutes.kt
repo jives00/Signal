@@ -183,6 +183,16 @@ data class Overview(
 
 @Serializable data class Coverage(val mapped: Int, val total: Int)
 
+/**
+ * The dashboard's failed jobs (PLAN §4.3.18 → Needs attention): failures from the last week that no
+ * later run of the same job has succeeded since. A guide build that failed once and built fine every
+ * night after isn't something to look at.
+ */
+fun unresolvedFailures(jobs: List<JobRun>, now: Long): List<JobRun> {
+    val lastOk = jobs.filter { it.result == "ok" }.groupBy { it.job }.mapValues { (_, runs) -> runs.maxOf { it.startedAt } }
+    return jobs.filter { it.result == "failed" && it.startedAt > now - 7 * 24 * 60 * 60_000L && (lastOk[it.job] ?: Long.MIN_VALUE) < it.startedAt }
+}
+
 // ---- Routes -----------------------------------------------------------------------------------------
 
 private suspend fun RoutingCall.edit(block: suspend () -> EditResult) {
@@ -230,7 +240,7 @@ fun Route.adminPageRoutes(companion: Companion) {
             val view = channels.view(call.profile())
             val (mapped, total) = channels.coverage(call.profile())
             val favs = channels.rowsFor(view, view.favorites.entries.sortedBy { it.value }.map { it.key }, now())
-            val failed = companion.store?.jobs(50).orEmpty().filter { it.result == "failed" && it.startedAt > now() - 7 * 24 * 60 * 60_000L }
+            val failed = unresolvedFailures(companion.store?.jobs(50).orEmpty(), now())
             Overview(sourceViews(companion, view), Coverage(mapped, total), favs.count { !it.unavailable && it.guide == null }, favs.count { it.unavailable }, failed,
                 companion.devices?.all().orEmpty(), companion.version, switch.pending(call.profile()))
         }
