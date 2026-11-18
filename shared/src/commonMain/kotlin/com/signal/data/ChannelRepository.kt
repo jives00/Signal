@@ -12,10 +12,12 @@ import com.signal.model.ChannelSort
 import com.signal.model.GroupSort
 import com.signal.model.ProviderStream
 import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.merge
 import kotlinx.coroutines.withContext
@@ -184,7 +186,9 @@ class ChannelRepository(
                 ChannelSort.A_Z -> channels.sortedBy { it.displayName.lowercase() }
             }
         }
-    }
+    // Event channels' names are parsed per row (EventChannels → PpvNames), seconds for a big PPV group on
+    // a Google TV; collected from a screen, that ran on the main thread and froze the remote (1.2.1).
+    }.flowOn(Dispatchers.Default)
 
     suspend fun channelsNow(group: ChannelGroup): List<Channel> = channels(group).first()
 

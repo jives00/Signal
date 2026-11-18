@@ -2,6 +2,8 @@ package com.signal.guide
 
 import com.signal.parse.XmltvParser
 import io.ktor.client.HttpClient
+import io.ktor.client.plugins.HttpTimeoutConfig
+import io.ktor.client.plugins.timeout
 import io.ktor.client.request.header
 import io.ktor.client.request.prepareGet
 import io.ktor.client.statement.bodyAsChannel
@@ -49,7 +51,15 @@ internal actual suspend fun <T> readXmltv(
 
 internal actual suspend fun downloadGunzipped(http: HttpClient, url: String, headers: Map<String, String>, outPath: String, sha256: String) {
     val digest = java.security.MessageDigest.getInstance("SHA-256")
-    http.prepareGet(url) { headers.forEach { (k, v) -> header(k, v) } }.execute { response ->
+    http.prepareGet(url) {
+        headers.forEach { (k, v) -> header(k, v) }
+        // The client's 2-minute request limit cut off the ~800k-program guide over Tailscale every night
+        // (Parents, 1.2.1); the caller's withTimeout bounds the whole download, a stalled socket fails here.
+        timeout {
+            requestTimeoutMillis = HttpTimeoutConfig.INFINITE_TIMEOUT_MS
+            socketTimeoutMillis = 60_000
+        }
+    }.execute { response ->
         if (!response.status.isSuccess()) error("HTTP ${response.status.value}")
         val raw = java.security.DigestInputStream(BufferedInputStream(response.bodyAsChannel().toInputStream(), 64 * 1024), digest)
         raw.use {
