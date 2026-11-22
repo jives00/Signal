@@ -326,6 +326,30 @@ class ExoVideoPlayer(private val context: Context) : VideoPlayer {
             }
         }
 
+        /**
+         * A live stall where the provider sends nothing at all: reconnect after [SILENT_RECONNECT_MS]
+         * rather than waiting out the read timeout (20 s by default). The provider can stop sending
+         * without closing the connection, and a new one plays at once (Fox 32 froze 19.5 s on the
+         * Downstairs Shield, 1.2.2, with 5.4 Mbps arriving just before). A slow network still sends
+         * something, so it keeps buffering as before.
+         */
+        private var quietBytes = 0L
+        private var quietSince = 0L
+        private val watchdog = object : Runnable {
+            override fun run() {
+                if (stallStartedAt == 0L) return
+                val t = now()
+                val b = bytesIn.get()
+                if (b != quietBytes) { quietBytes = b; quietSince = t }
+                else if (t - quietSince >= SILENT_RECONNECT_MS) {
+                    log("Stall: nothing from the provider for ${seconds(t - quietSince)}, reconnecting (${network()})")
+                    request?.let(::start)
+                    return
+                }
+                main.postDelayed(this, WATCHDOG_MS)
+            }
+        }
+
         private fun now() = android.os.SystemClock.elapsedRealtime()
 
         fun begin(request: PlayRequest) {
@@ -339,6 +363,7 @@ class ExoVideoPlayer(private val context: Context) : VideoPlayer {
         /** The summary of the play that's ending, if it played at all. */
         fun end() {
             main.removeCallbacks(sampler)
+            main.removeCallbacks(watchdog)
             samples.clear()
             val t = now()
             if (stallStartedAt != 0L) stalledMs += t - stallStartedAt
@@ -361,6 +386,7 @@ class ExoVideoPlayer(private val context: Context) : VideoPlayer {
                         stalledMs += ms
                         log("Stall: resumed after ${seconds(ms)}, download during it ${mbps(bytesIn.get() - bytesAtStall, ms)}")
                         stallStartedAt = 0L
+                        main.removeCallbacks(watchdog)
                     }
                     if (playingSince == 0L) playingSince = t
                 }
@@ -373,6 +399,11 @@ class ExoVideoPlayer(private val context: Context) : VideoPlayer {
                     stallStartedAt = t
                     bytesAtStall = bytesIn.get()
                     log("Stall: buffering ${seconds(playedMs)} into ${label}, download ${rate(10_000)} over 10 s, ${rate(60_000)} over 60 s (${network()})")
+                    if (live) {
+                        quietBytes = bytesAtStall
+                        quietSince = t
+                        main.postDelayed(watchdog, WATCHDOG_MS)
+                    }
                 }
                 Player.STATE_ENDED -> if (live) {
                     if (playingSince != 0L) { playedMs += t - playingSince; playingSince = 0L }
@@ -727,6 +758,9 @@ class ExoVideoPlayer(private val context: Context) : VideoPlayer {
         private const val SAMPLE_MS = 5_000L
         private const val SAMPLES = 13
         private const val SEEK_GRACE_MS = 2_000L
+        /** A live stall with no bytes at all for this long reconnects ([StallLog]'s watchdog). */
+        private const val SILENT_RECONNECT_MS = 6_000L
+        private const val WATCHDOG_MS = 1_000L
 
         /** The captions [mediaSource] looks for in every live and on-demand stream. */
         val EMBEDDED_CAPTIONS: List<Format> = listOf(

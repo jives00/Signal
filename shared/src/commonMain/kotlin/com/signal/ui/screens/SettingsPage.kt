@@ -161,7 +161,10 @@ private fun SourcesSection(app: AppController, onAdd: () -> Unit, onEdit: (Sourc
     LazyColumn(Modifier.width(1100.dp)) {
         item { SectionTitle("Sources") }
         items(sources, key = { it.id }) { s ->
-            val count by produceState(0L, s.lastRefreshedAt) { value = app.db.streamQueries.countForSource(s.id).executeAsOne() }
+            // On user.db's thread: counting a 57k-channel source held the main thread 1.4 s on the Shield (1.2.2).
+            val count by produceState(0L, s.lastRefreshedAt) {
+                value = kotlinx.coroutines.withContext(app.platform.io) { app.db.streamQueries.countForSource(s.id).executeAsOne() }
+            }
             val detail = when {
                 app.refreshing == s.id -> "Refreshing…"
                 s.lastError != null -> "Error: ${s.lastError}"
